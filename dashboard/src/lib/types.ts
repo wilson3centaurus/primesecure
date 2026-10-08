@@ -31,11 +31,27 @@ export type Device = {
   last_seen_at: string | null;
   last_ip: string | null;
   enrolled_at: string | null;
+  installed_apps: InstalledApp[] | null;
+  apps_reported_at: string | null;
   status_message: string | null;
   status_changed_at: string | null;
   status_changed_by: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type InstalledApp = { package: string; label: string; version: string | null; system: boolean };
+
+export type App = {
+  id: string;
+  school_id: string;
+  name: string;
+  storage_path: string;
+  size: number | null;
+  package_name: string | null;
+  version_name: string | null;
+  created_by: string | null;
+  created_at: string;
 };
 
 export type Policy = {

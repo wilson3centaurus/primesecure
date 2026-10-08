@@ -65,10 +65,16 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
             val store = AgentStore(context)
             try {
                 DeviceInfo.grantOwnPermissions(context)
-                val response = SupabaseApi(store).rpc(
-                    "device_check_in",
-                    JSONObject().put("p_info", DeviceInfo.collect(context)),
-                )
+                val info = DeviceInfo.collect(context)
+                val apps = runCatching { DeviceInfo.installedApps(context) }.getOrNull()
+                val appsHash = apps?.toString()?.hashCode() ?: 0
+                if (apps != null && appsHash != store.reportedAppsHash) info.put("apps", apps)
+                val response = SupabaseApi(store).rpc("device_check_in", JSONObject().put("p_info", info))
+                store.reportedAppsHash = when {
+                    info.has("apps") -> appsHash
+                    !response.optBoolean("apps_known", true) -> 0 // server lost it; resend next time
+                    else -> store.reportedAppsHash
+                }
                 val status = response.optString("status")
                 store.lastStatus = status
                 store.lastStatusMessage = response.stringOrNull("status_message")

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { InstallOnDeviceForm, RemoveAppButton } from "@/components/app-forms";
 import { Battery, OnlineDot, StatusBadge } from "@/components/badges";
 import { CommandHistory } from "@/components/command-history";
 import { MessageForm } from "@/components/message-form";
@@ -9,7 +10,7 @@ import { canManage, requireStaff } from "@/lib/auth";
 import { dateTime, deviceLabel } from "@/lib/format";
 import { getPolicy } from "@/lib/policy";
 import { createClient } from "@/lib/supabase/server";
-import type { Command, Device } from "@/lib/types";
+import type { App, Command, Device } from "@/lib/types";
 import { DeleteDeviceForm, IssueTokenForm, StudentForm } from "./forms";
 import { StateControls } from "./state-controls";
 
@@ -32,7 +33,13 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
   if (!data) notFound();
   const d = data as Device;
   const manager = canManage(staff, d.school_id);
-  const [ownPolicy, commands] = await Promise.all([getPolicy(d.school_id, d.id), recentCommands(d.id)]);
+  const [ownPolicy, commands, { data: library }] = await Promise.all([
+    getPolicy(d.school_id, d.id),
+    recentCommands(d.id),
+    supabase.from("apps").select("*").eq("school_id", d.school_id).order("name"),
+  ]);
+  const installed = [...(d.installed_apps ?? [])].sort((a, b) => Number(a.system) - Number(b.system) || a.label.localeCompare(b.label));
+  const enrolled = d.status !== "pending" && d.status !== "retired";
   const tokenValid = d.enroll_token && d.enroll_token_expires_at && new Date(d.enroll_token_expires_at) > new Date();
 
   return (
@@ -60,6 +67,26 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
             <Row label="Last check-in">{dateTime(d.last_seen_at)}</Row>
             <Row label="Enrolled">{dateTime(d.enrolled_at)}</Row>
           </dl>
+
+          <h2 className="mt-6 mb-2 font-semibold">Apps</h2>
+          {manager && enrolled && <div className="mb-3"><InstallOnDeviceForm deviceId={d.id} apps={(library ?? []) as App[]} /></div>}
+          {installed.length === 0 ? (
+            <p className="text-sm text-slate-500">{enrolled ? "Reported at the next check-in." : "—"}</p>
+          ) : (
+            <ul className="max-h-80 divide-y divide-slate-100 overflow-y-auto text-sm">
+              {installed.map((a) => (
+                <li key={a.package} className="flex items-center justify-between gap-3 py-1.5">
+                  <div className="min-w-0">
+                    <div className="truncate">{a.label}{a.system && <span className="ml-2 text-xs text-slate-400">system</span>}</div>
+                    <div className="truncate font-mono text-xs text-slate-500">{a.package}{a.version && ` · ${a.version}`}</div>
+                  </div>
+                  {manager && enrolled && !a.system && a.package !== "com.robokorda.primesecure" && (
+                    <RemoveAppButton deviceId={d.id} pkg={a.package} label={a.label} />
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
 
           <h2 className="mt-6 mb-2 font-semibold">Recent commands</h2>
           <CommandHistory commands={commands} canCancel={manager} />

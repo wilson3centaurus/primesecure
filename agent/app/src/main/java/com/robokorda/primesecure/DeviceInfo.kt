@@ -6,9 +6,12 @@ import android.app.admin.DevicePolicyManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import android.os.BatteryManager
 import android.os.Build
 import android.provider.Settings
+import org.json.JSONArray
 import org.json.JSONObject
 
 object DeviceInfo {
@@ -29,6 +32,27 @@ object DeviceInfo {
                 )
             }
         }
+    }
+
+    /** Launchable and user-installed apps, sorted, for the dashboard's app list. */
+    fun installedApps(context: Context): JSONArray {
+        val pm = context.packageManager
+        val launchable = pm.queryIntentActivities(
+            Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), PackageManager.MATCH_DISABLED_COMPONENTS,
+        ).map { it.activityInfo.packageName }.toSet()
+        @Suppress("DEPRECATION")
+        val packages = pm.getInstalledPackages(PackageManager.MATCH_UNINSTALLED_PACKAGES)
+        val apps = packages.mapNotNull { info ->
+            val app = info.applicationInfo ?: return@mapNotNull null
+            val system = app.flags and ApplicationInfo.FLAG_SYSTEM != 0
+            if (system && info.packageName !in launchable) return@mapNotNull null
+            JSONObject()
+                .put("package", info.packageName)
+                .put("label", app.loadLabel(pm).toString())
+                .put("version", info.versionName ?: JSONObject.NULL)
+                .put("system", system)
+        }.sortedBy { it.getString("package") }
+        return JSONArray(apps)
     }
 
     @SuppressLint("HardwareIds", "MissingPermission")

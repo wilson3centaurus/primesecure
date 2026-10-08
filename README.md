@@ -110,6 +110,9 @@ adb shell dpm remove-active-admin com.robokorda.primesecure/.AdminReceiver
 - [ ] **Lock device** with a message → full-screen lock; Home/Recents don't escape; reboot → still locked. **Unlock** → back to normal.
 - [ ] **Suspend** → only allowed apps (from the policy) remain; **End suspension** → apps come back.
 - [ ] The agent keeps a "managed by your school" notification; Realtime reconnects after Wi-Fi drops (watch a message arrive).
+- [ ] **Apps**: upload an APK → device page → **Install** → installs with no prompt; it appears in the device's app list.
+- [ ] With **Block app installs** on, the dashboard install still works; installing an APK from Files does not.
+- [ ] Device page → app list → **Remove** a user app → uninstalled silently.
 - [ ] **Retire** (debug device you can re-provision) → restrictions lifted, Device Owner released.
 
 ## Notes for later steps
@@ -118,7 +121,9 @@ adb shell dpm remove-active-admin com.robokorda.primesecure/.AdminReceiver
   grant it to itself; provisioning will add
   `adb shell appops set com.robokorda.primesecure MANAGE_EXTERNAL_STORAGE allow`.
 - `DISALLOW_INSTALL_APPS` also blocks the Device Owner's own silent installs, so `block_installs`
-  currently blocks unknown sources only; Play Store can be hidden via `hidden_apps`
-  (`com.android.vending`). Install commands (step 4) will lift restrictions around their own install.
+  blocks unknown sources only; Play Store can be hidden via `hidden_apps`
+  (`com.android.vending`). `install_apk` lifts the unknown-sources restriction for its own session.
+- Self-hosted Supabase storage limits uploads to 50 MB by default. For bigger APKs raise
+  `FILE_SIZE_LIMIT` in the storage service's environment (`docker/.env` / compose) and restart it.
 - The release signing key (step 7) is created once and must be backed up: losing it means
   re-provisioning every device.

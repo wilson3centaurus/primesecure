@@ -23,6 +23,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
 
         <nav className="flex flex-row flex-wrap gap-1 md:flex-col">
           <NavLink href="/devices">Devices</NavLink>
+          <NavLink href="/apps">Apps</NavLink>
           <NavLink href="/policy">School policy</NavLink>
           <NavLink href="/staff">Staff</NavLink>
           {staff.role === "super_admin" && <NavLink href="/schools">Schools</NavLink>}

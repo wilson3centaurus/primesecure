@@ -57,6 +57,11 @@ class AgentStore(context: Context) {
         get() = prefs.getString("last_status_message", null)
         set(value) = prefs.edit().putString("last_status_message", value).apply()
 
+    /** Hash of the app list last accepted by the server, so it is only re-sent when it changes. */
+    var reportedAppsHash: Int
+        get() = prefs.getInt("reported_apps_hash", 0)
+        set(value) = prefs.edit().putInt("reported_apps_hash", value).apply()
+
     var lastError: String?
         get() = prefs.getString("last_error", null)
         set(value) = prefs.edit().putString("last_error", value).apply()

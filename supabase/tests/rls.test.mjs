@@ -290,6 +290,28 @@ test("status changes are stamped and the lock message reaches the device", async
   await db.query(`update devices set status = 'active', status_message = null where id = $1`, [ids.deviceA]);
 });
 
+test("app library is per school and admin-managed", async () => {
+  const path = `${ids.schoolA}/x.apk`;
+  await as(ids.adminA, `insert into apps (school_id, name, storage_path) values ($1, 'Kolibri', $2)`, [ids.schoolA, path]);
+  await rejects(as(ids.teacherA, `insert into apps (school_id, name, storage_path) values ($1, 'X', $2)`, [ids.schoolA, path]));
+  await rejects(as(ids.adminB, `insert into apps (school_id, name, storage_path) values ($1, 'X', $2)`, [ids.schoolA, path]));
+  // The object path must live under the row's own school.
+  await assert.rejects(as(ids.adminA, `insert into apps (school_id, name, storage_path) values ($1, 'X', $2)`, [ids.schoolA, `${ids.schoolB}/x.apk`]), /check constraint/);
+  assert.equal((await as(ids.teacherA, `select * from apps`)).length, 1);
+  assert.equal((await as(ids.adminB, `select * from apps`)).length, 0);
+});
+
+test("check-in stores the reported app list only when sent", async () => {
+  const apps = [{ package: "org.learningequality.Kolibri", label: "Kolibri", version: "0.17", system: false }];
+  const [{ r }] = await as(ids.devA, `select device_check_in($1) as r`, [JSON.stringify({ apps })]);
+  assert.equal(r.apps_known, true);
+  await as(ids.devA, `select device_check_in('{}')`);
+  const [row] = (await db.query(`select installed_apps, apps_reported_at from devices where id = $1`, [ids.deviceA])).rows;
+  assert.deepEqual(row.installed_apps, apps);
+  assert.ok(row.apps_reported_at);
+  await rejects(as(ids.adminA, `update devices set installed_apps = '[]' where id = $1`, [ids.deviceA]));
+});
+
 test("storage objects are scoped by the school id path prefix", async () => {
   await db.query(
     `insert into storage.objects (bucket_id, name) values ('apks', $1), ('apks', $2), ('apks', 'junk/no-school.apk')`,

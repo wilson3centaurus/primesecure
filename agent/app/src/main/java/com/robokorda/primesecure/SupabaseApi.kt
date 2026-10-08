@@ -7,6 +7,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 class ApiException(val code: Int, message: String) : Exception(message)
@@ -31,6 +32,23 @@ class SupabaseApi(private val store: AgentStore) {
             // Token revoked or clock skew: drop it and sign in again once.
             store.accessToken = null
             post("/rest/v1/rpc/$name", args, bearer = accessToken())
+        }
+    }
+
+    /** Downloads a file (e.g. a storage object) as the device account into [target]. */
+    suspend fun download(path: String, target: File) = withContext(Dispatchers.IO) {
+        val base = store.serverUrl
+        if (base.isBlank()) throw ApiException(0, "No server URL configured")
+        val request = Request.Builder()
+            .url(base.trimEnd('/') + path)
+            .header("apikey", store.anonKey)
+            .header("Authorization", "Bearer ${accessToken()}")
+            .get()
+            .build()
+        downloadHttp.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw ApiException(response.code, errorMessage(response.code, response.body?.string().orEmpty()))
+            val body = response.body ?: throw ApiException(response.code, "empty body")
+            target.outputStream().use { out -> body.byteStream().copyTo(out) }
         }
     }
 
@@ -94,6 +112,12 @@ class SupabaseApi(private val store: AgentStore) {
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .callTimeout(60, TimeUnit.SECONDS)
+            .build()
+
+        /** APKs and files can be large on school Wi-Fi: no overall call deadline. */
+        private val downloadHttp: OkHttpClient = http.newBuilder()
+            .callTimeout(0, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
             .build()
     }
 }

@@ -43,6 +43,8 @@ class CommandRunner(private val context: Context, private val store: AgentStore)
 
     private suspend fun execute(id: String, type: String, payload: JSONObject): JSONObject = when (type) {
         "message" -> showMessage(id, payload)
+        "install_apk" -> AppInstaller(context, store).install(id, payload)
+        "remove_apk" -> AppInstaller(context, store).uninstall(payload)
         else -> throw UnsupportedCommand(type)
     }
 
