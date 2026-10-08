@@ -5,9 +5,9 @@ Self-hosted MDM for PrimeOS (Android 11) student Primebooks.
 | Path | What |
 | --- | --- |
 | `agent/` | Kotlin Device Owner agent (`com.robokorda.primesecure`) |
-| `dashboard/` | Next.js dashboard *(step 3 — not started)* |
+| `dashboard/` | Next.js dashboard (Vercel) — see [dashboard/README.md](dashboard/README.md) |
 | `supabase/` | Migrations, edge functions, and DB tests for the self-hosted Supabase on Contabo |
-| `.github/workflows/` | CI: debug APK build (signed release workflow comes in step 7) |
+| `.github/workflows/` | CI: debug APK build, dashboard lint + build (signed release workflow comes in step 7) |
 
 Tenancy: RoboKorda (`super_admin`) → schools (`school_admin`, `teacher`) → devices. Isolation is
 enforced in Postgres RLS on `school_id`; see `supabase/migrations/20261008000002_rls.sql`.
@@ -16,7 +16,7 @@ enforced in Postgres RLS on `school_id`; see `supabase/migrations/20261008000002
 
 1. ✅ Supabase schema + RLS + auth — `supabase/`, tested with `cd supabase/tests && npm test`
 2. 🧪 Agent enroll + check-in + policy apply — **needs testing on a real Primebook**
-3. ⬜ Dashboard device list + detail
+3. 🧪 Dashboard: login, schools, staff, devices + enroll tokens, school and device policies
 4. ⬜ Command queue end-to-end (message first)
 5. ⬜ Location
 6. ⬜ File push + browser
