@@ -50,15 +50,17 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 .setConstraints(online)
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                 .build()
-            WorkManager.getInstance(context).enqueueUniqueWork(NOW, ExistingWorkPolicy.REPLACE, request)
+            // Append so a check-in triggered mid-run still happens after the current one.
+            WorkManager.getInstance(context).enqueueUniqueWork(NOW, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
         }
 
         fun cancel(context: Context) {
+            AgentService.stop(context)
             WorkManager.getInstance(context).cancelUniqueWork(PERIODIC)
             WorkManager.getInstance(context).cancelUniqueWork(NOW)
         }
 
-        /** One heartbeat: report device state, receive status + policy, apply it. */
+        /** One heartbeat: report device state, receive status + policy, apply it, run queued commands. */
         suspend fun checkIn(context: Context): JSONObject {
             val store = AgentStore(context)
             try {
@@ -67,11 +69,19 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                     "device_check_in",
                     JSONObject().put("p_info", DeviceInfo.collect(context)),
                 )
-                store.lastStatus = response.optString("status")
+                val status = response.optString("status")
+                store.lastStatus = status
+                store.lastStatusMessage = response.stringOrNull("status_message")
+                if (status == "retired") {
+                    DeviceState.apply(context, status) // forgets the enrollment; nothing more to do
+                    return response
+                }
                 store.lastPolicySummary = PolicyApplier(context, store)
-                    .apply(response.optJSONObject("policy") ?: JSONObject())
+                    .apply(response.optJSONObject("policy") ?: JSONObject(), suspended = status == "suspended")
+                DeviceState.apply(context, status)
                 store.lastCheckInAt = System.currentTimeMillis()
                 store.lastError = null
+                if (response.optInt("pending_commands", 0) > 0) CommandRunner(context, store).runPending()
                 return response
             } catch (e: Exception) {
                 store.lastError = "${e.javaClass.simpleName}: ${e.message}"
@@ -93,6 +103,7 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 password = result.getString("password"),
             )
             schedule(context)
+            AgentService.start(context)
             return checkIn(context)
         }
     }

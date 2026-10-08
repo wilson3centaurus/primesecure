@@ -17,7 +17,7 @@ enforced in Postgres RLS on `school_id`; see `supabase/migrations/20261008000002
 1. ✅ Supabase schema + RLS + auth — `supabase/`, tested with `cd supabase/tests && npm test`
 2. 🧪 Agent enroll + check-in + policy apply — **needs testing on a real Primebook**
 3. 🧪 Dashboard: login, schools, staff, devices + enroll tokens, school and device policies
-4. ⬜ Command queue end-to-end (message first)
+4. 🧪 Commands: messages (instant via Realtime), lock / suspend / retire as device states
 5. ⬜ Location
 6. ⬜ File push + browser
 7. ⬜ Self-update + signed release workflow
@@ -98,6 +98,19 @@ Run the queries in the Supabase SQL editor.
 adb shell dpm remove-active-admin com.robokorda.primesecure/.AdminReceiver
 ```
 (debug / `testOnly` builds only)
+
+### Step 3–4 test checklist (dashboard + one enrolled Primebook)
+
+- [ ] Sign in as the super_admin → **Schools**: add a school; the sidebar switcher selects it.
+- [ ] **Staff**: add a school admin; sign in as them in a private window → they only see their school.
+- [ ] **Devices → Add devices**: one line per student → each gets a token; enroll the Primebook with it → status turns **Active** and online without reloading.
+- [ ] **School policy**: upload a wallpaper, lock it, hide Settings → saved; the Primebook changes within seconds (Realtime) or at the next check-in.
+- [ ] Device page → **Message the student** → the message pops up on the Primebook; history shows **Done**.
+- [ ] Turn the Primebook's Wi-Fi off, send a message, turn it back on → it arrives on reconnect.
+- [ ] **Lock device** with a message → full-screen lock; Home/Recents don't escape; reboot → still locked. **Unlock** → back to normal.
+- [ ] **Suspend** → only allowed apps (from the policy) remain; **End suspension** → apps come back.
+- [ ] The agent keeps a "managed by your school" notification; Realtime reconnects after Wi-Fi drops (watch a message arrive).
+- [ ] **Retire** (debug device you can re-provision) → restrictions lifted, Device Owner released.
 
 ## Notes for later steps
 

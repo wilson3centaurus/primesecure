@@ -25,8 +25,11 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
     private val admin = AdminReceiver.component(context)
     private val pm = context.packageManager
 
-    /** Returns a short human-readable summary of the resulting state. */
-    suspend fun apply(policy: JSONObject): String {
+    /**
+     * Returns a short human-readable summary of the resulting state. While
+     * [suspended], only the policy's allowed apps stay usable (none if empty).
+     */
+    suspend fun apply(policy: JSONObject, suspended: Boolean = false): String {
         if (!AdminReceiver.isDeviceOwner(context)) return "Not Device Owner — policy not applied"
 
         val problems = mutableListOf<String>()
@@ -66,11 +69,13 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
             hiddenCount = applyAppVisibility(
                 hidden = policy.stringSet("hidden_apps"),
                 allowed = policy.stringSet("allowed_apps"),
-                hideSettings = hideSettings,
+                hideSettings = hideSettings || suspended,
+                allowListOnly = suspended,
             )
         }
 
         val summary = buildString {
+            if (suspended) append("SUSPENDED · ")
             append("Policy: ").append(policy.optString("scope", "none"))
             append(" · wallpaper ").append(if (wallpaperUrl != null) "set" else "unmanaged")
             if (lockWallpaper) append(" (locked)")
@@ -108,17 +113,22 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
 
     /**
      * Hidden = hidden_apps ∪ Settings (if hide_settings) ∪ (every launchable app
-     * outside allowed_apps, when that list is non-empty), minus apps the device
-     * can't function without. Returns how many apps we now hide.
+     * outside allowed_apps, when that list is non-empty or [allowListOnly]),
+     * minus apps the device can't function without. Returns how many apps we now hide.
      */
-    private fun applyAppVisibility(hidden: Set<String>, allowed: Set<String>, hideSettings: Boolean): Int {
+    private fun applyAppVisibility(
+        hidden: Set<String>,
+        allowed: Set<String>,
+        hideSettings: Boolean,
+        allowListOnly: Boolean = false,
+    ): Int {
         val previouslyHidden = store.hiddenByUs
         val protected = protectedPackages(hideSettings)
 
         val want = buildSet {
             addAll(hidden)
             if (hideSettings) addAll(SETTINGS_PACKAGES)
-            if (allowed.isNotEmpty()) {
+            if (allowed.isNotEmpty() || allowListOnly) {
                 // Apps we hid no longer show up as launchable, so include them as candidates.
                 (launchablePackages() + previouslyHidden).filterTo(this) { it !in allowed }
             }

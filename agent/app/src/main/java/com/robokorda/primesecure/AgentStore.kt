@@ -53,6 +53,10 @@ class AgentStore(context: Context) {
         get() = prefs.getString("last_status", null)
         set(value) = prefs.edit().putString("last_status", value).apply()
 
+    var lastStatusMessage: String?
+        get() = prefs.getString("last_status_message", null)
+        set(value) = prefs.edit().putString("last_status_message", value).apply()
+
     var lastError: String?
         get() = prefs.getString("last_error", null)
         set(value) = prefs.edit().putString("last_error", value).apply()

@@ -17,11 +17,17 @@ object DeviceInfo {
     fun grantOwnPermissions(context: Context) {
         if (!AdminReceiver.isDeviceOwner(context)) return
         val dpm = AdminReceiver.dpm(context)
-        runCatching {
-            dpm.setPermissionGrantState(
-                AdminReceiver.component(context), context.packageName,
-                Manifest.permission.READ_PHONE_STATE, DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED,
-            )
+        val permissions = buildList {
+            add(Manifest.permission.READ_PHONE_STATE)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        for (permission in permissions) {
+            runCatching {
+                dpm.setPermissionGrantState(
+                    AdminReceiver.component(context), context.packageName,
+                    permission, DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED,
+                )
+            }
         }
     }
 

@@ -240,6 +240,56 @@ test("device_ack_command only touches the device's own commands", async () => {
   await rejects(as(ids.devA, `select device_ack_command($1, 'failed')`, [cmd.id]), /already finished/);
 });
 
+test("device_fetch_commands delivers only the device's own unfinished commands, oldest first", async () => {
+  const insert = (device, type, minutesAgo) =>
+    db.query(
+      `insert into commands (device_id, type, payload, created_at)
+       values ($1, $2, '{"n":1}', now() - make_interval(mins => $3)) returning id`,
+      [device, type, minutesAgo],
+    ).then((r) => r.rows[0].id);
+  const newer = await insert(ids.deviceA, "message", 1);
+  const older = await insert(ids.deviceA, "locate", 5);
+  const done = await insert(ids.deviceA, "message", 10);
+  await db.query(`update commands set status = 'succeeded' where id = $1`, [done]);
+  const other = await insert(ids.deviceB, "message", 1);
+
+  const [{ r }] = await as(ids.devA, `select device_fetch_commands() as r`);
+  const fetched = r.commands.map((c) => c.id);
+  assert.ok(fetched.indexOf(older) < fetched.indexOf(newer), "oldest first");
+  assert.ok(!fetched.includes(done) && !fetched.includes(other));
+
+  const states = (await db.query(`select id, status, delivered_at from commands where id = any($1)`, [[older, newer, other]])).rows;
+  for (const row of states) {
+    if (row.id === other) assert.equal(row.status, "pending");
+    else assert.ok(row.status === "delivered" && row.delivered_at);
+  }
+
+  // Unfinished deliveries are handed out again until acked.
+  const [{ r: again }] = await as(ids.devA, `select device_fetch_commands() as r`);
+  assert.ok(again.commands.some((c) => c.id === older));
+
+  await rejects(as(ids.adminA, `select device_fetch_commands()`));
+  await rejects(as(null, `select device_fetch_commands()`));
+});
+
+test("status changes are stamped and the lock message reaches the device", async () => {
+  await as(ids.adminA, `update devices set status = 'locked', status_message = 'Bring it to the office' where id = $1`, [ids.deviceA]);
+  const [row] = await db.query(`select status_changed_at, status_changed_by from devices where id = $1`, [ids.deviceA]).then((r) => r.rows);
+  assert.ok(row.status_changed_at);
+  assert.equal(row.status_changed_by, ids.adminA);
+
+  const [{ r }] = await as(ids.devA, `select device_check_in('{}') as r`);
+  assert.equal(r.status, "locked");
+  assert.equal(r.status_message, "Bring it to the office");
+
+  // Teachers can't lock devices; staff can't forge the audit columns.
+  await as(ids.teacherA, `update devices set status = 'suspended' where id = $1`, [ids.deviceA]);
+  assert.equal((await db.query(`select status from devices where id = $1`, [ids.deviceA])).rows[0].status, "locked");
+  await rejects(as(ids.adminA, `update devices set status_changed_by = $1 where id = $2`, [ids.adminB, ids.deviceA]));
+
+  await db.query(`update devices set status = 'active', status_message = null where id = $1`, [ids.deviceA]);
+});
+
 test("storage objects are scoped by the school id path prefix", async () => {
   await db.query(
     `insert into storage.objects (bucket_id, name) values ('apks', $1), ('apks', $2), ('apks', 'junk/no-school.apk')`,

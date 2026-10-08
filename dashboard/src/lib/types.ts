@@ -31,6 +31,9 @@ export type Device = {
   last_seen_at: string | null;
   last_ip: string | null;
   enrolled_at: string | null;
+  status_message: string | null;
+  status_changed_at: string | null;
+  status_changed_by: string | null;
   created_at: string;
   updated_at: string;
 };

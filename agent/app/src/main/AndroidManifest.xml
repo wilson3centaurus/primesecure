@@ -7,6 +7,11 @@
     <uses-permission android:name="android.permission.SET_WALLPAPER" />
     <!-- Granted to ourselves as Device Owner; needed for Build.getSerial(). -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <!-- Realtime connection for instant commands (AgentService). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <!-- Package visibility (targetSdk 30+): enough to list launchable apps and find the home app. -->
     <queries>
@@ -37,6 +42,29 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".LockActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:lockTaskMode="if_whitelisted"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen" />
+
+        <activity
+            android:name=".MessageActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.DeviceDefault.Light.Dialog" />
+
+        <service
+            android:name=".AgentService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Device management: keeps the school's MDM connection open to receive commands" />
+        </service>
 
         <receiver
             android:name=".AdminReceiver"

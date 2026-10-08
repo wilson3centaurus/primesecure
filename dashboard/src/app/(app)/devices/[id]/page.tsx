@@ -2,13 +2,16 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Battery, OnlineDot, StatusBadge } from "@/components/badges";
+import { CommandHistory } from "@/components/command-history";
+import { MessageForm } from "@/components/message-form";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { canManage, requireStaff } from "@/lib/auth";
 import { dateTime, deviceLabel } from "@/lib/format";
 import { getPolicy } from "@/lib/policy";
 import { createClient } from "@/lib/supabase/server";
-import type { Device } from "@/lib/types";
+import type { Command, Device } from "@/lib/types";
 import { DeleteDeviceForm, IssueTokenForm, StudentForm } from "./forms";
+import { StateControls } from "./state-controls";
 
 export const metadata: Metadata = { title: "Device" };
 
@@ -29,12 +32,13 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
   if (!data) notFound();
   const d = data as Device;
   const manager = canManage(staff, d.school_id);
-  const ownPolicy = await getPolicy(d.school_id, d.id);
+  const [ownPolicy, commands] = await Promise.all([getPolicy(d.school_id, d.id), recentCommands(d.id)]);
   const tokenValid = d.enroll_token && d.enroll_token_expires_at && new Date(d.enroll_token_expires_at) > new Date();
 
   return (
     <>
       <RealtimeRefresh table="devices" filter={`id=eq.${d.id}`} />
+      <RealtimeRefresh table="commands" filter={`device_id=eq.${d.id}`} />
       <Link href="/devices" className="text-sm text-slate-500 hover:underline">← Devices</Link>
       <div className="mt-2 mb-6 flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-semibold">{deviceLabel(d)}</h1>
@@ -56,9 +60,27 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
             <Row label="Last check-in">{dateTime(d.last_seen_at)}</Row>
             <Row label="Enrolled">{dateTime(d.enrolled_at)}</Row>
           </dl>
+
+          <h2 className="mt-6 mb-2 font-semibold">Recent commands</h2>
+          <CommandHistory commands={commands} canCancel={manager} />
         </section>
 
         <div className="space-y-6">
+          {d.status !== "pending" && d.status !== "retired" && (
+            <section className="card p-4">
+              <h2 className="mb-3 font-semibold">Message the student</h2>
+              <MessageForm target={d.id} />
+            </section>
+          )}
+
+          {manager && (
+            <section className="card p-4">
+              <h2 className="mb-3 font-semibold">Lock, suspend, retire</h2>
+              <StateControls id={d.id} status={d.status} message={d.status_message} />
+              {d.status_changed_at && <p className="mt-3 text-xs text-slate-400">State last changed {dateTime(d.status_changed_at)}</p>}
+            </section>
+          )}
+
           <section className="card p-4">
             <h2 className="mb-3 font-semibold">Enrollment</h2>
             {tokenValid ? (
@@ -104,4 +126,27 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
       </div>
     </>
   );
+}
+
+async function recentCommands(deviceId: string) {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("commands")
+    .select("*")
+    .eq("device_id", deviceId)
+    .order("created_at", { ascending: false })
+    .limit(25);
+  const commands = (data ?? []) as Command[];
+
+  const senderIds = [...new Set(commands.map((c) => c.created_by).filter((v): v is string => !!v))];
+  const { data: people } = senderIds.length
+    ? await supabase.from("profiles").select("id, full_name").in("id", senderIds)
+    : { data: [] };
+  const names = new Map((people ?? []).map((p) => [p.id, p.full_name as string | null]));
+
+  return commands.map((c) => ({
+    ...c,
+    sender: (c.created_by && names.get(c.created_by)) || null,
+    when: dateTime(c.created_at),
+  }));
 }

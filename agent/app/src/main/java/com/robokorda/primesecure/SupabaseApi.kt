@@ -34,7 +34,8 @@ class SupabaseApi(private val store: AgentStore) {
         }
     }
 
-    private suspend fun accessToken(): String {
+    /** A valid access token for the device account, refreshing or signing in again as needed. */
+    suspend fun accessToken(): String {
         val current = store.accessToken
         if (current != null && System.currentTimeMillis() < store.accessExpiresAt - 60_000) return current
 

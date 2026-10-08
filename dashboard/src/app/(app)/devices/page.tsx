@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Battery, OnlineDot, StatusBadge } from "@/components/badges";
+import { MessageForm } from "@/components/message-form";
 import { PageHeader } from "@/components/page-header";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { canManage, getCurrentSchool, requireStaff } from "@/lib/auth";
@@ -38,7 +39,10 @@ export default async function DevicesPage({ searchParams }: PageProps<"/devices"
     <>
       <RealtimeRefresh table="devices" filter={`school_id=eq.${school.id}`} />
       <PageHeader title="Devices" description={`Primebooks enrolled at ${school.name}.`}>
-        {canManage(staff, school.id) && <AddDevicesForm />}
+        <div className="flex flex-wrap gap-2">
+          <MessageForm target="school" collapsible label="Message all devices" />
+          {canManage(staff, school.id) && <AddDevicesForm />}
+        </div>
       </PageHeader>
 
       <div className="mb-4 flex flex-wrap items-center gap-2">

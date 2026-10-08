@@ -91,3 +91,28 @@ export async function deleteDevice(_prev: FormState, formData: FormData): Promis
   revalidatePath("/devices");
   redirect("/devices");
 }
+
+const SETTABLE = ["active", "suspended", "locked", "retired"] as const;
+
+export async function setDeviceStatus(_prev: FormState, formData: FormData): Promise<FormState> {
+  const id = String(formData.get("id") ?? "");
+  const status = String(formData.get("status") ?? "") as (typeof SETTABLE)[number];
+  if (!SETTABLE.includes(status)) return { error: "Unknown state." };
+  const ctx = await deviceForManager(id);
+  if (!ctx) return { error: "Only school admins can change this." };
+
+  const { data: current } = await ctx.supabase.from("devices").select("status").eq("id", id).single();
+  if (current?.status === "retired") return { error: "This device is retired. Re-provision it to use it again." };
+  if (current?.status === "pending") return { error: "Enroll the device first." };
+
+  const message = String(formData.get("status_message") ?? "").trim().slice(0, 500) || null;
+  const { error } = await ctx.supabase
+    .from("devices")
+    .update({ status, status_message: status === "locked" ? message : null })
+    .eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath(`/devices/${id}`);
+  revalidatePath("/devices");
+  const done = { active: "Device is active again.", suspended: "Suspended.", locked: "Locked.", retired: "Retired." };
+  return { ok: `${done[status]} Online devices react within seconds; others when they next connect.` };
+}
