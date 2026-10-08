@@ -18,7 +18,7 @@ enforced in Postgres RLS on `school_id`; see `supabase/migrations/20261008000002
 2. 🧪 Agent enroll + check-in + policy apply — **needs testing on a real Primebook**
 3. 🧪 Dashboard: login, schools, staff, devices + enroll tokens, school and device policies
 4. 🧪 Commands: messages (instant via Realtime), lock / suspend / retire as device states
-5. ⬜ Location
+5. 🧪 Location: on-demand **Locate** (network location, IP fallback) with a map
 6. ⬜ File push + browser
 7. ⬜ Self-update + signed release workflow
 
@@ -113,6 +113,8 @@ adb shell dpm remove-active-admin com.robokorda.primesecure/.AdminReceiver
 - [ ] **Apps**: upload an APK → device page → **Install** → installs with no prompt; it appears in the device's app list.
 - [ ] With **Block app installs** on, the dashboard install still works; installing an APK from Files does not.
 - [ ] Device page → app list → **Remove** a user app → uninstalled silently.
+- [ ] Device page → **Locate now** → a map appears within a minute; the caption says whether it came from
+      Wi-Fi/network location or (approximate) the internet connection. Note which one PrimeOS gives.
 - [ ] **Retire** (debug device you can re-provision) → restrictions lifted, Device Owner released.
 
 ## Notes for later steps

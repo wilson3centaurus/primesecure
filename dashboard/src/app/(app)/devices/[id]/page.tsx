@@ -4,13 +4,14 @@ import { notFound } from "next/navigation";
 import { InstallOnDeviceForm, RemoveAppButton } from "@/components/app-forms";
 import { Battery, OnlineDot, StatusBadge } from "@/components/badges";
 import { CommandHistory } from "@/components/command-history";
+import { LocationPanel } from "@/components/location-panel";
 import { MessageForm } from "@/components/message-form";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { canManage, requireStaff } from "@/lib/auth";
 import { dateTime, deviceLabel } from "@/lib/format";
 import { getPolicy } from "@/lib/policy";
 import { createClient } from "@/lib/supabase/server";
-import type { App, Command, Device } from "@/lib/types";
+import type { App, Command, Device, DeviceLocation } from "@/lib/types";
 import { DeleteDeviceForm, IssueTokenForm, StudentForm } from "./forms";
 import { StateControls } from "./state-controls";
 
@@ -33,11 +34,13 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
   if (!data) notFound();
   const d = data as Device;
   const manager = canManage(staff, d.school_id);
-  const [ownPolicy, commands, { data: library }] = await Promise.all([
+  const [ownPolicy, commands, { data: library }, { data: locationRows }] = await Promise.all([
     getPolicy(d.school_id, d.id),
     recentCommands(d.id),
     supabase.from("apps").select("*").eq("school_id", d.school_id).order("name"),
+    supabase.from("locations").select("*").eq("device_id", d.id).order("created_at", { ascending: false }).limit(10),
   ]);
+  const locations = (locationRows ?? []) as DeviceLocation[];
   const installed = [...(d.installed_apps ?? [])].sort((a, b) => Number(a.system) - Number(b.system) || a.label.localeCompare(b.label));
   const enrolled = d.status !== "pending" && d.status !== "retired";
   const tokenValid = d.enroll_token && d.enroll_token_expires_at && new Date(d.enroll_token_expires_at) > new Date();
@@ -97,6 +100,14 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
             <section className="card p-4">
               <h2 className="mb-3 font-semibold">Message the student</h2>
               <MessageForm target={d.id} />
+            </section>
+          )}
+
+          {d.status !== "pending" && (
+            <section className="card p-4">
+              <h2 className="mb-3 font-semibold">Location</h2>
+              <LocationPanel deviceId={d.id} locations={locations} canLocate={manager && enrolled}
+                times={locations.map((l) => dateTime(l.created_at))} />
             </section>
           )}
 

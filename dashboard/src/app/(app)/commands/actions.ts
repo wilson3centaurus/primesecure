@@ -60,3 +60,16 @@ export async function cancelCommand(_prev: FormState, formData: FormData): Promi
   revalidatePath(`/devices/${cmd.device_id}`);
   return { ok: "Cancelled." };
 }
+
+export async function requestLocate(_prev: FormState, formData: FormData): Promise<FormState> {
+  const staff = await requireStaff();
+  const id = String(formData.get("device_id") ?? "");
+  const supabase = await createClient();
+  const { data: device } = await supabase.from("devices").select("id, school_id").eq("id", id).maybeSingle();
+  if (!device || !canManage(staff, device.school_id)) return { error: "Only school admins can locate devices." };
+
+  const { error } = await supabase.from("commands").insert({ device_id: id, type: "locate", created_by: staff.id });
+  if (error) return { error: error.message };
+  revalidatePath(`/devices/${id}`);
+  return { ok: "Asked the device for its location. Online devices answer within a minute." };
+}

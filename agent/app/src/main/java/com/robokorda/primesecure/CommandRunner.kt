@@ -45,6 +45,7 @@ class CommandRunner(private val context: Context, private val store: AgentStore)
         "message" -> showMessage(id, payload)
         "install_apk" -> AppInstaller(context, store).install(id, payload)
         "remove_apk" -> AppInstaller(context, store).uninstall(payload)
+        "locate" -> Locator(context, store).locate()
         else -> throw UnsupportedCommand(type)
     }
 

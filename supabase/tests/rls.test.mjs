@@ -312,6 +312,16 @@ test("check-in stores the reported app list only when sent", async () => {
   await rejects(as(ids.adminA, `update devices set installed_apps = '[]' where id = $1`, [ids.deviceA]));
 });
 
+test("devices report their own location; staff of the school read it", async () => {
+  await as(ids.devA, `select device_report_location(-17.83, 31.05, 1200, 'network')`);
+  const rows = await as(ids.teacherA, `select device_id, school_id, source from locations`);
+  assert.deepEqual(rows, [{ device_id: ids.deviceA, school_id: ids.schoolA, source: "network" }]);
+  assert.equal((await as(ids.adminB, `select * from locations`)).length, 0);
+  await rejects(as(ids.adminA, `select device_report_location(0, 0)`));
+  await rejects(as(ids.adminA, `insert into locations (device_id, lat, lng) values ($1, 0, 0)`, [ids.deviceA]));
+  await assert.rejects(as(ids.devA, `select device_report_location(0, 0, null, 'teleport')`), /check constraint/);
+});
+
 test("storage objects are scoped by the school id path prefix", async () => {
   await db.query(
     `insert into storage.objects (bucket_id, name) values ('apks', $1), ('apks', $2), ('apks', 'junk/no-school.apk')`,

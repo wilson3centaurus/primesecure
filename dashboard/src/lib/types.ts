@@ -87,5 +87,15 @@ export type Command = {
   executed_at: string | null;
 };
 
+export type DeviceLocation = {
+  id: number;
+  device_id: string;
+  lat: number;
+  lng: number;
+  accuracy: number | null;
+  source: "gps" | "network" | "fused" | "passive" | "ip" | null;
+  created_at: string;
+};
+
 // Shared result shape for form server actions.
 export type FormState = { error?: string; ok?: string } | undefined;

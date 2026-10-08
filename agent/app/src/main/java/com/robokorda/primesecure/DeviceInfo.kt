@@ -22,6 +22,10 @@ object DeviceInfo {
         val dpm = AdminReceiver.dpm(context)
         val permissions = buildList {
             add(Manifest.permission.READ_PHONE_STATE)
+            add(Manifest.permission.ACCESS_COARSE_LOCATION)
+            add(Manifest.permission.ACCESS_FINE_LOCATION)
+            // Location is read from the background service / worker.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) add(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
         }
         for (permission in permissions) {
