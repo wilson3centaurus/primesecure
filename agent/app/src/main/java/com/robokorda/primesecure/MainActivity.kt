@@ -169,6 +169,7 @@ class MainActivity : Activity() {
                     appendLine("adb shell dpm set-device-owner $packageName/.AdminReceiver")
                 }
             }
+            store.updateError?.let { appendLine().append("Agent update: ").append(it) }
             store.lastError?.let { appendLine().append("Last error: ").append(it) }
         }
         tokenInput.isEnabled = !store.isEnrolled

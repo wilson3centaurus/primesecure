@@ -24,6 +24,20 @@ android {
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${setting("primesecure.anonKey", "PRIMESECURE_ANON_KEY")}\"")
     }
 
+    // Release signing comes from the agent-release workflow (secrets) or a local keystore.
+    // Every device must keep receiving builds signed with this same key: back it up.
+    val keystore = System.getenv("AGENT_KEYSTORE_FILE")?.takeIf { it.isNotBlank() }
+    signingConfigs {
+        if (keystore != null) {
+            create("release") {
+                storeFile = file(keystore)
+                storePassword = System.getenv("AGENT_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("AGENT_KEY_ALIAS")
+                keyPassword = System.getenv("AGENT_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             // testOnly lets adb remove the Device Owner without a factory reset.
@@ -32,6 +46,7 @@ android {
         }
         release {
             isMinifyEnabled = false
+            if (keystore != null) signingConfig = signingConfigs.getByName("release")
             manifestPlaceholders["testOnly"] = "false"
             manifestPlaceholders["cleartext"] = "false"
         }

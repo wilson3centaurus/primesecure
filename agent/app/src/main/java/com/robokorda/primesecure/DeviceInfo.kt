@@ -75,6 +75,7 @@ object DeviceInfo {
             put("android_id", Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID))
             put("os_version", "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) ${Build.DISPLAY}")
             put("agent_version", BuildConfig.VERSION_NAME)
+            put("agent_version_code", BuildConfig.VERSION_CODE)
             if (level >= 0 && scale > 0) put("battery_level", (level * 100 / scale).coerceIn(0, 100))
             if (battery != null) put("battery_charging", plugged != 0)
         }

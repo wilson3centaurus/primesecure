@@ -339,6 +339,21 @@ test("list_files is an admin command", async () => {
   await rejects(as(ids.teacherA, `insert into commands (device_id, type) values ($1, 'list_files')`, [ids.deviceA]));
 });
 
+test("agent releases: super_admin publishes, devices are offered newer active builds", async () => {
+  await rejects(as(ids.adminA, `insert into agent_releases (version_code, version_name, storage_path) values (5, '0.5', 'x.apk')`));
+  await as(ids.super, `insert into agent_releases (version_code, version_name, storage_path) values (5, '0.5', 'a5.apk'), (7, '0.7', 'a7.apk')`);
+  await as(ids.super, `insert into agent_releases (version_code, version_name, storage_path, active) values (9, '0.9', 'a9.apk', false)`);
+
+  const offer = async (code) => (await as(ids.devA, `select device_check_in($1) as r`, [JSON.stringify({ agent_version_code: code })]))[0].r.agent_update;
+  assert.equal((await offer(3)).version_code, 7, "newest active release");
+  assert.equal(await offer(7), null, "already current");
+  assert.equal((await as(ids.devA, `select device_check_in('{}') as r`))[0].r.agent_update, null, "old agents that don't report a code get nothing");
+  assert.equal((await db.query(`select agent_version_code from devices where id = $1`, [ids.deviceA])).rows[0].agent_version_code, 7);
+
+  assert.equal((await as(ids.teacherA, `select * from agent_releases`)).length, 3);
+  assert.equal((await as(ids.devA, `select * from agent_releases`)).length, 0, "devices learn about releases only via check-in");
+});
+
 test("storage objects are scoped by the school id path prefix", async () => {
   await db.query(
     `insert into storage.objects (bucket_id, name) values ('apks', $1), ('apks', $2), ('apks', 'junk/no-school.apk')`,

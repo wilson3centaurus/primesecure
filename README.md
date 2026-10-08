@@ -7,7 +7,7 @@ Self-hosted MDM for PrimeOS (Android 11) student Primebooks.
 | `agent/` | Kotlin Device Owner agent (`com.robokorda.primesecure`) |
 | `dashboard/` | Next.js dashboard (Vercel) — see [dashboard/README.md](dashboard/README.md) |
 | `supabase/` | Migrations, edge functions, and DB tests for the self-hosted Supabase on Contabo |
-| `.github/workflows/` | CI: debug APK build, dashboard lint + build (signed release workflow comes in step 7) |
+| `.github/workflows/` | CI: debug APK, signed release APK (manual), dashboard lint + build |
 
 Tenancy: RoboKorda (`super_admin`) → schools (`school_admin`, `teacher`) → devices. Isolation is
 enforced in Postgres RLS on `school_id`; see `supabase/migrations/20261008000002_rls.sql`.
@@ -20,7 +20,7 @@ enforced in Postgres RLS on `school_id`; see `supabase/migrations/20261008000002
 4. 🧪 Commands: messages (instant via Realtime), lock / suspend / retire as device states
 5. 🧪 Location: on-demand **Locate** (network location, IP fallback) with a map
 6. 🧪 Files (push to one/all devices, browse, delete) + web filtering (Chrome managed config + School Browser)
-7. ⬜ Self-update + signed release workflow
+7. 🧪 Self-update + signed release workflow
 
 ## Backend
 
@@ -127,6 +127,33 @@ adb shell dpm remove-active-admin com.robokorda.primesecure/.AdminReceiver
 - [ ] **Only allow listed sites** with `wikipedia.org` → everything else blocked in both browsers.
 - [ ] **Retire** (debug device you can re-provision) → restrictions lifted, Device Owner released.
 
+## Releases and self-update
+
+Production Primebooks should be provisioned with a **release** APK: Android only accepts an update
+signed with the same key as the installed app, and debug builds are signed with whatever debug key
+the machine that built them has.
+
+One-time setup (keep the keystore and passwords somewhere safe and backed up: losing them means
+re-provisioning every device by hand):
+
+```bash
+keytool -genkeypair -v -keystore primesecure-release.jks -alias primesecure -keyalg RSA -keysize 4096 -validity 36500
+```
+```bash
+base64 -w0 primesecure-release.jks
+```
+
+Add repository secrets `AGENT_KEYSTORE_BASE64` (the base64 output), `AGENT_KEYSTORE_PASSWORD`,
+`AGENT_KEY_ALIAS` (`primesecure`) and `AGENT_KEY_PASSWORD`.
+
+Each release:
+
+1. Actions → **Agent (signed release APK)** → Run workflow with a version name (e.g. `1.0.0`).
+2. Download the artifact `primesecure-<version>-<code>.apk`.
+3. Dashboard → **Agent updates** (super_admin) → upload it; the version fields fill in from the file name.
+4. Devices download it at their next check-in, verify package, version code and SHA-256, and install
+   silently. **Pause** a release to stop the rollout; the Fleet box shows versions in use.
+
 ## Notes for later steps
 
 - `MANAGE_EXTERNAL_STORAGE` is an app-op, not a runtime permission, so Device Owner can't grant it
@@ -139,5 +166,3 @@ adb shell dpm remove-active-admin com.robokorda.primesecure/.AdminReceiver
   (`com.android.vending`). `install_apk` lifts the unknown-sources restriction for its own session.
 - Self-hosted Supabase storage limits uploads to 50 MB by default. For bigger APKs raise
   `FILE_SIZE_LIMIT` in the storage service's environment (`docker/.env` / compose) and restart it.
-- The release signing key (step 7) is created once and must be backed up: losing it means
-  re-provisioning every device.

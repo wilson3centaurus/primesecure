@@ -88,6 +88,8 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 store.lastCheckInAt = System.currentTimeMillis()
                 store.lastError = null
                 if (response.optInt("pending_commands", 0) > 0) CommandRunner(context, store).runPending()
+                // Last: a successful update replaces this process.
+                SelfUpdater.maybeUpdate(context, store, response.optJSONObject("agent_update"))
                 return response
             } catch (e: Exception) {
                 store.lastError = "${e.javaClass.simpleName}: ${e.message}"

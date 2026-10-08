@@ -26,31 +26,39 @@ class AppInstaller(private val context: Context, private val store: AgentStore) 
         val apk = File(context.cacheDir, "install-$commandId.apk")
         try {
             SupabaseApi(store).download("/storage/v1/object/apks/$path", apk)
-            @Suppress("DEPRECATION")
-            val info = pm.getPackageArchiveInfo(apk.path, 0) ?: throw IllegalArgumentException("not a valid APK")
+            val info = archiveInfo(apk)
             if (info.packageName == context.packageName) throw IllegalArgumentException("use the agent update instead")
-
-            val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
-            params.setAppPackageName(info.packageName)
-            params.setSize(apk.length())
-            val installer = pm.packageInstaller
-            val sessionId = installer.createSession(params)
-            withUnknownSourcesAllowed {
-                installer.openSession(sessionId).use { session ->
-                    apk.inputStream().use { input ->
-                        session.openWrite("base.apk", 0, apk.length()).use { output ->
-                            input.copyTo(output)
-                            session.fsync(output)
-                        }
-                    }
-                    awaitResult("install-$sessionId") { sender -> session.commit(sender) }
-                }
-            }
+            installFile(apk, info.packageName)
             return JSONObject()
                 .put("package", info.packageName)
                 .put("version", info.versionName ?: JSONObject.NULL)
         } finally {
             apk.delete()
+        }
+    }
+
+    fun archiveInfo(apk: File): android.content.pm.PackageInfo {
+        @Suppress("DEPRECATION")
+        return pm.getPackageArchiveInfo(apk.path, 0) ?: throw IllegalArgumentException("not a valid APK")
+    }
+
+    /** Installs (or updates) [apk] silently; suspends until PackageInstaller reports back. */
+    suspend fun installFile(apk: File, packageName: String) {
+        val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+        params.setAppPackageName(packageName)
+        params.setSize(apk.length())
+        val installer = pm.packageInstaller
+        val sessionId = installer.createSession(params)
+        withUnknownSourcesAllowed {
+            installer.openSession(sessionId).use { session ->
+                apk.inputStream().use { input ->
+                    session.openWrite("base.apk", 0, apk.length()).use { output ->
+                        input.copyTo(output)
+                        session.fsync(output)
+                    }
+                }
+                awaitResult("install-$sessionId") { sender -> session.commit(sender) }
+            }
         }
     }
 

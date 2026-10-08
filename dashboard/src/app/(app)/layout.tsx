@@ -28,6 +28,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
           <NavLink href="/policy">School policy</NavLink>
           <NavLink href="/staff">Staff</NavLink>
           {staff.role === "super_admin" && <NavLink href="/schools">Schools</NavLink>}
+          {staff.role === "super_admin" && <NavLink href="/agent">Agent updates</NavLink>}
         </nav>
 
         <div className="mt-auto border-t border-slate-800 pt-4 text-sm">

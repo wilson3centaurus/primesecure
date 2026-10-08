@@ -67,6 +67,18 @@ class AgentStore(context: Context) {
         get() = prefs.getString("web_filter", null)
         set(value) = prefs.edit().putString("web_filter", value).apply()
 
+    var updateAttemptCode: Int
+        get() = prefs.getInt("update_attempt_code", 0)
+        set(value) = prefs.edit().putInt("update_attempt_code", value).apply()
+
+    var updateAttemptAt: Long
+        get() = prefs.getLong("update_attempt_at", 0)
+        set(value) = prefs.edit().putLong("update_attempt_at", value).apply()
+
+    var updateError: String?
+        get() = prefs.getString("update_error", null)
+        set(value) = prefs.edit().putString("update_error", value).apply()
+
     var lastError: String?
         get() = prefs.getString("last_error", null)
         set(value) = prefs.edit().putString("last_error", value).apply()
