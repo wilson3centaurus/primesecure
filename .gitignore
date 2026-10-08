@@ -1,0 +1,14 @@
+node_modules/
+.env
+.env.*
+!.env.example
+
+# Android
+agent/.gradle/
+agent/build/
+agent/app/build/
+agent/local.properties
+agent/.idea/
+agent/.kotlin/
+*.jks
+*.keystore
