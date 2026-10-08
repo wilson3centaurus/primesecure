@@ -1,0 +1,38 @@
+name: Agent (debug APK)
+
+on:
+  push:
+    paths: ["agent/**", ".github/workflows/agent.yml"]
+  pull_request:
+    paths: ["agent/**", ".github/workflows/agent.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build and lint debug APK
+        env:
+          # Repository variables (Settings → Secrets and variables → Actions → Variables).
+          PRIMESECURE_URL: ${{ vars.PRIMESECURE_URL }}
+          PRIMESECURE_ANON_KEY: ${{ vars.PRIMESECURE_ANON_KEY }}
+          AGENT_VERSION_CODE: ${{ github.run_number }}
+          AGENT_VERSION_NAME: 0.1.${{ github.run_number }}-debug
+        run: ./gradlew assembleDebug lintDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: primesecure-agent-debug
+          path: agent/app/build/outputs/apk/debug/*.apk
