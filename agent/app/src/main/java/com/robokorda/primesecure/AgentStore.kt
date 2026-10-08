@@ -62,6 +62,11 @@ class AgentStore(context: Context) {
         get() = prefs.getInt("reported_apps_hash", 0)
         set(value) = prefs.edit().putInt("reported_apps_hash", value).apply()
 
+    /** The current web filter as JSON (see [WebFilter.toJson]), read by the School Browser. */
+    var webFilter: String?
+        get() = prefs.getString("web_filter", null)
+        set(value) = prefs.edit().putString("web_filter", value).apply()
+
     var lastError: String?
         get() = prefs.getString("last_error", null)
         set(value) = prefs.edit().putString("last_error", value).apply()

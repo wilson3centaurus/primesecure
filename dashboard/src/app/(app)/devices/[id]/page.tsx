@@ -142,9 +142,12 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
             <p className="mb-3 text-sm text-slate-600">
               {ownPolicy ? "Has its own policy (replaces the school policy)." : "Follows the school policy."}
             </p>
-            <Link href={`/devices/${d.id}/policy`} className="btn-secondary">
-              {ownPolicy ? "Edit device policy" : manager ? "Give this device its own policy" : "View"}
-            </Link>
+            <div className="flex flex-wrap gap-2">
+              <Link href={`/devices/${d.id}/policy`} className="btn-secondary">
+                {ownPolicy ? "Edit device policy" : manager ? "Give this device its own policy" : "View"}
+              </Link>
+              {manager && enrolled && <Link href={`/devices/${d.id}/files`} className="btn-secondary">Browse files</Link>}
+            </div>
           </section>
 
           {manager && (

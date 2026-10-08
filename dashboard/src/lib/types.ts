@@ -64,11 +64,16 @@ export type Policy = {
   hide_settings: boolean;
   hidden_apps: string[];
   allowed_apps: string[];
+  web_filter: "off" | "blocklist" | "allowlist";
+  web_blocklist: string[];
+  web_allowlist: string[];
+  safe_search: boolean;
+  browser_home_url: string | null;
   updated_at: string;
 };
 
 export type CommandType =
-  | "message" | "install_apk" | "remove_apk" | "push_file" | "delete_file"
+  | "message" | "install_apk" | "remove_apk" | "push_file" | "delete_file" | "list_files"
   | "locate" | "suspend" | "unsuspend" | "lock" | "unlock" | "retire";
 
 export type CommandStatus = "pending" | "delivered" | "succeeded" | "failed" | "cancelled";

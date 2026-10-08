@@ -6,6 +6,7 @@ export const COMMAND_LABEL: Record<CommandType, string> = {
   remove_apk: "Remove app",
   push_file: "Push file",
   delete_file: "Delete file",
+  list_files: "List files",
   locate: "Locate",
   suspend: "Suspend",
   unsuspend: "Unsuspend",
@@ -38,7 +39,8 @@ export function commandSummary(type: CommandType, payload: Record<string, unknow
     case "install_apk": return s("name") || s("package");
     case "remove_apk": return s("package");
     case "push_file":
-    case "delete_file": return s("path");
+    case "delete_file":
+    case "list_files": return s("path") || "/";
     case "lock": return s("message");
     default: return "";
   }

@@ -36,6 +36,7 @@ export function PolicyEditor({
   const [wallpaper, setWallpaper] = useState(policy?.wallpaper_url ?? "");
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
+  const [webMode, setWebMode] = useState(policy?.web_filter ?? "off");
 
   async function upload(file: File) {
     setUploadError("");
@@ -106,6 +107,46 @@ export function PolicyEditor({
               <span key={pkg}>{i > 0 && " · "}{name} <code className="rounded bg-slate-100 px-1">{pkg}</code></span>
             ))}
           </div>
+        </section>
+
+        <section className="card space-y-4 p-4">
+          <div>
+            <h2 className="font-semibold">Web filtering</h2>
+            <p className="text-xs text-slate-500">
+              Enforced in Chrome and in the School Browser (which appears on devices once filtering is on).
+              To stop students using other browsers, hide them above or use Allowed apps.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-4 text-sm">
+            {([["off", "No filtering"], ["blocklist", "Block listed sites"], ["allowlist", "Only allow listed sites"]] as const).map(([v, l]) => (
+              <label key={v} className="flex items-center gap-2">
+                <input type="radio" name="web_filter" value={v} checked={webMode === v} disabled={!canEdit}
+                  onChange={() => setWebMode(v)} className="accent-brand-600" />
+                {l}
+              </label>
+            ))}
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className={webMode === "blocklist" ? "" : "hidden"}>
+              <label htmlFor="web_blocklist" className="label">Blocked websites</label>
+              <textarea id="web_blocklist" name="web_blocklist" rows={5} disabled={!canEdit} className="input font-mono"
+                defaultValue={(policy?.web_blocklist ?? []).join("\n")} placeholder={"tiktok.com\nfacebook.com"} />
+              <p className="mt-1 text-xs text-slate-500">One per line. A domain also covers its subdomains.</p>
+            </div>
+            <div className={webMode === "allowlist" ? "" : "hidden"}>
+              <label htmlFor="web_allowlist" className="label">Allowed websites</label>
+              <textarea id="web_allowlist" name="web_allowlist" rows={5} disabled={!canEdit} className="input font-mono"
+                defaultValue={(policy?.web_allowlist ?? []).join("\n")} placeholder={"wikipedia.org\nkhanacademy.org"} />
+              <p className="mt-1 text-xs text-slate-500">Everything else is blocked. The home page is always allowed.</p>
+            </div>
+            <div>
+              <label htmlFor="browser_home_url" className="label">Home page</label>
+              <input id="browser_home_url" name="browser_home_url" type="url" disabled={!canEdit} className="input"
+                defaultValue={policy?.browser_home_url ?? ""} placeholder="https://kolibri.yourschool.local" />
+            </div>
+          </div>
+          <Toggle name="safe_search" label="Force SafeSearch" hint="Google SafeSearch and YouTube restricted mode in Chrome; SafeSearch in the School Browser."
+            defaultChecked={policy?.safe_search ?? false} disabled={!canEdit} />
         </section>
 
         {canEdit && (

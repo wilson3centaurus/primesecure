@@ -19,7 +19,7 @@ enforced in Postgres RLS on `school_id`; see `supabase/migrations/20261008000002
 3. 🧪 Dashboard: login, schools, staff, devices + enroll tokens, school and device policies
 4. 🧪 Commands: messages (instant via Realtime), lock / suspend / retire as device states
 5. 🧪 Location: on-demand **Locate** (network location, IP fallback) with a map
-6. ⬜ File push + browser
+6. 🧪 Files (push to one/all devices, browse, delete) + web filtering (Chrome managed config + School Browser)
 7. ⬜ Self-update + signed release workflow
 
 ## Backend
@@ -65,6 +65,10 @@ Device Owner can only be set while the device has no accounts.
    ```bash
    adb shell dpm set-device-owner com.robokorda.primesecure/.AdminReceiver
    ```
+   ```bash
+   adb shell appops set com.robokorda.primesecure MANAGE_EXTERNAL_STORAGE allow
+   ```
+   (All-files access for the file browser and file push; Device Owner can't grant this one itself.)
 4. Enroll with the token from the dashboard (add `--es server_url ... --es anon_key ...` if the
    build doesn't have them baked in):
    ```bash
@@ -115,13 +119,21 @@ adb shell dpm remove-active-admin com.robokorda.primesecure/.AdminReceiver
 - [ ] Device page → app list → **Remove** a user app → uninstalled silently.
 - [ ] Device page → **Locate now** → a map appears within a minute; the caption says whether it came from
       Wi-Fi/network location or (approximate) the internet connection. Note which one PrimeOS gives.
+- [ ] Agent screen shows **All-files access: yes**. Device page → **Browse files** → folders load; upload a PDF
+      into `Download` → it appears; **Delete** it → gone.
+- [ ] **Files** page → send a file to all devices → it lands in `Download/School` on the Primebook.
+- [ ] School policy → **Block listed sites** with `youtube.com` + **Force SafeSearch** → in Chrome youtube.com is
+      blocked and Google results are SafeSearch; the **School Browser** appears in the launcher and blocks it too.
+- [ ] **Only allow listed sites** with `wikipedia.org` → everything else blocked in both browsers.
 - [ ] **Retire** (debug device you can re-provision) → restrictions lifted, Device Owner released.
 
 ## Notes for later steps
 
-- `MANAGE_EXTERNAL_STORAGE` (step 6) is an app-op, not a runtime permission, so Device Owner can't
-  grant it to itself; provisioning will add
-  `adb shell appops set com.robokorda.primesecure MANAGE_EXTERNAL_STORAGE allow`.
+- `MANAGE_EXTERNAL_STORAGE` is an app-op, not a runtime permission, so Device Owner can't grant it
+  to itself; provisioning sets it with `adb shell appops set` (above).
+- Chrome reads the web filter from its managed configuration (`URLBlocklist`, `URLAllowlist`,
+  `ForceGoogleSafeSearch`, `ForceYouTubeRestrict`, `HomepageLocation`). Other browsers aren't
+  filtered: hide them via `hidden_apps`, or use `allowed_apps`.
 - `DISALLOW_INSTALL_APPS` also blocks the Device Owner's own silent installs, so `block_installs`
   blocks unknown sources only; Play Store can be hidden via `hidden_apps`
   (`com.android.vending`). `install_apk` lifts the unknown-sources restriction for its own session.

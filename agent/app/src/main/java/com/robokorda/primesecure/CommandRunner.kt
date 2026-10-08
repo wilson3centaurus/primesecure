@@ -46,6 +46,9 @@ class CommandRunner(private val context: Context, private val store: AgentStore)
         "install_apk" -> AppInstaller(context, store).install(id, payload)
         "remove_apk" -> AppInstaller(context, store).uninstall(payload)
         "locate" -> Locator(context, store).locate()
+        "list_files" -> FileManager(store).list(payload)
+        "push_file" -> FileManager(store).push(payload)
+        "delete_file" -> FileManager(store).delete(payload)
         else -> throw UnsupportedCommand(type)
     }
 

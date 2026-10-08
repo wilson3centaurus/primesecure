@@ -74,6 +74,9 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
             )
         }
 
+        var webSummary = ""
+        attempt("web filter") { webSummary = WebFilter.apply(context, store, WebFilter.fromPolicy(policy)) }
+
         val summary = buildString {
             if (suspended) append("SUSPENDED · ")
             append("Policy: ").append(policy.optString("scope", "none"))
@@ -82,6 +85,7 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
             append(" · installs ").append(if (blockInstalls) "blocked" else "allowed")
             append(" · settings ").append(if (hideSettings) "hidden" else "visible")
             append(" · $hiddenCount app(s) hidden")
+            if (webSummary.isNotEmpty()) append(" · ").append(webSummary)
             problems.forEach { append("\n⚠ ").append(it) }
         }
         return summary
@@ -186,6 +190,7 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
         (store.hiddenByUs + SETTINGS_PACKAGES).forEach { runCatching { dpm.setApplicationHidden(admin, it, false) } }
         store.hiddenByUs = emptySet()
         store.appliedWallpaperUrl = null
+        runCatching { WebFilter.apply(context, store, WebFilter.fromPolicy(JSONObject())) }
     }
 
     companion object {

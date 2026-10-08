@@ -7,6 +7,16 @@ import { createClient } from "@/lib/supabase/server";
 import type { FormState } from "@/lib/types";
 
 const PACKAGE = /^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z0-9_]+)+$/;
+const SITE = /^(\*|(\*\.)?[a-z0-9-]+(\.[a-z0-9-]+)*)$/;
+
+// One site per line; "https://www.example.com/path" is reduced to "www.example.com".
+function sites(raw: FormDataEntryValue | null): string[] | string {
+  const list = [...new Set(String(raw ?? "").split(/[\s,]+/)
+    .map((s) => s.trim().toLowerCase().replace(/^[a-z]+:\/\//, "").split("/")[0].split(":")[0])
+    .filter(Boolean))];
+  const bad = list.find((s) => !SITE.test(s));
+  return bad ? `"${bad}" is not a website (like tiktok.com).` : list;
+}
 
 function packages(raw: FormDataEntryValue | null): string[] | string {
   const list = [...new Set(String(raw ?? "").split(/[\s,]+/).map((p) => p.trim()).filter(Boolean))];
@@ -52,6 +62,16 @@ export async function savePolicy(_prev: FormState, formData: FormData): Promise<
   const prefix = `${SUPABASE_URL}/storage/v1/object/public/wallpapers/${t.schoolId}/`;
   if (wallpaper && !wallpaper.startsWith(prefix)) return { error: "Upload the wallpaper again." };
 
+  const blocklist = sites(formData.get("web_blocklist"));
+  if (typeof blocklist === "string") return { error: blocklist };
+  const allowlist = sites(formData.get("web_allowlist"));
+  if (typeof allowlist === "string") return { error: allowlist };
+  const webFilter = String(formData.get("web_filter") ?? "off");
+  if (!["off", "blocklist", "allowlist"].includes(webFilter)) return { error: "Pick a web filter mode." };
+  if (webFilter === "allowlist" && allowlist.length === 0) return { error: "Add at least one allowed website." };
+  const home = String(formData.get("browser_home_url") ?? "").trim() || null;
+  if (home && !/^https?:\/\/\S+$/.test(home)) return { error: "Home page must start with http:// or https://" };
+
   const row = {
     wallpaper_url: wallpaper,
     lock_wallpaper: formData.get("lock_wallpaper") === "on",
@@ -59,6 +79,11 @@ export async function savePolicy(_prev: FormState, formData: FormData): Promise<
     hide_settings: formData.get("hide_settings") === "on",
     hidden_apps: hidden,
     allowed_apps: allowed,
+    web_filter: webFilter,
+    web_blocklist: blocklist,
+    web_allowlist: allowlist,
+    safe_search: formData.get("safe_search") === "on",
+    browser_home_url: home,
   };
 
   const { error } = t.existingId

@@ -322,6 +322,23 @@ test("devices report their own location; staff of the school read it", async () 
   await assert.rejects(as(ids.devA, `select device_report_location(0, 0, null, 'teleport')`), /check constraint/);
 });
 
+test("web filter settings reach the device through its policy", async () => {
+  await as(ids.adminB, `insert into policies (school_id, web_filter, web_blocklist, safe_search, browser_home_url)
+                        values ($1, 'blocklist', '{tiktok.com}', true, 'https://kolibri.school')`, [ids.schoolB]);
+  const [{ r }] = await as(ids.devB, `select device_check_in('{}') as r`);
+  assert.equal(r.policy.web_filter, "blocklist");
+  assert.deepEqual(r.policy.web_blocklist, ["tiktok.com"]);
+  assert.equal(r.policy.safe_search, true);
+  assert.equal(r.policy.browser_home_url, "https://kolibri.school");
+  await assert.rejects(as(ids.adminB, `update policies set web_filter = 'everything' where school_id = $1`, [ids.schoolB]), /check constraint/);
+  await db.query(`delete from policies where school_id = $1`, [ids.schoolB]);
+});
+
+test("list_files is an admin command", async () => {
+  await as(ids.adminA, `insert into commands (device_id, type, payload) values ($1, 'list_files', '{"path":""}')`, [ids.deviceA]);
+  await rejects(as(ids.teacherA, `insert into commands (device_id, type) values ($1, 'list_files')`, [ids.deviceA]));
+});
+
 test("storage objects are scoped by the school id path prefix", async () => {
   await db.query(
     `insert into storage.objects (bucket_id, name) values ('apks', $1), ('apks', $2), ('apks', 'junk/no-school.apk')`,
