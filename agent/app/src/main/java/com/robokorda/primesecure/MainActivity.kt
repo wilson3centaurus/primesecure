@@ -156,6 +156,7 @@ class MainActivity : Activity() {
             appendLine("Device Owner: ${if (owner) "YES" else "NO"}")
             appendLine("Server: ${store.serverUrl.ifBlank { "(not set)" }}")
             appendLine("Agent: ${BuildConfig.VERSION_NAME}${if (BuildConfig.DEBUG) " (debug)" else ""}")
+            appendLine("All-files access: ${if (FileManager.hasAccess()) "yes" else "NO (file push/browse won't work)"}")
             if (store.isEnrolled) {
                 appendLine("Device ID: ${store.deviceId}")
                 appendLine("Status: ${store.lastStatus ?: "—"}")
@@ -168,6 +169,7 @@ class MainActivity : Activity() {
                     appendLine("adb shell dpm set-device-owner $packageName/.AdminReceiver")
                 }
             }
+            store.updateError?.let { appendLine().append("Agent update: ").append(it) }
             store.lastError?.let { appendLine().append("Last error: ").append(it) }
         }
         tokenInput.isEnabled = !store.isEnrolled

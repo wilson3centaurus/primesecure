@@ -1,0 +1,32 @@
+name: Dashboard
+
+on:
+  push:
+    paths: ["dashboard/**", ".github/workflows/dashboard.yml"]
+  pull_request:
+    paths: ["dashboard/**", ".github/workflows/dashboard.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsc --noEmit
+      - name: Build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.invalid
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
+        run: npm run build

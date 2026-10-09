@@ -5,9 +5,9 @@ Self-hosted MDM for PrimeOS (Android 11) student Primebooks.
 | Path | What |
 | --- | --- |
 | `agent/` | Kotlin Device Owner agent (`com.robokorda.primesecure`) |
-| `dashboard/` | Next.js dashboard *(step 3 — not started)* |
+| `dashboard/` | Next.js dashboard (Vercel) — see [dashboard/README.md](dashboard/README.md) |
 | `supabase/` | Migrations, edge functions, and DB tests for the self-hosted Supabase on Contabo |
-| `.github/workflows/` | CI: debug APK build (signed release workflow comes in step 7) |
+| `.github/workflows/` | CI: debug APK, signed release APK (manual), dashboard lint + build |
 
 Tenancy: RoboKorda (`super_admin`) → schools (`school_admin`, `teacher`) → devices. Isolation is
 enforced in Postgres RLS on `school_id`; see `supabase/migrations/20261008000002_rls.sql`.
@@ -16,11 +16,11 @@ enforced in Postgres RLS on `school_id`; see `supabase/migrations/20261008000002
 
 1. ✅ Supabase schema + RLS + auth — `supabase/`, tested with `cd supabase/tests && npm test`
 2. 🧪 Agent enroll + check-in + policy apply — **needs testing on a real Primebook**
-3. ⬜ Dashboard device list + detail
-4. ⬜ Command queue end-to-end (message first)
-5. ⬜ Location
-6. ⬜ File push + browser
-7. ⬜ Self-update + signed release workflow
+3. 🧪 Dashboard: login, schools, staff, devices + enroll tokens, school and device policies
+4. 🧪 Commands: messages (instant via Realtime), lock / suspend / retire as device states
+5. 🧪 Location: on-demand **Locate** (network location, IP fallback) with a map
+6. 🧪 Files (push to one/all devices, browse, delete) + web filtering (Chrome managed config + School Browser)
+7. 🧪 Self-update + signed release workflow
 
 ## Backend
 
@@ -65,6 +65,10 @@ Device Owner can only be set while the device has no accounts.
    ```bash
    adb shell dpm set-device-owner com.robokorda.primesecure/.AdminReceiver
    ```
+   ```bash
+   adb shell appops set com.robokorda.primesecure MANAGE_EXTERNAL_STORAGE allow
+   ```
+   (All-files access for the file browser and file push; Device Owner can't grant this one itself.)
 4. Enroll with the token from the dashboard (add `--es server_url ... --es anon_key ...` if the
    build doesn't have them baked in):
    ```bash
@@ -99,13 +103,66 @@ adb shell dpm remove-active-admin com.robokorda.primesecure/.AdminReceiver
 ```
 (debug / `testOnly` builds only)
 
+### Step 3–4 test checklist (dashboard + one enrolled Primebook)
+
+- [ ] Sign in as the super_admin → **Schools**: add a school; the sidebar switcher selects it.
+- [ ] **Staff**: add a school admin; sign in as them in a private window → they only see their school.
+- [ ] **Devices → Add devices**: one line per student → each gets a token; enroll the Primebook with it → status turns **Active** and online without reloading.
+- [ ] **School policy**: upload a wallpaper, lock it, hide Settings → saved; the Primebook changes within seconds (Realtime) or at the next check-in.
+- [ ] Device page → **Message the student** → the message pops up on the Primebook; history shows **Done**.
+- [ ] Turn the Primebook's Wi-Fi off, send a message, turn it back on → it arrives on reconnect.
+- [ ] **Lock device** with a message → full-screen lock; Home/Recents don't escape; reboot → still locked. **Unlock** → back to normal.
+- [ ] **Suspend** → only allowed apps (from the policy) remain; **End suspension** → apps come back.
+- [ ] The agent keeps a "managed by your school" notification; Realtime reconnects after Wi-Fi drops (watch a message arrive).
+- [ ] **Apps**: upload an APK → device page → **Install** → installs with no prompt; it appears in the device's app list.
+- [ ] With **Block app installs** on, the dashboard install still works; installing an APK from Files does not.
+- [ ] Device page → app list → **Remove** a user app → uninstalled silently.
+- [ ] Device page → **Locate now** → a map appears within a minute; the caption says whether it came from
+      Wi-Fi/network location or (approximate) the internet connection. Note which one PrimeOS gives.
+- [ ] Agent screen shows **All-files access: yes**. Device page → **Browse files** → folders load; upload a PDF
+      into `Download` → it appears; **Delete** it → gone.
+- [ ] **Files** page → send a file to all devices → it lands in `Download/School` on the Primebook.
+- [ ] School policy → **Block listed sites** with `youtube.com` + **Force SafeSearch** → in Chrome youtube.com is
+      blocked and Google results are SafeSearch; the **School Browser** appears in the launcher and blocks it too.
+- [ ] **Only allow listed sites** with `wikipedia.org` → everything else blocked in both browsers.
+- [ ] **Retire** (debug device you can re-provision) → restrictions lifted, Device Owner released.
+
+## Releases and self-update
+
+Production Primebooks should be provisioned with a **release** APK: Android only accepts an update
+signed with the same key as the installed app, and debug builds are signed with whatever debug key
+the machine that built them has.
+
+One-time setup (keep the keystore and passwords somewhere safe and backed up: losing them means
+re-provisioning every device by hand):
+
+```bash
+keytool -genkeypair -v -keystore primesecure-release.jks -alias primesecure -keyalg RSA -keysize 4096 -validity 36500
+```
+```bash
+base64 -w0 primesecure-release.jks
+```
+
+Add repository secrets `AGENT_KEYSTORE_BASE64` (the base64 output), `AGENT_KEYSTORE_PASSWORD`,
+`AGENT_KEY_ALIAS` (`primesecure`) and `AGENT_KEY_PASSWORD`.
+
+Each release:
+
+1. Actions → **Agent (signed release APK)** → Run workflow with a version name (e.g. `1.0.0`).
+2. Download the artifact `primesecure-<version>-<code>.apk`.
+3. Dashboard → **Agent updates** (super_admin) → upload it; the version fields fill in from the file name.
+4. Devices download it at their next check-in, verify package, version code and SHA-256, and install
+   silently. **Pause** a release to stop the rollout; the Fleet box shows versions in use.
+
 ## Notes for later steps
 
-- `MANAGE_EXTERNAL_STORAGE` (step 6) is an app-op, not a runtime permission, so Device Owner can't
-  grant it to itself; provisioning will add
-  `adb shell appops set com.robokorda.primesecure MANAGE_EXTERNAL_STORAGE allow`.
+- `MANAGE_EXTERNAL_STORAGE` is an app-op, not a runtime permission, so Device Owner can't grant it
+  to itself; provisioning sets it with `adb shell appops set` (above).
+- Chrome reads the web filter from its managed configuration (`URLBlocklist`, `URLAllowlist`,
+  `ForceGoogleSafeSearch`, `ForceYouTubeRestrict`, `HomepageLocation`). Other browsers aren't
+  filtered: hide them via `hidden_apps`, or use `allowed_apps`.
 - `DISALLOW_INSTALL_APPS` also blocks the Device Owner's own silent installs, so `block_installs`
-  currently blocks unknown sources only; Play Store can be hidden via `hidden_apps`
-  (`com.android.vending`). Install commands (step 4) will lift restrictions around their own install.
-- The release signing key (step 7) is created once and must be backed up: losing it means
-  re-provisioning every device.
+  blocks unknown sources only; Play Store can be hidden via `hidden_apps`
+  (`com.android.vending`). `install_apk` lifts the unknown-sources restriction for its own session.
+- Self-hosted Supabase storage limits uploads to 50 MB by default. For bigger APKs raise
+  `FILE_SIZE_LIMIT` in the storage service's environment (`docker/.env` / compose) and restart it.

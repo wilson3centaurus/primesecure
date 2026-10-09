@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -7,6 +8,25 @@
     <uses-permission android:name="android.permission.SET_WALLPAPER" />
     <!-- Granted to ourselves as Device Owner; needed for Build.getSerial(). -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <!-- Silent app install / removal (install_apk, remove_apk) and the installed-app report. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+    <!-- File browser / push (granted by provisioning: appops set ... MANAGE_EXTERNAL_STORAGE allow). -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+    <!-- 'locate' command; granted to ourselves as Device Owner. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- Realtime connection for instant commands (AgentService). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <!-- Package visibility (targetSdk 30+): enough to list launchable apps and find the home app. -->
     <queries>
@@ -37,6 +57,49 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".BrowserActivity"
+            android:exported="false"
+            android:label="School Browser"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
+
+        <!-- Launcher entry for the School Browser; enabled only while a web filter is set. -->
+        <activity-alias
+            android:name=".SchoolBrowser"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@android:drawable/ic_menu_compass"
+            android:label="School Browser"
+            android:targetActivity=".BrowserActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity
+            android:name=".LockActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:lockTaskMode="if_whitelisted"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen" />
+
+        <activity
+            android:name=".MessageActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.DeviceDefault.Light.Dialog" />
+
+        <service
+            android:name=".AgentService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Device management: keeps the school's MDM connection open to receive commands" />
+        </service>
 
         <receiver
             android:name=".AdminReceiver"

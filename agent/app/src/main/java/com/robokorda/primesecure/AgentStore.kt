@@ -53,6 +53,32 @@ class AgentStore(context: Context) {
         get() = prefs.getString("last_status", null)
         set(value) = prefs.edit().putString("last_status", value).apply()
 
+    var lastStatusMessage: String?
+        get() = prefs.getString("last_status_message", null)
+        set(value) = prefs.edit().putString("last_status_message", value).apply()
+
+    /** Hash of the app list last accepted by the server, so it is only re-sent when it changes. */
+    var reportedAppsHash: Int
+        get() = prefs.getInt("reported_apps_hash", 0)
+        set(value) = prefs.edit().putInt("reported_apps_hash", value).apply()
+
+    /** The current web filter as JSON (see [WebFilter.toJson]), read by the School Browser. */
+    var webFilter: String?
+        get() = prefs.getString("web_filter", null)
+        set(value) = prefs.edit().putString("web_filter", value).apply()
+
+    var updateAttemptCode: Int
+        get() = prefs.getInt("update_attempt_code", 0)
+        set(value) = prefs.edit().putInt("update_attempt_code", value).apply()
+
+    var updateAttemptAt: Long
+        get() = prefs.getLong("update_attempt_at", 0)
+        set(value) = prefs.edit().putLong("update_attempt_at", value).apply()
+
+    var updateError: String?
+        get() = prefs.getString("update_error", null)
+        set(value) = prefs.edit().putString("update_error", value).apply()
+
     var lastError: String?
         get() = prefs.getString("last_error", null)
         set(value) = prefs.edit().putString("last_error", value).apply()

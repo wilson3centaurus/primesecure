@@ -240,6 +240,120 @@ test("device_ack_command only touches the device's own commands", async () => {
   await rejects(as(ids.devA, `select device_ack_command($1, 'failed')`, [cmd.id]), /already finished/);
 });
 
+test("device_fetch_commands delivers only the device's own unfinished commands, oldest first", async () => {
+  const insert = (device, type, minutesAgo) =>
+    db.query(
+      `insert into commands (device_id, type, payload, created_at)
+       values ($1, $2, '{"n":1}', now() - make_interval(mins => $3)) returning id`,
+      [device, type, minutesAgo],
+    ).then((r) => r.rows[0].id);
+  const newer = await insert(ids.deviceA, "message", 1);
+  const older = await insert(ids.deviceA, "locate", 5);
+  const done = await insert(ids.deviceA, "message", 10);
+  await db.query(`update commands set status = 'succeeded' where id = $1`, [done]);
+  const other = await insert(ids.deviceB, "message", 1);
+
+  const [{ r }] = await as(ids.devA, `select device_fetch_commands() as r`);
+  const fetched = r.commands.map((c) => c.id);
+  assert.ok(fetched.indexOf(older) < fetched.indexOf(newer), "oldest first");
+  assert.ok(!fetched.includes(done) && !fetched.includes(other));
+
+  const states = (await db.query(`select id, status, delivered_at from commands where id = any($1)`, [[older, newer, other]])).rows;
+  for (const row of states) {
+    if (row.id === other) assert.equal(row.status, "pending");
+    else assert.ok(row.status === "delivered" && row.delivered_at);
+  }
+
+  // Unfinished deliveries are handed out again until acked.
+  const [{ r: again }] = await as(ids.devA, `select device_fetch_commands() as r`);
+  assert.ok(again.commands.some((c) => c.id === older));
+
+  await rejects(as(ids.adminA, `select device_fetch_commands()`));
+  await rejects(as(null, `select device_fetch_commands()`));
+});
+
+test("status changes are stamped and the lock message reaches the device", async () => {
+  await as(ids.adminA, `update devices set status = 'locked', status_message = 'Bring it to the office' where id = $1`, [ids.deviceA]);
+  const [row] = await db.query(`select status_changed_at, status_changed_by from devices where id = $1`, [ids.deviceA]).then((r) => r.rows);
+  assert.ok(row.status_changed_at);
+  assert.equal(row.status_changed_by, ids.adminA);
+
+  const [{ r }] = await as(ids.devA, `select device_check_in('{}') as r`);
+  assert.equal(r.status, "locked");
+  assert.equal(r.status_message, "Bring it to the office");
+
+  // Teachers can't lock devices; staff can't forge the audit columns.
+  await as(ids.teacherA, `update devices set status = 'suspended' where id = $1`, [ids.deviceA]);
+  assert.equal((await db.query(`select status from devices where id = $1`, [ids.deviceA])).rows[0].status, "locked");
+  await rejects(as(ids.adminA, `update devices set status_changed_by = $1 where id = $2`, [ids.adminB, ids.deviceA]));
+
+  await db.query(`update devices set status = 'active', status_message = null where id = $1`, [ids.deviceA]);
+});
+
+test("app library is per school and admin-managed", async () => {
+  const path = `${ids.schoolA}/x.apk`;
+  await as(ids.adminA, `insert into apps (school_id, name, storage_path) values ($1, 'Kolibri', $2)`, [ids.schoolA, path]);
+  await rejects(as(ids.teacherA, `insert into apps (school_id, name, storage_path) values ($1, 'X', $2)`, [ids.schoolA, path]));
+  await rejects(as(ids.adminB, `insert into apps (school_id, name, storage_path) values ($1, 'X', $2)`, [ids.schoolA, path]));
+  // The object path must live under the row's own school.
+  await assert.rejects(as(ids.adminA, `insert into apps (school_id, name, storage_path) values ($1, 'X', $2)`, [ids.schoolA, `${ids.schoolB}/x.apk`]), /check constraint/);
+  assert.equal((await as(ids.teacherA, `select * from apps`)).length, 1);
+  assert.equal((await as(ids.adminB, `select * from apps`)).length, 0);
+});
+
+test("check-in stores the reported app list only when sent", async () => {
+  const apps = [{ package: "org.learningequality.Kolibri", label: "Kolibri", version: "0.17", system: false }];
+  const [{ r }] = await as(ids.devA, `select device_check_in($1) as r`, [JSON.stringify({ apps })]);
+  assert.equal(r.apps_known, true);
+  await as(ids.devA, `select device_check_in('{}')`);
+  const [row] = (await db.query(`select installed_apps, apps_reported_at from devices where id = $1`, [ids.deviceA])).rows;
+  assert.deepEqual(row.installed_apps, apps);
+  assert.ok(row.apps_reported_at);
+  await rejects(as(ids.adminA, `update devices set installed_apps = '[]' where id = $1`, [ids.deviceA]));
+});
+
+test("devices report their own location; staff of the school read it", async () => {
+  await as(ids.devA, `select device_report_location(-17.83, 31.05, 1200, 'network')`);
+  const rows = await as(ids.teacherA, `select device_id, school_id, source from locations`);
+  assert.deepEqual(rows, [{ device_id: ids.deviceA, school_id: ids.schoolA, source: "network" }]);
+  assert.equal((await as(ids.adminB, `select * from locations`)).length, 0);
+  await rejects(as(ids.adminA, `select device_report_location(0, 0)`));
+  await rejects(as(ids.adminA, `insert into locations (device_id, lat, lng) values ($1, 0, 0)`, [ids.deviceA]));
+  await assert.rejects(as(ids.devA, `select device_report_location(0, 0, null, 'teleport')`), /check constraint/);
+});
+
+test("web filter settings reach the device through its policy", async () => {
+  await as(ids.adminB, `insert into policies (school_id, web_filter, web_blocklist, safe_search, browser_home_url)
+                        values ($1, 'blocklist', '{tiktok.com}', true, 'https://kolibri.school')`, [ids.schoolB]);
+  const [{ r }] = await as(ids.devB, `select device_check_in('{}') as r`);
+  assert.equal(r.policy.web_filter, "blocklist");
+  assert.deepEqual(r.policy.web_blocklist, ["tiktok.com"]);
+  assert.equal(r.policy.safe_search, true);
+  assert.equal(r.policy.browser_home_url, "https://kolibri.school");
+  await assert.rejects(as(ids.adminB, `update policies set web_filter = 'everything' where school_id = $1`, [ids.schoolB]), /check constraint/);
+  await db.query(`delete from policies where school_id = $1`, [ids.schoolB]);
+});
+
+test("list_files is an admin command", async () => {
+  await as(ids.adminA, `insert into commands (device_id, type, payload) values ($1, 'list_files', '{"path":""}')`, [ids.deviceA]);
+  await rejects(as(ids.teacherA, `insert into commands (device_id, type) values ($1, 'list_files')`, [ids.deviceA]));
+});
+
+test("agent releases: super_admin publishes, devices are offered newer active builds", async () => {
+  await rejects(as(ids.adminA, `insert into agent_releases (version_code, version_name, storage_path) values (5, '0.5', 'x.apk')`));
+  await as(ids.super, `insert into agent_releases (version_code, version_name, storage_path) values (5, '0.5', 'a5.apk'), (7, '0.7', 'a7.apk')`);
+  await as(ids.super, `insert into agent_releases (version_code, version_name, storage_path, active) values (9, '0.9', 'a9.apk', false)`);
+
+  const offer = async (code) => (await as(ids.devA, `select device_check_in($1) as r`, [JSON.stringify({ agent_version_code: code })]))[0].r.agent_update;
+  assert.equal((await offer(3)).version_code, 7, "newest active release");
+  assert.equal(await offer(7), null, "already current");
+  assert.equal((await as(ids.devA, `select device_check_in('{}') as r`))[0].r.agent_update, null, "old agents that don't report a code get nothing");
+  assert.equal((await db.query(`select agent_version_code from devices where id = $1`, [ids.deviceA])).rows[0].agent_version_code, 7);
+
+  assert.equal((await as(ids.teacherA, `select * from agent_releases`)).length, 3);
+  assert.equal((await as(ids.devA, `select * from agent_releases`)).length, 0, "devices learn about releases only via check-in");
+});
+
 test("storage objects are scoped by the school id path prefix", async () => {
   await db.query(
     `insert into storage.objects (bucket_id, name) values ('apks', $1), ('apks', $2), ('apks', 'junk/no-school.apk')`,
