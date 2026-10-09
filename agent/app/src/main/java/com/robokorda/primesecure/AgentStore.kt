@@ -79,6 +79,11 @@ class AgentStore(context: Context) {
         get() = prefs.getString("update_error", null)
         set(value) = prefs.edit().putString("update_error", value).apply()
 
+    /** Most recent message command ids already displayed, oldest first (redelivery guard). */
+    var shownMessageIds: List<String>
+        get() = prefs.getString("shown_message_ids", null)?.split(',')?.filter { it.isNotEmpty() } ?: emptyList()
+        set(value) = prefs.edit().putString("shown_message_ids", value.joinToString(",")).apply()
+
     var lastError: String?
         get() = prefs.getString("last_error", null)
         set(value) = prefs.edit().putString("last_error", value).apply()

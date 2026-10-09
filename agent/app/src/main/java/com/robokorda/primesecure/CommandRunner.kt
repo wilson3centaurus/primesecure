@@ -53,12 +53,15 @@ class CommandRunner(private val context: Context, private val store: AgentStore)
     }
 
     private fun showMessage(id: String, payload: JSONObject): JSONObject {
+        // Redelivered after a failed ack: it was already on screen, just ack it again.
+        if (id in store.shownMessageIds) return JSONObject().put("note", "already shown")
         val body = payload.stringOrNull("body") ?: throw IllegalArgumentException("empty message")
         val title = payload.stringOrNull("title") ?: "Message from school"
         val from = payload.stringOrNull("from")
         // The full-screen notification is the fallback if the activity can't start from the background.
         Notifications.message(context, id, title, body, from)
         context.startActivity(MessageActivity.intent(context, id, title, body, from))
+        store.shownMessageIds = (store.shownMessageIds + id).takeLast(50)
         return JSONObject().put("shown_at", System.currentTimeMillis())
     }
 

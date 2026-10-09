@@ -12,6 +12,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import java.io.File
+import java.util.UUID
 import kotlin.coroutines.resume
 
 /** Silent install / uninstall, which PackageInstaller allows the Device Owner without prompting. */
@@ -90,7 +91,9 @@ class AppInstaller(private val context: Context, private val store: AgentStore) 
 
     /** Runs [start] with an IntentSender and waits for PackageInstaller's verdict. */
     private suspend fun awaitResult(tag: String, start: (android.content.IntentSender) -> Unit) {
-        val action = "${context.packageName}.PACKAGE_RESULT.$tag"
+        // Before Android 13 a dynamic receiver is exported; an unguessable action keeps other
+        // apps from forging a result. Only PackageInstaller, via our PendingIntent, knows it.
+        val action = "${context.packageName}.PACKAGE_RESULT.$tag.${UUID.randomUUID()}"
         val (status, message) = withTimeout(10 * 60_000) {
             suspendCancellableCoroutine { cont ->
                 val receiver = object : BroadcastReceiver() {
