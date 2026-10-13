@@ -36,19 +36,20 @@ class SupabaseApi(private val store: AgentStore) {
     }
 
     /** Downloads a file (e.g. a storage object) as the device account into [target]. */
-    suspend fun download(path: String, target: File) = withContext(Dispatchers.IO) {
+    suspend fun download(path: String, target: File, resume: Boolean = false) = withContext(Dispatchers.IO) {
         val base = store.serverUrl
         if (base.isBlank()) throw ApiException(0, "No server URL configured")
         val request = Request.Builder()
             .url(base.trimEnd('/') + path)
             .header("apikey", store.anonKey)
             .header("Authorization", "Bearer ${accessToken()}")
+            .apply { if (resume && target.exists() && target.length() > 0) header("Range", "bytes=${target.length()}-") }
             .get()
             .build()
         downloadHttp.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw ApiException(response.code, errorMessage(response.code, response.body?.string().orEmpty()))
             val body = response.body ?: throw ApiException(response.code, "empty body")
-            target.outputStream().use { out -> body.byteStream().copyTo(out) }
+            java.io.FileOutputStream(target, resume && response.code == 206).use { out -> body.byteStream().copyTo(out) }
         }
     }
 

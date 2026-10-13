@@ -37,6 +37,11 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         store = AgentStore(this)
+        if (store.isEnrolled) {
+            startActivity(Intent(this, HubActivity::class.java))
+            finish()
+            return
+        }
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -88,7 +93,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        refresh()
+        if (::status.isInitialized) refresh()
     }
 
     override fun onDestroy() {

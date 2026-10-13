@@ -1,85 +1,78 @@
 package com.robokorda.primesecure
 
 import android.app.Activity
+import android.app.admin.DevicePolicyManager
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.os.Bundle
-import android.view.Gravity
 import android.view.WindowManager
-import android.widget.Button
-import android.widget.LinearLayout
-import android.widget.TextView
+import android.widget.*
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.cancel
+import org.json.JSONObject
 
-/** Shows a message from school staff on top of whatever the student is doing. */
 class MessageActivity : Activity() {
-
+    private val scope = MainScope()
+    private var required = false
+    private var messageId = ""
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            setShowWhenLocked(true)
-            setTurnScreenOn(true)
-        } else {
-            @Suppress("DEPRECATION")
-            window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON)
-        }
         setFinishOnTouchOutside(false)
+        if (android.os.Build.VERSION.SDK_INT >= 27) { setShowWhenLocked(true); setTurnScreenOn(true) }
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         render(intent)
     }
-
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        render(intent)
+    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); render(intent); enforce() }
+    override fun onResume() { super.onResume(); enforce() }
+    private fun enforce() {
+        if (AgentStore(this).lastStatus == "locked") { startActivity(LockActivity.intent(this)); finish(); return }
+        if (required && AdminReceiver.isDeviceOwner(this)) runCatching {
+            val dpm = AdminReceiver.dpm(this)
+            dpm.setLockTaskPackages(AdminReceiver.component(this), arrayOf(packageName))
+            if (android.os.Build.VERSION.SDK_INT >= 28) dpm.setLockTaskFeatures(AdminReceiver.component(this), DevicePolicyManager.LOCK_TASK_FEATURE_GLOBAL_ACTIONS)
+            startLockTask()
+        }.onFailure { Toast.makeText(this, "This device could not enforce acknowledgement mode", Toast.LENGTH_LONG).show() }
     }
-
     private fun render(intent: Intent) {
-        val id = intent.getStringExtra(EXTRA_ID).orEmpty()
-        Notifications.cancelMessage(this, id)
-        title = intent.getStringExtra(EXTRA_TITLE) ?: "Message"
-
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(56, 48, 56, 32)
-            minimumWidth = (resources.displayMetrics.widthPixels * 0.5).toInt()
-        }
-        intent.getStringExtra(EXTRA_FROM)?.takeIf { it.isNotBlank() }?.let { from ->
-            root.addView(TextView(this).apply {
-                text = "From $from"
-                textSize = 14f
-                alpha = 0.7f
-                setPadding(0, 0, 0, 16)
-            })
-        }
-        root.addView(TextView(this).apply {
-            text = intent.getStringExtra(EXTRA_BODY).orEmpty()
-            textSize = 20f
-            setTextIsSelectable(true)
-            setPadding(0, 0, 0, 32)
-        })
+        val hub = HubStore(this)
+        val requested = intent.getStringExtra("id").orEmpty()
+        val message = hub.pending() ?: hub.message(requested)
+        messageId = message?.optString("id") ?: requested
+        val payload = message?.optJSONObject("payload") ?: JSONObject()
+            .put("title", intent.getStringExtra("title")).put("body", intent.getStringExtra("body"))
+        required = payload.optBoolean("require_ack") && message?.optBoolean("acknowledged") != true
+        Notifications.cancelMessage(this, messageId)
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(48, 32, 48, 32) }
+        root.addView(TextView(this).apply { text = payload.optString("title", "Message from school"); textSize = 28f })
+        root.addView(TextView(this).apply { text = "${payload.optString("from")}  •  ${message?.optString("created_at").orEmpty()}"; setPadding(0, 12, 0, 16) })
+        val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        MessageContent.render(this, body, payload, scope)
+        root.addView(ScrollView(this).apply { addView(body) }, LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(Button(this).apply {
-            text = "OK"
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT,
-            ).apply { gravity = Gravity.END }
-            setOnClickListener { finish() }
+            text = if (message?.optBoolean("acknowledged") == true) "Close" else "I acknowledge"
+            setOnClickListener {
+                hub.acknowledge(messageId)
+                MessageAckWorker.schedule(this@MessageActivity)
+                if (AgentStore(this@MessageActivity).lastStatus != "locked") runCatching { stopLockTask() }
+                required = false
+                finish()
+                showPending(this@MessageActivity)
+            }
         })
         setContentView(root)
     }
-
+    @Deprecated("Required notices must be acknowledged")
+    override fun onBackPressed() { if (!required) { @Suppress("DEPRECATION") super.onBackPressed() } }
+    override fun onDestroy() { scope.cancel(); super.onDestroy() }
     companion object {
-        private const val EXTRA_ID = "id"
-        private const val EXTRA_TITLE = "title"
-        private const val EXTRA_BODY = "body"
-        private const val EXTRA_FROM = "from"
-
         fun intent(context: Context, id: String, title: String, body: String, from: String?): Intent =
-            Intent(context, MessageActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                .setData(android.net.Uri.parse("primesecure://message/$id")) // one task entry per message
-                .putExtra(EXTRA_ID, id)
-                .putExtra(EXTRA_TITLE, title)
-                .putExtra(EXTRA_BODY, body)
-                .putExtra(EXTRA_FROM, from)
+            Intent(context, MessageActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                .putExtra("id", id).putExtra("title", title).putExtra("body", body).putExtra("from", from)
+        fun showPending(context: Context) {
+            if (AgentStore(context).lastStatus == "locked") return
+            val m = HubStore(context).pending() ?: return
+            val p = m.getJSONObject("payload")
+            context.startActivity(intent(context, m.getString("id"), p.optString("title"), p.optString("body"), p.optString("from")))
+        }
     }
 }

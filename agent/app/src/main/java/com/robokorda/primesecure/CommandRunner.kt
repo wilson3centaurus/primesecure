@@ -53,14 +53,19 @@ class CommandRunner(private val context: Context, private val store: AgentStore)
     }
 
     private fun showMessage(id: String, payload: JSONObject): JSONObject {
-        // Redelivered after a failed ack: it was already on screen, just ack it again.
-        if (id in store.shownMessageIds) return JSONObject().put("note", "already shown")
+        val hub = HubStore(context)
+        hub.saveMessage(id, payload, payload.optString("sent_at", java.time.Instant.now().toString()))
+        // Delivery and human acknowledgement are distinct. Pending required notices survive restarts.
+        if (id in store.shownMessageIds) {
+            MessageActivity.showPending(context)
+            return JSONObject().put("note", "already delivered")
+        }
         val body = payload.stringOrNull("body") ?: throw IllegalArgumentException("empty message")
         val title = payload.stringOrNull("title") ?: "Message from school"
         val from = payload.stringOrNull("from")
         // The full-screen notification is the fallback if the activity can't start from the background.
         Notifications.message(context, id, title, body, from)
-        context.startActivity(MessageActivity.intent(context, id, title, body, from))
+        if (payload.optBoolean("require_ack", false)) MessageActivity.showPending(context)
         store.shownMessageIds = (store.shownMessageIds + id).takeLast(50)
         return JSONObject().put("shown_at", System.currentTimeMillis())
     }

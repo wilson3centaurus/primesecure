@@ -58,6 +58,8 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
             AgentService.stop(context)
             WorkManager.getInstance(context).cancelUniqueWork(PERIODIC)
             WorkManager.getInstance(context).cancelUniqueWork(NOW)
+            WorkManager.getInstance(context).cancelUniqueWork("student-hub-sync")
+            WorkManager.getInstance(context).cancelUniqueWork("message-acknowledgements")
         }
 
         /** One heartbeat: report device state, receive status + policy, apply it, run queued commands. */
@@ -82,12 +84,24 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                     DeviceState.apply(context, status) // forgets the enrollment; nothing more to do
                     return response
                 }
-                store.lastPolicySummary = PolicyApplier(context, store)
-                    .apply(response.optJSONObject("policy") ?: JSONObject(), suspended = status == "suspended")
+                val policy = response.optJSONObject("policy") ?: JSONObject()
+                runCatching {
+                    val hub = SupabaseApi(store).rpc("device_hub")
+                    HubStore(context).catalog = hub
+                    hub.optJSONObject("wallpaper")?.let { policy.put("wallpaper_url", "hub:" + it.getString("storage_path")).put("lock_wallpaper", true) }
+                    if (hub.optBoolean("hide_vendor_store")) {
+                        val hidden = policy.optJSONArray("hidden_apps") ?: org.json.JSONArray()
+                        hidden.put("com.floydwiz.primestore")
+                        policy.put("hidden_apps", hidden).put("block_installs", true)
+                    }
+                    SupabaseApi(store).rpc("device_battery_report", JSONObject().put("p_readings", DeviceInfo.batteryDiagnostics(context)))
+                }.onFailure { HubStore(context).syncError = it.message }
+                store.lastPolicySummary = PolicyApplier(context, store).apply(policy, suspended = status == "suspended")
                 DeviceState.apply(context, status)
                 store.lastCheckInAt = System.currentTimeMillis()
                 store.lastError = null
                 if (response.optInt("pending_commands", 0) > 0) CommandRunner(context, store).runPending()
+                HubSync.schedule(context)
                 // Last: a successful update replaces this process.
                 SelfUpdater.maybeUpdate(context, store, response.optJSONObject("agent_update"))
                 return response
@@ -112,7 +126,9 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
             )
             schedule(context)
             AgentService.start(context)
-            return checkIn(context)
+            val response = checkIn(context)
+            context.startActivity(android.content.Intent(context, HubActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            return response
         }
     }
 }

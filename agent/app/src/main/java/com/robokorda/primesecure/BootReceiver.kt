@@ -17,5 +17,6 @@ class BootReceiver : BroadcastReceiver() {
         CheckInWorker.schedule(context)
         CheckInWorker.runNow(context)
         AgentService.start(context)
+        runCatching { MessageActivity.showPending(context) }
     }
 }

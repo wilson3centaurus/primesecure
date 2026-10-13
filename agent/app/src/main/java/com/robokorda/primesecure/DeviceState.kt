@@ -35,7 +35,7 @@ object DeviceState {
         withContext(Dispatchers.Main) { LockActivity.finishIfShowing() }
         val dpm = AdminReceiver.dpm(context)
         val admin = AdminReceiver.component(context)
-        if (dpm.getLockTaskPackages(admin).isNotEmpty()) dpm.setLockTaskPackages(admin, arrayOf())
+        if (HubStore(context).pending() == null && dpm.getLockTaskPackages(admin).isNotEmpty()) dpm.setLockTaskPackages(admin, arrayOf())
     }
 
     /**
@@ -48,6 +48,7 @@ object DeviceState {
         PolicyApplier(context, store).undoAll()
         CheckInWorker.cancel(context)
         store.clearEnrollment()
+        HubStore(context) // discard school-private inbox and downloads when enrollment is removed
         @Suppress("DEPRECATION")
         AdminReceiver.dpm(context).clearDeviceOwnerApp(context.packageName)
     }

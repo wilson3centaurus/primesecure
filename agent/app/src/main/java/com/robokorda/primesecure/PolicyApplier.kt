@@ -33,6 +33,7 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
         if (!AdminReceiver.isDeviceOwner(context)) return "Not Device Owner — policy not applied"
 
         val problems = mutableListOf<String>()
+        dpm.setUninstallBlocked(admin, context.packageName, true)
         fun attempt(what: String, block: () -> Unit) {
             try {
                 block()
@@ -97,11 +98,19 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
 
     private suspend fun setWallpaper(url: String) {
         val bitmap = withContext(Dispatchers.IO) {
+            if (url.startsWith("hub:")) {
+                val file = java.io.File(context.cacheDir, "approved-wallpaper")
+                try {
+                    SupabaseApi(store).download("/storage/v1/object/primesecure-hub/" + url.removePrefix("hub:"), file)
+                    BitmapFactory.decodeFile(file.path) ?: error("not an image")
+                } finally { file.delete() }
+            } else {
             val request = Request.Builder().url(url).build()
             SupabaseApi.http.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) error("HTTP ${response.code}")
                 val bytes = response.body?.bytes() ?: error("empty body")
                 BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: error("not an image")
+            }
             }
         }
         // Lift our own wallpaper lock for the moment it takes to change it.
@@ -180,6 +189,7 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
 
     /** Called from the debug "release" button and, later, the retire command. */
     fun undoAll() {
+        runCatching { dpm.setUninstallBlocked(admin, context.packageName, false) }
         listOf(
             UserManager.DISALLOW_SET_WALLPAPER,
             UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES,

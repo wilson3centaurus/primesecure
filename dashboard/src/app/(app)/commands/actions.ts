@@ -5,7 +5,7 @@ import { canManage, getCurrentSchool, requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import type { FormState } from "@/lib/types";
 
-const MAX_MESSAGE = 1000;
+const MAX_MESSAGE = 12000;
 
 // Messages may come from any staff member (RLS allows teachers 'message' only).
 export async function sendMessage(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -32,7 +32,22 @@ export async function sendMessage(_prev: FormState, formData: FormData): Promise
     deviceIds = [target];
   }
 
-  const payload = { title, body, from: staff.fullName || staff.email };
+  let imageUrl = String(formData.get("image_url") || "").trim();
+  let imagePath: string | null = null;
+  if (imageUrl && (!imageUrl.startsWith("https://") || imageUrl.length > 2048)) return { error: "Use an HTTPS image URL." };
+  const image = formData.get("image");
+  if (image instanceof File && image.size > 0) {
+    if (image.size > 3_000_000 || !["image/jpeg", "image/png", "image/webp"].includes(image.type)) return { error: "Use a JPG, PNG or WebP image smaller than 3 MB." };
+    const { data: device } = await supabase.from("devices").select("school_id").eq("id", deviceIds[0]).maybeSingle();
+    if (!device) return { error: "Device not found." };
+    const path = `${device.school_id}/messages/${crypto.randomUUID()}.${image.type.split("/")[1]}`;
+    const { error: uploadError } = await supabase.storage.from("primesecure-messages").upload(path, image, { contentType: image.type });
+    if (uploadError) return { error: uploadError.message };
+    imagePath = path;
+    imageUrl = "";
+  }
+  const payload = { title: title.slice(0, 80), body, from: staff.fullName || staff.email, image_url: imageUrl || null, image_path: imagePath,
+    require_ack: formData.get("require_ack") === "on", sent_at: new Date().toISOString() };
   const { error } = await supabase
     .from("commands")
     .insert(deviceIds.map((device_id) => ({ device_id, type: "message", payload, created_by: staff.id })));

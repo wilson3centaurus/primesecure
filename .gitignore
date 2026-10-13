@@ -12,3 +12,6 @@ agent/.idea/
 agent/.kotlin/
 *.jks
 *.keystore
+**/build-hub.log
+.vercel/
+artifacts/

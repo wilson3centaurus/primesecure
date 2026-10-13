@@ -16,6 +16,31 @@ import org.json.JSONObject
 
 object DeviceInfo {
 
+    fun batteryDiagnostics(context: Context): JSONObject {
+        val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val manager = context.getSystemService(BatteryManager::class.java)
+        val health = when (intent?.getIntExtra(BatteryManager.EXTRA_HEALTH, 1)) {
+            BatteryManager.BATTERY_HEALTH_GOOD -> "good"
+            BatteryManager.BATTERY_HEALTH_DEAD -> "dead"
+            BatteryManager.BATTERY_HEALTH_OVERHEAT -> "overheat"
+            BatteryManager.BATTERY_HEALTH_OVER_VOLTAGE -> "over_voltage"
+            BatteryManager.BATTERY_HEALTH_COLD -> "cold"
+            BatteryManager.BATTERY_HEALTH_UNSPECIFIED_FAILURE -> "failure"
+            else -> "unknown"
+        }
+        return JSONObject().apply {
+            put("health", health)
+            put("source", "Android BatteryManager")
+            if (intent?.hasExtra(BatteryManager.EXTRA_TEMPERATURE) == true) put("temperature_c", intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) / 10.0)
+            if (intent?.hasExtra(BatteryManager.EXTRA_VOLTAGE) == true) put("voltage_mv", intent.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0))
+            val charge = manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)
+            if (charge > 0) put("charge_uah", charge)
+            val current = manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
+            if (current != Int.MIN_VALUE) put("current_ua", current)
+            put("capacity_health_percent", JSONObject.NULL)
+        }
+    }
+
     /** As Device Owner we can grant ourselves runtime permissions without a prompt. */
     fun grantOwnPermissions(context: Context) {
         if (!AdminReceiver.isDeviceOwner(context)) return

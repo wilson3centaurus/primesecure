@@ -6,6 +6,7 @@ import { dateTime } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
 import type { App } from "@/lib/types";
 import { UploadApp } from "./upload-app";
+import { HubLibrary } from "@/components/hub-library";
 
 export const metadata: Metadata = { title: "Apps" };
 
@@ -26,7 +27,8 @@ export default async function AppsPage() {
 
   return (
     <>
-      <PageHeader title="Apps" description="APKs your school installs silently on its Primebooks. Remove apps from a device on its page." />
+      <HubLibrary kind="app" />
+      <div className="mt-10"><PageHeader title="Administrator deployments" description="Existing APK library for direct installs. Use the student library above for student choices and automatic installation." /></div>
       {manager && <div className="card mb-6 p-4"><UploadApp schoolId={school.id} /></div>}
       <div className="card divide-y divide-slate-100">
         {apps.length === 0 && <p className="p-4 text-sm text-slate-500">No apps in the library yet.</p>}

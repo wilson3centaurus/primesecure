@@ -58,7 +58,12 @@ object Notifications {
             .setContentText(body)
             .setStyle(Notification.BigTextStyle().bigText(body))
             .setContentIntent(pending)
-            .setFullScreenIntent(pending, true)
+            .apply {
+                if (HubStore(context).message(commandId)?.optJSONObject("payload")?.optBoolean("require_ack") == true) {
+                    setFullScreenIntent(pending, true)
+                    setOngoing(true)
+                }
+            }
             .setCategory(Notification.CATEGORY_MESSAGE)
             .setAutoCancel(true)
             .build()

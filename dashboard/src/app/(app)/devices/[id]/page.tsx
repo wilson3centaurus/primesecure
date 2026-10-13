@@ -96,6 +96,16 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
         </section>
 
         <div className="space-y-6">
+          <section className="card p-5">
+            <h2 className="mb-3 font-semibold">Battery diagnostics</h2>
+            {d.battery_diagnostics ? <><dl className="divide-y divide-slate-100">
+              <Row label="Android health status">{d.battery_diagnostics.health || "Not reported"}</Row>
+              <Row label="Temperature">{d.battery_diagnostics.temperature_c != null ? `${d.battery_diagnostics.temperature_c} °C` : "Unsupported"}</Row>
+              <Row label="Voltage">{d.battery_diagnostics.voltage_mv != null ? `${d.battery_diagnostics.voltage_mv} mV` : "Unsupported"}</Row>
+              <Row label="Remaining charge">{d.battery_diagnostics.charge_uah != null ? `${Math.round(d.battery_diagnostics.charge_uah / 1000)} mAh` : "Unsupported"}</Row>
+              <Row label="Reported">{dateTime(d.battery_diagnostics.reported_at || null)}</Row>
+            </dl><p className="mt-3 text-xs text-slate-500">Hardware-reported readings, not a battery lifespan test. “Good” does not guarantee full original capacity. Remaining capacity percentage is unavailable on this agent.</p></> : <p className="text-sm text-slate-500">Available after a check-in from agent 0.2.0 or later.</p>}
+          </section>
           {d.status !== "pending" && d.status !== "retired" && (
             <section className="card p-4">
               <h2 className="mb-3 font-semibold">Message the student</h2>

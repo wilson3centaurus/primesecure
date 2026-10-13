@@ -26,8 +26,19 @@ class AppInstaller(private val context: Context, private val store: AgentStore) 
         val path = payload.stringOrNull("storage_path") ?: throw IllegalArgumentException("no storage_path")
         val apk = File(context.cacheDir, "install-$commandId.apk")
         try {
-            SupabaseApi(store).download("/storage/v1/object/apks/$path", apk)
+            val bucket = payload.optString("bucket", "apks")
+            require(bucket in setOf("apks", "primesecure-hub")) { "Unsupported app source" }
+            if (bucket == "primesecure-hub") {
+                val catalog = SupabaseApi(store).rpc("device_hub").getJSONArray("items")
+                val approved = (0 until catalog.length()).map { catalog.getJSONObject(it) }.any {
+                    it.getString("id") == payload.optString("hub_item_id") && it.getString("kind") == "app" &&
+                        it.getString("storage_path") == path && it.getString("package_name") == payload.optString("package")
+                }
+                require(approved) { "App is no longer approved for this device" }
+            }
+            SupabaseApi(store).download("/storage/v1/object/$bucket/$path", apk)
             val info = archiveInfo(apk)
+            payload.stringOrNull("package")?.let { require(info.packageName == it) { "APK package does not match catalog" } }
             if (info.packageName == context.packageName) throw IllegalArgumentException("use the agent update instead")
             installFile(apk, info.packageName)
             return JSONObject()

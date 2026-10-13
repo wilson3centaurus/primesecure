@@ -28,6 +28,7 @@ export type Device = {
   status: DeviceStatus;
   battery_level: number | null;
   battery_charging: boolean | null;
+  battery_diagnostics: { health?: string; temperature_c?: number; voltage_mv?: number; charge_uah?: number; current_ua?: number; reported_at?: string } | null;
   last_seen_at: string | null;
   last_ip: string | null;
   enrolled_at: string | null;
@@ -90,6 +91,7 @@ export type Command = {
   created_at: string;
   delivered_at: string | null;
   executed_at: string | null;
+  acknowledged_at: string | null;
 };
 
 export type DeviceLocation = {

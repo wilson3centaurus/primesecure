@@ -374,3 +374,64 @@ test("realtime publication carries devices, commands and policies", async () => 
   const rows = (await db.query(`select tablename from pg_publication_tables where pubname = 'supabase_realtime' order by 1`)).rows;
   assert.deepEqual(rows.map((r) => r.tablename), ["commands", "devices", "policies"]);
 });
+
+test("student hub isolates private resources and requires school opt-in for shared content", async () => {
+  await db.query(`update devices set status='active' where id in ($1,$2)`, [ids.deviceA,ids.deviceB]);
+  const add = async (school, path) => (await db.query(`insert into hub_items(school_id,kind,title,storage_path,size) values($1,'resource','Math notes',$2,100) returning id`, [school,path])).rows[0].id;
+  const local = await add(ids.schoolA, `${ids.schoolA}/notes.pdf`);
+  const shared = await add(null, "shared/notes.pdf");
+  assert.equal((await as(ids.devA, `select * from hub_items where id=$1`,[local])).length,1);
+  assert.equal((await as(ids.devB, `select * from hub_items where id=$1`,[local])).length,0);
+  assert.equal((await as(ids.devA, `select * from hub_items where id=$1`,[shared])).length,0);
+  await as(ids.adminA, `insert into hub_access(item_id,school_id) values($1,$2)`,[shared,ids.schoolA]);
+  assert.equal((await as(ids.devA, `select * from hub_items where id=$1`,[shared])).length,1);
+  assert.equal((await as(ids.devB, `select * from hub_items where id=$1`,[shared])).length,0);
+  await rejects(as(ids.devA, `delete from hub_items where id=$1 returning *`,[local]).then(rows => { if (!rows.length) throw Error('permission denied'); }));
+  await rejects(as(ids.teacherA, `insert into hub_items(school_id,kind,title,storage_path,size) values($1,'resource','Forged',$2,10)`,[ids.schoolA,`${ids.schoolA}/forged`]));
+  await rejects(as(null, `select device_hub()`));
+  await as(ids.adminA, `delete from hub_access where item_id=$1 and school_id=$2`,[shared,ids.schoolA]);
+  assert.equal((await as(ids.devA, `select * from hub_items where id=$1`,[shared])).length,0);
+});
+
+test("student app installs require catalog approval, are deduplicated, and respect school boundaries", async () => {
+  await db.query(`update devices set status='active' where id=$1`, [ids.deviceA]);
+  const app = (await db.query(`insert into hub_items(school_id,kind,title,storage_path,size,package_name) values($1,'app','Calculator',$2,100,'school.calc') returning id`,[ids.schoolA,`${ids.schoolA}/calc.apk`])).rows[0].id;
+  const first = (await as(ids.devA, `select device_hub_action('install',$1) as result`,[app]))[0].result;
+  const second = (await as(ids.devA, `select device_hub_action('install',$1) as result`,[app]))[0].result;
+  assert.equal(first.command_id, second.command_id);
+  await assert.rejects(as(ids.devB, `select device_hub_action('install',$1)`,[app]), /not available/);
+  await db.query(`update hub_items set published=false where id=$1`,[app]);
+  await assert.rejects(as(ids.devA, `select device_hub_action('install',$1)`,[app]), /not available/);
+  await as(ids.devA, `select device_hub_action('request_app',null,'Geometry','For class')`);
+  assert.equal((await as(ids.adminA, `select * from hub_requests where name='Geometry'`)).length,1);
+  assert.equal((await as(ids.adminB, `select * from hub_requests where name='Geometry'`)).length,0);
+});
+
+test("message acknowledgements are durable, idempotent and device-specific", async () => {
+  const id = (await as(ids.teacherA, `insert into commands(device_id,type,payload) values($1,'message','{"body":"Please read","require_ack":true}') returning id`,[ids.deviceA]))[0].id;
+  await rejects(as(ids.devB, `select device_ack_message($1)`,[id]), /message not found/);
+  await as(ids.devA, `select device_ack_message($1)`,[id]);
+  const first = (await db.query(`select acknowledged_at from commands where id=$1`,[id])).rows[0].acknowledged_at;
+  await as(ids.devA, `select device_ack_message($1)`,[id]);
+  assert.deepEqual((await db.query(`select acknowledged_at from commands where id=$1`,[id])).rows[0].acknowledged_at,first);
+  await rejects(as(ids.adminA, `update commands set acknowledged_at=now() where id=$1`,[id]));
+  const inbox = (await as(ids.devA, `select device_message_history() as inbox`))[0].inbox.messages;
+  assert.ok(inbox.some(m => m.id === id && m.acknowledged_at));
+});
+
+test("master wallpapers are downloadable by devices while other shared content stays private", async () => {
+  const id = (await db.query(`insert into hub_items(kind,title,storage_path,size) values('wallpaper','Master','shared/master.png',100) returning id`)).rows[0].id;
+  await as(ids.super, `insert into hub_settings(scope,default_wallpaper_id) values('global',$1)`,[id]);
+  await db.query(`insert into storage.objects(bucket_id,name) values('primesecure-hub','shared/master.png')`);
+  assert.equal((await as(ids.devA, `select * from storage.objects where bucket_id='primesecure-hub' and name='shared/master.png'`)).length,1);
+  const result = (await as(ids.devA, `select device_hub() as hub`))[0].hub;
+  assert.equal(result.wallpaper.id,id);
+  await rejects(as(ids.adminA, `update hub_settings set allow_wallpaper_choice=false where scope='global' returning *`).then(rows => { if (!rows.length) throw Error('permission denied'); }));
+});
+
+test("battery telemetry is device-owned and cannot be forged by staff", async () => {
+  await as(ids.devA, `select device_battery_report('{"health":"good","temperature_c":32.4}')`);
+  const result = (await as(ids.adminA, `select battery_diagnostics from devices where id=$1`,[ids.deviceA]))[0].battery_diagnostics;
+  assert.equal(result.health,"good"); assert.ok(result.reported_at);
+  await rejects(as(ids.adminA, `update devices set battery_diagnostics='{}' where id=$1`,[ids.deviceA]));
+});
