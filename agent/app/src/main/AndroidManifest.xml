@@ -43,7 +43,7 @@
     <application
         android:name=".AgentApp"
         android:label="PrimeSecure"
-        android:icon="@android:drawable/ic_lock_lock"
+        android:icon="@drawable/primebook"
         android:allowBackup="false"
         android:testOnly="${testOnly}"
         android:usesCleartextTraffic="${cleartext}">

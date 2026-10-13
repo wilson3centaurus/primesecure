@@ -9,6 +9,7 @@ import java.io.File
 class HubStore(private val context: Context) {
     private val prefs = context.getSharedPreferences("student-hub", Context.MODE_PRIVATE)
     init {
+      synchronized(bindingLock) {
         val device = AgentStore(context).deviceId
         if (prefs.getString("device", null) != device) {
             prefs.edit().clear().putString("device", device).commit()
@@ -16,6 +17,7 @@ class HubStore(private val context: Context) {
             File(context.filesDir, "school-notes").listFiles()?.forEach { it.delete() }
             context.filesDir.listFiles()?.filter { it.name.startsWith("message-image-") }?.forEach { it.delete() }
         }
+      }
     }
     var catalog: JSONObject
         get() = JSONObject(prefs.getString("catalog", "{}")!!)
@@ -51,4 +53,5 @@ class HubStore(private val context: Context) {
         val array = catalog.optJSONArray("items") ?: JSONArray()
         return (0 until array.length()).map { array.getJSONObject(it) }
     }
+    companion object { private val bindingLock = Any() }
 }
