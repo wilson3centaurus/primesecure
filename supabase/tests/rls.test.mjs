@@ -435,3 +435,59 @@ test("battery telemetry is device-owned and cannot be forged by staff", async ()
   assert.equal(result.health,"good"); assert.ok(result.reported_at);
   await rejects(as(ids.adminA, `update devices set battery_diagnostics='{}' where id=$1`,[ids.deviceA]));
 });
+
+test('student numbers are generated while existing IDs are preserved',async()=>{
+ const rows=await as(ids.adminA,`insert into devices(school_id,student_name,form_level,class_name,gender) values($1,'New learner','Form 2','2B','Female') returning student_id,form_level,class_name`,[ids.schoolA]);
+ assert.match(rows[0].student_id,/^PS-\d{4}-\d+$/);assert.equal(rows[0].class_name,'2B');
+ await rejects(as(ids.teacherA,`insert into devices(school_id,student_name) values($1,'Denied')`,[ids.schoolA]));
+});
+test('emergency profiles are private to the device and school administrators',async()=>{
+ const profile={dob:'2010-04-20',home_address:'School Road',mother_phone:'0771234567',father_phone:'',personal_phone:''};
+ await as(ids.devA,`select device_student_profile($1::jsonb)`,[JSON.stringify(profile)]);
+ assert.equal((await as(ids.adminA,'select * from student_records')).length,1);
+ assert.equal((await as(ids.teacherA,'select * from student_records')).length,0);
+ assert.equal((await as(ids.adminB,'select * from student_records')).length,0);
+ assert.equal((await as(ids.devB,'select * from student_records')).length,0);
+ const hub=(await as(ids.devA,'select device_hub() value'))[0].value;
+ assert.equal(hub.student_profile.home_address,'School Road');assert.equal(hub.school_name,'Rusununguko');
+ await rejects(as(ids.stray,`select device_student_profile($1::jsonb)`,[JSON.stringify(profile)]));
+ await rejects(as(ids.devA,`update student_records set home_address='forged'`));
+});
+test('seen receipts are idempotent and cannot be forged for another device',async()=>{
+ const cmd=(await as(ids.adminA,`insert into commands(device_id,type,payload) values($1,'message','{"body":"Receipt test"}') returning id`,[ids.deviceA]))[0].id;
+ await as(ids.devA,'select device_message_seen($1)',[cmd]);
+ const first=(await as(ids.adminA,'select seen_at from commands where id=$1',[cmd]))[0].seen_at;
+ await as(ids.devA,'select device_message_seen($1)',[cmd]);
+ assert.equal(String((await as(ids.adminA,'select seen_at from commands where id=$1',[cmd]))[0].seen_at),String(first));
+ await rejects(as(ids.devB,'select device_message_seen($1)',[cmd]),/message not found/);
+ await rejects(as(ids.adminA,'update commands set seen_at=now() where id=$1',[cmd]));
+});
+test('anonymous-marked replies preserve device identity and school isolation',async()=>{
+ const cmd=(await as(ids.adminA,`insert into commands(device_id,type,payload) values($1,'message','{"body":"Reply test"}') returning id`,[ids.deviceA]))[0].id;
+ await as(ids.devA,'select device_message_reply($1,$2,true)',[cmd,'I need help']);
+ const row=(await as(ids.adminA,'select * from message_replies'))[0];assert.equal(row.device_id,ids.deviceA);assert.equal(row.anonymous,true);
+ assert.equal((await as(ids.adminB,'select * from message_replies')).length,0);
+ assert.equal((await as(ids.devB,'select * from message_replies')).length,0);
+ await rejects(as(ids.devB,'select device_message_reply($1,$2,false)',[cmd,'Forged']),/message not found/);
+ await rejects(as(ids.devA,'insert into message_replies(command_id,device_id,school_id,body) values($1,$2,$3,$4)',[cmd,ids.deviceB,ids.schoolA,'Forged']));
+});
+test('cached files remain school-admin only and reject malformed snapshots',async()=>{
+ const snapshot={entries:[{path:'Pictures/test.jpg',name:'test.jpg',parent:'Pictures',dir:false,size:100,modified:1,kind:'image'}],truncated:false};
+ await as(ids.devA,'select device_file_snapshot($1::jsonb)',[JSON.stringify(snapshot)]);
+ assert.equal((await as(ids.adminA,'select * from device_file_cache')).length,1);
+ for(const role of ['teacherA','adminB','devB','stray'])assert.equal((await as(ids[role],'select * from device_file_cache')).length,0);
+ await rejects(as(ids.devA,'select device_file_snapshot($1::jsonb)',[JSON.stringify({entries:[{...snapshot.entries[0],path:'../secret'}]})]),/Invalid entry/);
+ await rejects(as(ids.devA,'select device_file_snapshot($1::jsonb)',[JSON.stringify({entries:[{}]})]),/Invalid entry/);
+ await rejects(as(null,'select device_file_snapshot($1::jsonb)',[JSON.stringify(snapshot)]));
+});
+
+test('durable app imports are school-scoped and worker status cannot be forged',async()=>{
+ const row=(await as(ids.adminA,`insert into app_imports(school_id,package_id,created_by) values($1,'org.example.app',$2) returning id,status`,[ids.schoolA,ids.adminA]))[0];
+ assert.equal(row.status,'queued');
+ assert.equal((await as(ids.adminB,'select * from app_imports')).length,0);
+ assert.equal((await as(ids.teacherA,'select * from app_imports')).length,0);
+ await rejects(as(ids.adminA,'update app_imports set status=\'succeeded\' where id=$1',[row.id]));
+ await rejects(as(ids.adminA,`insert into app_imports(school_id,package_id,created_by) values($1,'org.example.foreign',$2)`,[ids.schoolB,ids.adminA]));
+ await rejects(as(ids.devA,`insert into app_imports(school_id,package_id,created_by) values($1,'org.example.device',$2)`,[ids.schoolA,ids.adminA]));
+ await rejects(as(ids.adminA,`insert into app_imports(school_id,package_id,created_by,status) values($1,'org.example.forged',$2,'succeeded')`,[ids.schoolA,ids.adminA]));
+});

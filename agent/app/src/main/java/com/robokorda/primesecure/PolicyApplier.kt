@@ -58,6 +58,9 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
         if (wallpaperUrl == null) store.appliedWallpaperUrl = null
 
         attempt("lock wallpaper") { restrict(UserManager.DISALLOW_SET_WALLPAPER, lockWallpaper) }
+        val management=policy.optJSONObject("hub_management") ?: JSONObject()
+        attempt("USB storage") { restrict(UserManager.DISALLOW_MOUNT_PHYSICAL_MEDIA,management.optBoolean("block_usb_storage")) }
+        attempt("USB file transfer") { restrict(UserManager.DISALLOW_USB_FILE_TRANSFER,management.optBoolean("block_usb_transfer")) }
         attempt("block installs") {
             restrict(UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES, blockInstalls)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -68,7 +71,7 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
         var hiddenCount = 0
         attempt("app visibility") {
             hiddenCount = applyAppVisibility(
-                hidden = policy.stringSet("hidden_apps"),
+                hidden = policy.stringSet("hidden_apps") + if(management.optBoolean("hide_file_managers")) fileManagerPackages() else emptySet(),
                 allowed = policy.stringSet("allowed_apps"),
                 hideSettings = hideSettings || suspended,
                 allowListOnly = suspended,
@@ -166,6 +169,10 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         return pm.queryIntentActivities(intent, 0).map { it.activityInfo.packageName }.toSet()
     }
+    private fun fileManagerPackages():Set<String> = setOf("com.android.documentsui","com.google.android.documentsui","com.cxinventor.file.explorer","com.floydwiz.filemanager","com.floydwiz.fileexplorer") +
+        pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER),0).filter {
+            it.loadLabel(pm).toString().lowercase() in setOf("files","file manager","file explorer","filemanager","fileexplorer")
+        }.map { it.activityInfo.packageName }.filter { it!=context.packageName }
 
     /** Never hide these, whatever the policy says, or the laptop becomes unusable. */
     private fun protectedPackages(hideSettings: Boolean): Set<String> = buildSet {
@@ -193,6 +200,8 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
         listOf(
             UserManager.DISALLOW_SET_WALLPAPER,
             UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES,
+            UserManager.DISALLOW_USB_FILE_TRANSFER,
+            UserManager.DISALLOW_MOUNT_PHYSICAL_MEDIA,
         ).forEach { runCatching { dpm.clearUserRestriction(admin, it) } }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             runCatching { dpm.clearUserRestriction(admin, UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES_GLOBALLY) }

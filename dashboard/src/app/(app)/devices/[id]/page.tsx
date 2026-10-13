@@ -44,6 +44,7 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
   const installed = [...(d.installed_apps ?? [])].sort((a, b) => Number(a.system) - Number(b.system) || a.label.localeCompare(b.label));
   const enrolled = d.status !== "pending" && d.status !== "retired";
   const tokenValid = d.enroll_token && d.enroll_token_expires_at && new Date(d.enroll_token_expires_at) > new Date();
+  const {data:studentRecord}=manager?await supabase.from('student_records').select('*').eq('device_id',d.id).maybeSingle():{data:null};
 
   return (
     <>
@@ -61,6 +62,8 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
           <h2 className="mb-2 font-semibold">Device</h2>
           <dl className="divide-y divide-slate-100">
             <Row label="Model">{[d.manufacturer, d.model].filter(Boolean).join(" ") || null}</Row>
+            <Row label="Form / class">{[d.form_level,d.class_name].filter(Boolean).join(' / ')||'Not assigned'}</Row>
+            <Row label="Prime ID">{d.id}</Row>
             <Row label="Serial">{d.serial}</Row>
             <Row label="Android ID">{d.android_id}</Row>
             <Row label="OS">{d.os_version}</Row>
@@ -163,7 +166,8 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
           {manager && (
             <section className="card p-4">
               <h2 className="mb-3 font-semibold">Student</h2>
-              <StudentForm id={d.id} name={d.student_name} studentId={d.student_id} />
+              <StudentForm id={d.id} name={d.student_name} studentId={d.student_id} formLevel={d.form_level} className={d.class_name} gender={d.gender} />
+              <h3 className="mt-6 mb-3 font-semibold">Emergency record</h3>{studentRecord?<dl className="divide-y divide-slate-100"><Row label="Date of birth">{studentRecord.dob}</Row><Row label="Home address">{studentRecord.home_address}</Row><Row label="Mother / guardian">{studentRecord.mother_phone||'Not provided'}</Row><Row label="Father / guardian">{studentRecord.father_phone||'Not provided'}</Row><Row label="Student phone">{studentRecord.personal_phone||'Not provided'}</Row></dl>:<p className="text-sm text-slate-400">The student will complete emergency details when the updated app is opened.</p>}
             </section>
           )}
 

@@ -25,6 +25,9 @@ export type Device = {
   agent_version: string | null;
   student_name: string | null;
   student_id: string | null;
+  form_level: string;
+  class_name: string;
+  gender: string;
   status: DeviceStatus;
   battery_level: number | null;
   battery_charging: boolean | null;
@@ -92,6 +95,7 @@ export type Command = {
   delivered_at: string | null;
   executed_at: string | null;
   acknowledged_at: string | null;
+  seen_at: string | null;
 };
 
 export type DeviceLocation = {

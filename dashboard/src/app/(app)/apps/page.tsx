@@ -9,6 +9,7 @@ import { UploadApp } from "./upload-app";
 import { HubLibrary } from "@/components/hub-library";
 
 export const metadata: Metadata = { title: "Apps" };
+export const maxDuration = 120;
 
 function size(bytes: number | null) {
   if (!bytes) return "";

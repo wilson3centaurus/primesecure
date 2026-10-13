@@ -19,9 +19,10 @@ export function AddDevicesForm() {
         <div>
           <label htmlFor="students" className="label">Students, one per line</label>
           <textarea id="students" name="students" rows={5} required className="input font-mono"
-            placeholder={"Tendai Moyo, F3-014\nRutendo Ncube, F3-015"} />
-          <p className="mt-1 text-xs text-slate-500">Optional student ID after a comma. Each line gets its own enroll token.</p>
+            placeholder={"Tendai Moyo, Form 3, 3A, Male\nRutendo Ncube, Form 3, 3B, Female"} />
+          <p className="mt-1 text-xs text-slate-500">Name, form, class, gender. Student numbers are generated automatically. You can enter names only and use the defaults below.</p>
         </div>
+        <div className="grid grid-cols-3 gap-3"><label className="label">Default form<select name="form_level" className="input"><option value="">Choose form</option>{[1,2,3,4,5,6].map(n=><option key={n}>Form {n}</option>)}</select></label><label className="label">Default class<input name="class_name" className="input" placeholder="3A"/></label><label className="label">Default gender<select name="gender" className="input"><option value="">Not specified</option><option>Female</option><option>Male</option><option>Other</option></select></label></div>
         <div className="flex gap-2">
           <SubmitButton pending="Adding…">Create devices</SubmitButton>
           <button type="button" className="btn-secondary" onClick={() => setOpen(false)}>Close</button>

@@ -60,6 +60,8 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
             WorkManager.getInstance(context).cancelUniqueWork(NOW)
             WorkManager.getInstance(context).cancelUniqueWork("student-hub-sync")
             WorkManager.getInstance(context).cancelUniqueWork("message-acknowledgements")
+            WorkManager.getInstance(context).cancelUniqueWork("device-telemetry-now")
+            WorkManager.getInstance(context).cancelUniqueWork("device-telemetry")
         }
 
         /** One heartbeat: report device state, receive status + policy, apply it, run queued commands. */
@@ -94,6 +96,7 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                         hidden.put("com.floydwiz.primestore")
                         policy.put("hidden_apps", hidden).put("block_installs", true)
                     }
+                    hub.optJSONObject("management")?.let { policy.put("hub_management",it) }
                     SupabaseApi(store).rpc("device_battery_report", JSONObject().put("p_readings", DeviceInfo.batteryDiagnostics(context)))
                 }.onFailure { HubStore(context).syncError = it.message }
                 store.lastPolicySummary = PolicyApplier(context, store).apply(policy, suspended = status == "suspended")
@@ -102,6 +105,7 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 store.lastError = null
                 if (response.optInt("pending_commands", 0) > 0) CommandRunner(context, store).runPending()
                 HubSync.schedule(context)
+                TelemetryWorker.schedule(context)
                 // Last: a successful update replaces this process.
                 SelfUpdater.maybeUpdate(context, store, response.optJSONObject("agent_update"))
                 return response

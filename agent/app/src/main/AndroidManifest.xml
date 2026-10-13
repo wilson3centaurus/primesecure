@@ -64,6 +64,7 @@
             android:authorities="${applicationId}.resources" android:exported="false" android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/resource_paths" />
         </provider>
+        <activity android:name=".PdfActivity" android:exported="false" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
 
         <activity
             android:name=".BrowserActivity"

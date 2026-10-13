@@ -13,5 +13,7 @@ agent/.kotlin/
 *.jks
 *.keystore
 **/build-hub.log
+**/build-campus.log
 .vercel/
 artifacts/
+__pycache__/

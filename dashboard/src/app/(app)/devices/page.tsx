@@ -32,8 +32,11 @@ export default async function DevicesPage({ searchParams }: PageProps<"/devices"
     .order("student_name", { ascending: true, nullsFirst: false })
     .limit(2000);
   const all = (data ?? []) as Device[];
+  const levels=[...new Set(all.map(d=>d.form_level).filter(Boolean))].sort(), classes=[...new Set(all.map(d=>d.class_name).filter(Boolean))].sort(), genders=[...new Set(all.map(d=>d.gender).filter(Boolean))].sort();
+  const selectedForm=String(sp.form_level||''),selectedClass=String(sp.class_name||''),selectedGender=String(sp.gender||'');
 
   const { counts, devices } = filterDevices(all, filter, q);
+  const grouped=devices.filter(d=>(!selectedForm||d.form_level===selectedForm)&&(!selectedClass||d.class_name===selectedClass)&&(!selectedGender||d.gender===selectedGender));
 
   return (
     <>
@@ -60,6 +63,7 @@ export default async function DevicesPage({ searchParams }: PageProps<"/devices"
         </form>
       </div>
 
+      <form className="card mb-5 flex flex-wrap gap-3 p-4"><input type="hidden" name="q" value={q}/><input type="hidden" name="filter" value={filter}/>{[['form_level','All forms',levels,selectedForm],['class_name','All classes',classes,selectedClass],['gender','All genders',genders,selectedGender]].map(([name,label,options,value])=><select key={String(name)} name={String(name)} defaultValue={String(value)} className="input w-auto" aria-label={String(label)}><option value="">{String(label)}</option>{(options as string[]).map(v=><option key={v}>{v}</option>)}</select>)}<button className="btn-primary">Apply filters</button><span className="self-center text-xs text-slate-400">{grouped.length} students</span></form>
       <div className="card overflow-x-auto">
         <table className="w-full min-w-[720px] text-sm">
           <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs tracking-wide text-slate-500 uppercase">
@@ -73,14 +77,15 @@ export default async function DevicesPage({ searchParams }: PageProps<"/devices"
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {devices.length === 0 && (
+            {grouped.length === 0 && (
               <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-500">No devices match.</td></tr>
             )}
-            {devices.map((d) => (
+            {grouped.map((d) => (
               <tr key={d.id} className="hover:bg-slate-50">
                 <td className="px-4 py-2">
                   <Link href={`/devices/${d.id}`} className="font-medium text-brand-700 hover:underline">{deviceLabel(d)}</Link>
                   {d.student_id && <div className="text-xs text-slate-500">{d.student_id}</div>}
+                  <div className="mt-1 text-xs text-slate-400">{[d.form_level,d.class_name,d.gender].filter(Boolean).join(' · ')}</div>
                 </td>
                 <td className="px-4 py-2"><StatusBadge status={d.status} /></td>
                 <td className="px-4 py-2">{d.status === "pending" ? <span className="text-slate-400">—</span> : <OnlineDot device={d} />}</td>

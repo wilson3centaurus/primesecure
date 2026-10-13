@@ -14,7 +14,12 @@ body {
   @apply bg-slate-50 text-slate-900;
   background: #f4f6fb;
 }
-.app-sidebar { background: linear-gradient(165deg, #191942 0%, #182238 100%); }
+.app-sidebar { background: linear-gradient(170deg, #152744 0%, #1d304e 100%); }
+.folder-tile { display:flex; flex-direction:column; align-items:flex-start; text-align:left; padding:22px; border:1px solid #e7ebf2; border-radius:16px; background:#fff; transition:transform .16s,box-shadow .16s; }
+.folder-tile:hover { transform:translateY(-3px); box-shadow:0 10px 30px #233c6810; border-color:#d5dced; }
+.dashboard-hero { background:linear-gradient(110deg,#5147bb,#7563d9 60%,#90a3ec); border-radius:24px; color:white; position:relative; overflow:hidden; }
+.dashboard-hero::after { content:""; position:absolute; right:-70px; top:-100px; width:340px; height:340px; border-radius:50%; border:65px solid #ffffff0a; pointer-events:none; }
+.stat-card { border:1px solid #e7ebf2; border-radius:20px; background:white; padding:24px; }
 
 @utility btn {
   @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
@@ -29,11 +34,11 @@ body {
   @apply btn bg-red-600 text-white hover:bg-red-700;
 }
 @utility input {
-  @apply block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-100 focus:outline-none;
+  @apply block w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-100 focus:outline-none;
 }
 @utility label {
   @apply mb-1 block text-sm font-medium text-slate-700;
 }
 @utility card {
-  @apply rounded-2xl border border-slate-200/80 bg-white shadow-sm;
+  @apply rounded-[20px] border border-slate-200/70 bg-white shadow-[0_4px_20px_#23375904];
 }

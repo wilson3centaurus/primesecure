@@ -16,6 +16,8 @@ class HubStore(private val context: Context) {
             // These are only our own downloaded school files, never user documents.
             File(context.filesDir, "school-notes").listFiles()?.forEach { it.delete() }
             context.filesDir.listFiles()?.filter { it.name.startsWith("message-image-") }?.forEach { it.delete() }
+            context.filesDir.listFiles()?.filter { it.name.startsWith("hub-preview-") }?.forEach { it.delete() }
+            File(context.filesDir,"file-inventory.json").delete()
         }
       }
     }
@@ -26,6 +28,7 @@ class HubStore(private val context: Context) {
         get() = prefs.getString("sync_error", null)
         set(value) { prefs.edit().putString("sync_error", value).apply() }
     fun hidden(key: String) = prefs.getBoolean("hidden:$key", false)
+    fun hiddenKeys() = prefs.all.keys.filter { it.startsWith("hidden:") && prefs.getBoolean(it,false) }.map { it.removePrefix("hidden:") }
     fun hide(key: String, value: Boolean) { prefs.edit().putBoolean("hidden:$key", value).commit() }
     fun saveMessage(id: String, payload: JSONObject, created: String) {
         if (message(id) != null) return
@@ -42,6 +45,11 @@ class HubStore(private val context: Context) {
     }
     fun pending(): JSONObject? = messages().lastOrNull {
         it.optJSONObject("payload")?.optBoolean("require_ack", false) == true && !it.optBoolean("acknowledged")
+    }
+    fun seen(id:String,synced:Boolean=false) {
+        val message=message(id) ?: return
+        message.put("seen",true).put("seen_synced",synced)
+        prefs.edit().putString("message:$id",message.toString()).commit()
     }
     fun resourceFile(item: JSONObject): File {
         val id = java.util.UUID.fromString(item.getString("id")).toString()

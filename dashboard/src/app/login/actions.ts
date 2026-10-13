@@ -12,7 +12,7 @@ export async function signIn(_prev: FormState, formData: FormData): Promise<Form
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) return { error: "Wrong email or password." };
-  redirect("/devices");
+  redirect("/overview");
 }
 
 export async function signOut() {

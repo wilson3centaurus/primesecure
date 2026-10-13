@@ -25,6 +25,7 @@ class AgentService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var realtime: RealtimeClient? = null
     private var pendingCheckIn: Job? = null
+    private var telemetryLoop: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -50,6 +51,7 @@ class AgentService : Service() {
             ).also { it.start() }
         }
         return START_STICKY
+            .also { if (telemetryLoop == null) telemetryLoop = scope.launch { while (true) { delay(5 * 60_000L); TelemetryWorker.schedule(this@AgentService) } } }
     }
 
     private fun onChange(store: AgentStore, table: String, record: JSONObject?) {

@@ -9,8 +9,11 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@devicefarmer/adbkit-apkreader": "3.2.4",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.117.3",
+    "fflate": "0.8.3",
+    "lucide-react": "1.56.0",
     "next": "16.4.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",

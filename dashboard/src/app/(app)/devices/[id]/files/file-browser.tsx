@@ -137,3 +137,8 @@ export function FileBrowser({ deviceId, schoolId }: { deviceId: string; schoolId
     </div>
   );
 }
+
+export function LiveFileTools({deviceId,schoolId}:{deviceId:string;schoolId:string}) {
+ const [open,setOpen]=useState(false);
+ return <div className="mt-7"><button className="btn-secondary" onClick={()=>setOpen(!open)}>{open?'Close live tools':'Live file operations · online device required'}</button>{open&&<div className="mt-4"><FileBrowser deviceId={deviceId} schoolId={schoolId}/></div>}</div>;
+}

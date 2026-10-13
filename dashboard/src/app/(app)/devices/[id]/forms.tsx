@@ -5,7 +5,7 @@ import { deleteDevice, issueToken, updateStudent } from "../actions";
 import { FormMessage } from "@/components/form-message";
 import { SubmitButton } from "@/components/submit-button";
 
-export function StudentForm({ id, name, studentId }: { id: string; name: string | null; studentId: string | null }) {
+export function StudentForm({ id, name, studentId,formLevel,className,gender }: { id: string; name: string | null; studentId: string | null; formLevel:string;className:string;gender:string }) {
   const [state, action] = useActionState(updateStudent, undefined);
   return (
     <form action={action} className="space-y-3">
@@ -20,6 +20,7 @@ export function StudentForm({ id, name, studentId }: { id: string; name: string 
           <input id="student_id" name="student_id" defaultValue={studentId ?? ""} className="input" />
         </div>
       </div>
+      <div className="grid gap-3 sm:grid-cols-3"><label className="label">Form<input name="form_level" defaultValue={formLevel} className="input mt-1"/></label><label className="label">Class<input name="class_name" defaultValue={className} className="input mt-1"/></label><label className="label">Gender<select name="gender" defaultValue={gender} className="input mt-1"><option value="">Not specified</option><option>Female</option><option>Male</option><option>Other</option></select></label></div>
       <div className="flex items-center gap-3">
         <SubmitButton className="btn-secondary">Save</SubmitButton>
         <FormMessage state={state} />

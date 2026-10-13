@@ -11,6 +11,10 @@ class MessageAckWorker(context: Context, params: WorkerParameters) : CoroutineWo
         if (!store.isEnrolled) return Result.success()
         val hub = HubStore(applicationContext)
         return try {
+            for(message in hub.messages().filter { it.optBoolean("seen") && !it.optBoolean("seen_synced") }) {
+                SupabaseApi(store).rpc("device_message_seen",JSONObject().put("p_command_id",message.getString("id")))
+                hub.seen(message.getString("id"),true)
+            }
             for (message in hub.messages().filter { it.optBoolean("acknowledged") && !it.optBoolean("ack_synced") }) {
                 SupabaseApi(store).rpc("device_ack_message", JSONObject().put("p_command_id", message.getString("id")))
                 hub.acknowledge(message.getString("id"), true)

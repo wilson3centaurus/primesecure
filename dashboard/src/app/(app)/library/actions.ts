@@ -4,26 +4,35 @@ import { revalidatePath } from "next/cache";
 import { canManage, getCurrentSchool, requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import type { FormState } from "@/lib/types";
+import { inspectApk } from "@/lib/apk";
 
-export async function publishItem(input: { kind: string; title: string; description: string; form: string; subject: string; category: string; path: string; mime: string; size: number; packageName: string; shared: boolean; preinstall: boolean }): Promise<FormState> {
+export async function publishItem(input: { kind: string; title: string; description: string; form: string; subject: string; category: string; path: string; mime: string; size: number; packageName?: string; shared: boolean; preinstall: boolean }): Promise<FormState> {
   const staff = await requireStaff();
   const school = await getCurrentSchool();
   if (!school || !canManage(staff, school.id) || (input.shared && staff.role !== "super_admin")) return { error: "Administrator access required." };
   const prefix = input.shared ? "shared" : school.id;
   if (!input.path.startsWith(`${prefix}/`) || input.path.includes("..") || !["resource", "wallpaper", "app"].includes(input.kind)) return { error: "Invalid upload." };
-  if (!input.title.trim() || input.title.length > 160 || input.description.length > 2000) return { error: "Enter a title of up to 160 characters and description of up to 2,000." };
+  if ((!input.title.trim() && input.kind!=="app") || input.title.length > 160 || input.description.length > 2000) return { error: "Enter a title of up to 160 characters and description of up to 2,000." };
   if (input.kind === "wallpaper" && !["image/jpeg", "image/png", "image/webp"].includes(input.mime)) return { error: "Wallpapers must be JPG, PNG or WebP." };
-  if (input.kind === "app" && !/^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/.test(input.packageName)) return { error: "Enter the APK's Android package name." };
   const supabase = await createClient();
   const slash = input.path.lastIndexOf("/");
   const { data: files, error: fileError } = await supabase.storage.from("primesecure-hub").list(input.path.slice(0, slash), { search: input.path.slice(slash + 1) });
   const uploaded = files?.find(f => f.name === input.path.slice(slash + 1));
   if (fileError || !uploaded || Number(uploaded.metadata?.size) !== input.size) return { error: "Upload could not be verified. Please upload again." };
+  let apk: Awaited<ReturnType<typeof inspectApk>> | undefined;
+  if(input.kind==="app") {
+    if(input.size>250_000_000)return {error:"Choose an APK smaller than 250 MB."};
+    const {data:blob,error:downloadError}=await supabase.storage.from("primesecure-hub").download(input.path);
+    if(downloadError || !blob)return {error:downloadError?.message||"Could not read APK."};
+    try { apk=await inspectApk(Buffer.from(await blob.arrayBuffer()),input.path.slice(slash+1)); }
+    catch(e){return {error:e instanceof Error?e.message:"Could not inspect APK."};}
+  }
   const { error } = await supabase.from("hub_items").insert({
-    school_id: input.shared ? null : school.id, kind: input.kind, title: input.title.trim(), description: input.description,
+    school_id: input.shared ? null : school.id, kind: input.kind, title: (input.title.trim()||apk?.title||"App").slice(0,160), description: input.description,
     form_level: input.form.slice(0, 80), subject: input.subject.slice(0, 100), category: input.category.slice(0, 80),
     storage_path: input.path, mime_type: input.mime, size: input.size,
-    package_name: input.kind === "app" ? input.packageName : null, preinstall: input.kind === "app" && input.preinstall,
+    package_name: apk?.packageName || null, preinstall: input.kind === "app" && input.preinstall,
+    version_name:apk?.version,icon_data:apk?.icon,sha256:apk?.sha256,
   });
   if (error) return { error: error.message };
   revalidatePath("/library"); revalidatePath("/wallpapers"); revalidatePath("/apps");

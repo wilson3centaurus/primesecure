@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <files-path name="school-notes" path="school-notes/" />
+    <external-path name="student-files" path="." />
+    <!-- Provider is non-exported; native path validation precedes each exact, read-only URI grant. -->
+    <root-path name="removable-media" path="storage/" />
 </paths>

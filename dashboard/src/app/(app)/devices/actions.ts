@@ -20,8 +20,8 @@ export async function addDevices(_prev: AddDevicesState, formData: FormData): Pr
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const [name, id] = line.split(",").map((p) => p.trim());
-      return { school_id: school.id, student_name: name || null, student_id: id || null };
+      const [name, form, klass, gender] = line.split(",").map((p) => p.trim());
+      return { school_id: school.id, student_name: name.slice(0,160) || null, form_level:(form || String(formData.get('form_level')||'')).slice(0,80), class_name:(klass || String(formData.get('class_name')||'')).slice(0,80), gender:(gender || String(formData.get('gender')||'')).slice(0,40) };
     });
   if (rows.length === 0) return { error: "Enter at least one student name." };
   if (rows.length > 200) return { error: "Add at most 200 devices at a time." };
@@ -55,6 +55,9 @@ export async function updateStudent(_prev: FormState, formData: FormData): Promi
     .update({
       student_name: String(formData.get("student_name") ?? "").trim() || null,
       student_id: String(formData.get("student_id") ?? "").trim() || null,
+      form_level:String(formData.get('form_level')||'').trim().slice(0,80),
+      class_name:String(formData.get('class_name')||'').trim().slice(0,80),
+      gender:String(formData.get('gender')||'').trim().slice(0,40),
     })
     .eq("id", id);
   if (error) return { error: error.message };

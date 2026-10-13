@@ -1,0 +1,20 @@
+[Unit]
+Description=PrimeSecure verified catalog app imports
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/primesecure
+ExecStart=/usr/bin/python3 /opt/primesecure/import-apps.py
+Restart=on-failure
+RestartSec=10
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

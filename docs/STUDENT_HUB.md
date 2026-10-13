@@ -1,5 +1,7 @@
 # PrimeSecure student hub (agent 0.2.0)
 
+For the redesigned student/admin workspace, automatic APK metadata, replies and cached file inventory in agent 0.3.0, see [Campus workspace](CAMPUS_WORKSPACE.md). The workflows below describe the original 0.2.0 release.
+
 The existing agent APK now includes the student hub. Updating an enrolled device preserves enrollment; new enrollment opens the hub automatically. Its launcher entry is PrimeSecure. The management/enrollment activity no longer exposes configuration or the debug release button once enrolled.
 
 ## Dashboard workflows
