@@ -10,6 +10,8 @@ import android.os.Build
 import android.os.UserManager
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.io.File
 import java.util.UUID
@@ -65,7 +67,7 @@ class AppInstaller(private val context: Context, private val store: AgentStore) 
     }
 
     /** Installs (or updates) [apk] silently; suspends until PackageInstaller reports back. */
-    suspend fun installFile(apk: File, packageName: String) {
+    suspend fun installFile(apk: File, packageName: String) = installation.withLock {
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
         params.setAppPackageName(packageName)
         params.setSize(apk.length())
@@ -83,6 +85,7 @@ class AppInstaller(private val context: Context, private val store: AgentStore) 
             }
         }
     }
+    companion object { private val installation = Mutex() }
 
     suspend fun uninstall(payload: JSONObject): JSONObject {
         val pkg = payload.stringOrNull("package") ?: throw IllegalArgumentException("no package")

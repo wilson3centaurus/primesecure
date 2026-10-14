@@ -15,7 +15,7 @@ class OfflineWorker(context: Context, params: WorkerParameters) : CoroutineWorke
         if (!store.isEnrolled || store.lastStatus == "retired") return@withLock Result.success()
         val hub = HubStore(applicationContext); val tasks = HubTasks(applicationContext); val api = SupabaseApi(store)
         val device = store.deviceId
-        for (task in tasks.pending().filter { it.optString("action") !in setOf("download", "admin_command") }) {
+        for (task in tasks.pending().filter { it.optString("action") !in setOf("download", "admin_command") }.sortedBy { if(it.optString("action")=="install")1 else 0 }) {
             if (store.deviceId != device) return@withLock Result.success()
             val id = task.getString("id"); val action = task.getString("action"); val payload = task.getJSONObject("payload")
             try {

@@ -39,7 +39,8 @@ class CommandRunner(private val context: Context, private val store: AgentStore)
                 else -> execute(id,type,payload)
             }
         } catch (e: Exception) {
-            "failed" to JSONObject().put("error", e.message ?: e.javaClass.simpleName)
+            if(e is kotlinx.coroutines.CancellationException)throw e
+            "failed" to JSONObject().put("error", Connectivity.message(e))
         }
         if (taskId != null) HubTasks(context).update(taskId, if(status=="succeeded") if(type=="install_apk") "installed" else "done" else "failed", error=result.stringOrNull("error"))
         runCatching {
