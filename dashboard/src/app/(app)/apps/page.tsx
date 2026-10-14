@@ -29,7 +29,7 @@ export default async function AppsPage() {
   return (
     <>
       <HubLibrary kind="app" />
-      <div className="mt-10"><PageHeader title="Administrator deployments" description="Existing APK library for direct installs. Use the student library above for student choices and automatic installation." /></div>
+      <details className="card mt-10 p-5"><summary className="cursor-pointer font-semibold text-slate-600">Previous administrator deployments ({apps.length})</summary><div className="mt-5"><PageHeader title="Administrator deployments" description="Existing direct-install library. Upload above to make an app available in the student App Store." /></div>
       {manager && <div className="card mb-6 p-4"><UploadApp schoolId={school.id} /></div>}
       <div className="card divide-y divide-slate-100">
         {apps.length === 0 && <p className="p-4 text-sm text-slate-500">No apps in the library yet.</p>}
@@ -48,6 +48,7 @@ export default async function AppsPage() {
           </div>
         ))}
       </div>
+      </details>
     </>
   );
 }

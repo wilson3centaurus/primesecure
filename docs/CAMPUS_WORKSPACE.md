@@ -19,7 +19,7 @@ The student UI is bundled HTML, CSS and JavaScript inside the existing Android a
 - School messages can target a form and/or class. Uploaded attachments go directly to private storage, then a small action verifies their scope, MIME type and size before queuing messages. This avoids submitting image bytes through Vercel Server Actions. The conversation page groups broadcasts, lists each recipient’s opened/acknowledged times and displays replies as `Student name (anonymous)` where requested.
 - School Notes has folder navigation, current-folder uploads, drag/drop and batches of up to 50 files. With multiple resources, filenames become titles automatically. Shared resources still need explicit school opt-in.
 - APK uploads automatically extract the package, version, label, icon and SHA256. Administrators do not type application identifiers or version numbers. Android still validates installation signatures.
-- App catalog: 4,319 open-source candidates from a pinned and signature-verified F-Droid index snapshot. One-click import downloads the APK, checks the signed index’s size/SHA256, parses its identity, then uploads it to the school library. These are not Primebook-certified or Google Play’s entire catalog. The snapshot selects builds compatible with Android 11 minimum-SDK requirements and universal/ARMv7 availability; each application still requires physical-device compatibility testing. Proprietary publisher/Google Play apps require an authorized APK upload. Refresh the catalog with `scripts/update-app-catalog.ps1`; imports refuse snapshots older than 14 days.
+- The App Store uses administrator-uploaded APKs only. Upload an APK, optionally override its display name, and publish it to school students or the shared RoboKorda library. The icon, label, version and application identifier are extracted automatically. Students download approved APKs from private server storage; there is no external discovery catalog.
 - Workspace settings: block removable-media mounting, block USB file transfer, optionally hide known file managers, choose approved media viewers by name and configure support contacts. Selected viewers are preinstalled from the available school catalog. Controls are off by default. Hiding file managers is not a universal ban on every app that can display files; use the existing package policy for additional applications.
 
 ## Cache, location and enforcement limits
@@ -28,7 +28,7 @@ The agent requests inventory/location sync about every five minutes while its fo
 
 Snapshots are bounded to 5,000 accessible shared-storage entries, depth 12, under 2 MB, and up to 24 small JPEG previews. The dashboard reports truncation and inaccessible folders. Live folder operations remain available for other shared folders while online. Original media is not continuously copied to the server. Inventory access is restricted to school administrators. IP-derived positions remain city-level estimates, clearly separated from GPS/network positions by the existing location panel.
 
-App imports are durable jobs in `app_imports`. The self-hosted `primesecure-app-imports.service` downloads and verifies them, uploads to private school storage and atomically publishes the item and completion status. The dashboard polls progress without holding an APK-download request open. Jobs persist if the browser closes; stale download leases resume after interruption. Worker statuses are server-owned, and only administrators of the job’s school can queue or read them. The worker uses the server’s existing internal credential; that key is never sent to the dashboard or agent. Code and the verified catalog live under `/opt/primesecure/`. Inspect with `journalctl -u primesecure-app-imports.service`; refresh the signed catalog with the supplied script and upload the generated JSON to that directory.
+The previous external catalog import interface has been retired. Existing imported apps remain normal library items, and historical import tables and worker scripts are retained for queued-job compatibility. New apps are published through administrator APK uploads.
 
 PrimeSecure requests a shortcut automatically once, and provides a manual request button. The existing Primebook launcher decides whether to accept pinning, where to place the icon and whether it can be unpinned. Keeping that launcher means permanent pinning cannot be guaranteed. Uninstall protection remains enforced through Device Owner. USB restrictions cover physical media mounting and file transfer, not all USB peripherals such as keyboards and mice. PrimeOS must be tested for actual enforcement.
 
@@ -36,7 +36,7 @@ PrimeSecure requests a shortcut automatically once, and provides a manual reques
 
 Apply `20261013223649_campus_experience.sql` transactionally as the existing table owner. Back up the PrimeSecure device/command/library tables first. Never reset the shared database. The server backup for this rollout is `/root/primesecure-backups/pre-campus-20261014.sql`.
 
-Apply `20261013232153_app_import_queue.sql` and install the accompanying importer service for one-click catalog imports.
+The historical `20261013232153_app_import_queue.sql` migration remains part of the database history; an external catalog worker is not required for APK uploads.
 
 Update the enrolled test Primebook with the same signing certificate, preserving app data:
 
