@@ -156,7 +156,7 @@ export function PolicyEditor({
         )}
       </form>
 
-      {canEdit && policy?.id && (
+      {canEdit && mode === "full" && policy?.id && (
         <form action={removeAction} className="flex items-center gap-3 border-t border-slate-200 pt-4">
           <input type="hidden" name="school_id" value={schoolId} />
           {deviceId && <input type="hidden" name="device_id" value={deviceId} />}
