@@ -15,6 +15,13 @@ export async function saveManagementSettings(_prev:FormState,form:FormData):Prom
  }
  const contacts=[0,1].map(n=>({name:String(form.get(`contact_name_${n}`)||'').trim(),phone:String(form.get(`contact_phone_${n}`)||'').trim()}));
  if(contacts.some(c=>!c.name||c.name.length>100||!c.phone||c.phone.length>40))return {error:'Enter each support contact’s name and phone.'};
- const {error}=await db.from('hub_settings').upsert({scope:school.id,school_id:school.id,block_usb_storage:form.get('block_usb_storage')==='on',block_usb_transfer:form.get('block_usb_transfer')==='on',hide_file_managers:form.get('hide_file_managers')==='on',viewer_packages:viewers,support_contacts:contacts});
+ const {error}=await db.from('hub_settings').upsert({scope:school.id,school_id:school.id,block_usb_storage:form.get('block_usb_storage')==='on',block_usb_transfer:form.get('block_usb_transfer')==='on',keep_wifi_on:form.get('keep_wifi_on')==='on',hide_file_managers:form.get('hide_file_managers')==='on',viewer_packages:viewers,support_contacts:contacts});
  if(error)return {error:error.message};revalidatePath('/settings');return {ok:'Saved. Primebooks apply these settings at their next check-in.'};
+}
+export async function saveSchoolClass(_prev:FormState,form:FormData):Promise<FormState> {
+ const staff=await requireStaff(),school=await getCurrentSchool();if(!school||!canManage(staff,school.id))return {error:'School administrator access required.'};
+ const level=String(form.get('new_form')||form.get('existing_form')||'').trim(),klass=String(form.get('class_name')||'').trim();
+ if(!level||level.length>80||klass.length>80)return {error:'Enter a form name, up to 80 characters.'};
+ const db=await createClient();const {error}=await db.from('school_classes').upsert({school_id:school.id,form_level:level,class_name:klass},{onConflict:'school_id,form_level,class_name'});
+ if(error)return {error:error.message};revalidatePath('/settings');revalidatePath('/devices','layout');revalidatePath('/library');return {ok:'Added. This form and class are available in dropdown menus.'};
 }

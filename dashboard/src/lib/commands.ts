@@ -13,6 +13,7 @@ export const COMMAND_LABEL: Record<CommandType, string> = {
   lock: "Lock",
   unlock: "Unlock",
   retire: "Retire",
+  reset_password: "Reset device password",
 };
 
 export const COMMAND_STATUS_STYLE: Record<CommandStatus, string> = {

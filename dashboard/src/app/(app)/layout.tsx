@@ -29,6 +29,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
           <NavLink href="/messages"><Mail size={18}/>Messages</NavLink>
           <NavLink href="/library"><FolderOpen size={18}/>School Notes</NavLink>
           <NavLink href="/apps"><AppWindow size={18}/>App Store</NavLink>
+          {staff.role!=="teacher"&&<NavLink href="/support"><MessageCircle size={18}/>Student support</NavLink>}
           <NavLink href="/requests"><MessageCircle size={18}/>App requests</NavLink>
           <NavLink href="/wallpapers"><ImageIcon size={18}/>Wallpapers</NavLink>
           {staff.role !== "teacher" && <NavLink href="/files"><Files size={18}/>Device files</NavLink>}

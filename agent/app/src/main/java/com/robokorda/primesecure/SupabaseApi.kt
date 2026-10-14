@@ -1,6 +1,7 @@
 package com.robokorda.primesecure
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -36,7 +37,7 @@ class SupabaseApi(private val store: AgentStore) {
     }
 
     /** Downloads a file (e.g. a storage object) as the device account into [target]. */
-    suspend fun download(path: String, target: File, resume: Boolean = false) = withContext(Dispatchers.IO) {
+    suspend fun download(path: String, target: File, resume: Boolean = false, progress: ((Long, Long, Long) -> Unit)? = null) = withContext(Dispatchers.IO) {
         val base = store.serverUrl
         if (base.isBlank()) throw ApiException(0, "No server URL configured")
         val request = Request.Builder()
@@ -49,7 +50,25 @@ class SupabaseApi(private val store: AgentStore) {
         downloadHttp.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw ApiException(response.code, errorMessage(response.code, response.body?.string().orEmpty()))
             val body = response.body ?: throw ApiException(response.code, "empty body")
-            java.io.FileOutputStream(target, resume && response.code == 206).use { out -> body.byteStream().copyTo(out) }
+            val append = resume && response.code == 206
+            var bytes = if (append) target.length() else 0L
+            val total = body.contentLength().takeIf { it >= 0 }?.plus(bytes) ?: 0L
+            var checkpoint = android.os.SystemClock.elapsedRealtime(); var previous = bytes
+            progress?.invoke(bytes, total, 0)
+            java.io.FileOutputStream(target, append).use { out -> body.byteStream().use { input ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    val count = input.read(buffer); if (count < 0) break
+                    out.write(buffer, 0, count); bytes += count
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    if (now - checkpoint >= 750) {
+                        progress?.invoke(bytes, total, (bytes - previous) * 1000 / (now - checkpoint))
+                        checkpoint = now; previous = bytes
+                    }
+                }
+            } }
+            progress?.invoke(bytes, total, 0)
         }
     }
 

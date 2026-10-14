@@ -7,7 +7,7 @@ import { SubmitButton } from "@/components/submit-button";
 import type { DeviceLocation } from "@/lib/types";
 
 const SOURCE_LABEL: Record<string, string> = {
-  gps: "GPS", network: "Wi-Fi / network", fused: "Wi-Fi / network", passive: "Last known", ip: "Internet connection (approximate)",
+  gps: "GPS", network: "Provider estimate (unverified)", fused: "Provider estimate (unverified)", passive: "Last known", ip: "Internet connection (approximate)",
 };
 
 function osmLink(l: DeviceLocation) {
@@ -31,6 +31,7 @@ export function LocationPanel({
     <div className="space-y-3">
       {latest ? (
         <>
+          {latest.source!=="gps"&&<p className="rounded-xl bg-amber-50 p-3 text-xs text-amber-800">This is an estimate from the Primebook?s location provider or internet connection. Its reported accuracy has not been independently verified. A misconfigured provider can return a different city.</p>}
           <iframe title="Device location" src={embed(latest)} className="h-64 w-full rounded-md border border-slate-200" loading="lazy" />
           <p className="text-sm text-slate-600">
             {times[0]} · {SOURCE_LABEL[latest.source ?? "network"] ?? latest.source}

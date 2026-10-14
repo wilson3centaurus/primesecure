@@ -30,11 +30,18 @@ class CommandRunner(private val context: Context, private val store: AgentStore)
         val type = command.getString("type")
         val payload = command.optJSONObject("payload") ?: JSONObject()
 
+        val taskId = if (type in setOf("install_apk", "push_file")) HubTasks(context).enqueue("admin_command", JSONObject().put("command_id", id).put("hub_item_id",payload.optString("hub_item_id")), payload.optString("name", "School ${if(type=="install_apk") "app install" else "file download"}"), "command:$id") else null
         val (status, result) = try {
-            "succeeded" to execute(id, type, payload)
+            if (taskId != null) HubTasks(context).update(taskId, "syncing")
+            "succeeded" to when(type) {
+                "install_apk" -> AppInstaller(context, store).install(id, payload, taskId)
+                "push_file" -> FileManager(store,context).push(payload,taskId)
+                else -> execute(id,type,payload)
+            }
         } catch (e: Exception) {
             "failed" to JSONObject().put("error", e.message ?: e.javaClass.simpleName)
         }
+        if (taskId != null) HubTasks(context).update(taskId, if(status=="succeeded") if(type=="install_apk") "installed" else "done" else "failed", error=result.stringOrNull("error"))
         runCatching {
             api.rpc("device_ack_command", JSONObject()
                 .put("p_command_id", id).put("p_status", status).put("p_result", result))
@@ -46,6 +53,7 @@ class CommandRunner(private val context: Context, private val store: AgentStore)
         "install_apk" -> AppInstaller(context, store).install(id, payload)
         "remove_apk" -> AppInstaller(context, store).uninstall(payload)
         "locate" -> Locator(context, store).locate()
+        "reset_password" -> PasswordRecovery.reset(context, payload)
         "list_files" -> FileManager(store).list(payload)
         "push_file" -> FileManager(store).push(payload)
         "delete_file" -> FileManager(store).delete(payload)

@@ -4,6 +4,9 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.SET_WALLPAPER" />
     <!-- Granted to ourselves as Device Owner; needed for Build.getSerial(). -->
@@ -43,7 +46,7 @@
     <application
         android:name=".AgentApp"
         android:label="PrimeSecure"
-        android:icon="@drawable/primebook"
+        android:icon="@drawable/robokorda"
         android:allowBackup="false"
         android:testOnly="${testOnly}"
         android:usesCleartextTraffic="${cleartext}">
@@ -65,6 +68,7 @@
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/resource_paths" />
         </provider>
         <activity android:name=".PdfActivity" android:exported="false" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name=".MediaActivity" android:exported="false" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
 
         <activity
             android:name=".BrowserActivity"
@@ -109,6 +113,12 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Device management: keeps the school's MDM connection open to receive commands" />
         </service>
+        <service android:name=".BootRecoveryService" android:exported="false" android:directBootAware="true" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Authorized school password recovery before first device unlock" />
+        </service>
+        <receiver android:name=".BootRecoveryReceiver" android:exported="false" android:directBootAware="true">
+            <intent-filter><action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" /></intent-filter>
+        </receiver>
 
         <receiver
             android:name=".AdminReceiver"

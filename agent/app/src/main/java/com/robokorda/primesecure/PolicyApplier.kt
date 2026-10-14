@@ -99,9 +99,12 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
         if (on) dpm.addUserRestriction(admin, key) else dpm.clearUserRestriction(admin, key)
     }
 
-    private suspend fun setWallpaper(url: String) {
+    suspend fun setWallpaper(url: String) {
         val bitmap = withContext(Dispatchers.IO) {
             if (url.startsWith("hub:")) {
+                val hub=HubStore(context)
+                val saved=hub.items().find { it.optString("storage_path")==url.removePrefix("hub:") }?.let { hub.resourceFile(it) }
+                if(saved?.exists()==true) return@withContext BitmapFactory.decodeFile(saved.path) ?: error("Could not open the saved wallpaper")
                 val file = java.io.File(context.cacheDir, "approved-wallpaper")
                 try {
                     SupabaseApi(store).download("/storage/v1/object/primesecure-hub/" + url.removePrefix("hub:"), file)

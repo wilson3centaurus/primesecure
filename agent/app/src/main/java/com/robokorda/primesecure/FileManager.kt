@@ -39,14 +39,16 @@ class FileManager(private val store: AgentStore, private val context: android.co
             .put("free_bytes", root.usableSpace)
     }
 
-    suspend fun push(payload: JSONObject): JSONObject {
+    suspend fun push(payload: JSONObject, taskId: String? = null): JSONObject {
         val storagePath = payload.stringOrNull("storage_path") ?: throw IllegalArgumentException("no storage_path")
         val target = resolve(payload.stringOrNull("path") ?: throw IllegalArgumentException("no destination path"))
         if (target == root.canonicalFile || target in usbRoots()) throw IllegalArgumentException("destination must be a file")
         target.parentFile?.mkdirs()
         val part = File(target.parentFile, ".${target.name}.part")
         try {
-            SupabaseApi(store).download("/storage/v1/object/media/$storagePath", part)
+            SupabaseApi(store).download("/storage/v1/object/media/$storagePath", part) { bytes,total,speed ->
+                if (taskId != null && context != null) HubTasks(context).update(taskId,"downloading",bytes,total,speed)
+            }
             if (target.exists() && !target.delete()) error("could not replace existing file")
             if (!part.renameTo(target)) error("could not save file")
         } finally {

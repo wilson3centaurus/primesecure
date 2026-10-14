@@ -47,3 +47,6 @@ adb install --no-streaming -r -t /sdcard/Download/PrimeSecure-0.3.0-debug.apk
 Do not uninstall, clear app data or change signing keys. Debug/testOnly builds remain ADB test builds; fleet production still requires a persistent release signing key.
 
 Validation includes Android assemble/lint, dashboard lint/build, database authorization tests, browser tests of the bundled student screens, and authenticated dashboard/backend tests in a temporary school. Those checks do not prove PrimeOS window enforcement, pinning, USB blocking, hardware battery readings or third-party application compatibility; confirm these on the real Primebook.
+
+
+For the 0.4 offline queue, built-in viewers and password recovery, see [OFFLINE_WORKSPACE.md](OFFLINE_WORKSPACE.md).

@@ -22,7 +22,7 @@ class AppInstaller(private val context: Context, private val store: AgentStore) 
     private val dpm = AdminReceiver.dpm(context)
     private val admin = AdminReceiver.component(context)
 
-    suspend fun install(commandId: String, payload: JSONObject): JSONObject {
+    suspend fun install(commandId: String, payload: JSONObject, taskId: String? = null): JSONObject {
         val path = payload.stringOrNull("storage_path") ?: throw IllegalArgumentException("no storage_path")
         val apk = File(context.cacheDir, "install-$commandId.apk")
         try {
@@ -36,16 +36,26 @@ class AppInstaller(private val context: Context, private val store: AgentStore) 
                 }
                 require(approved) { "App is no longer approved for this device" }
             }
-            SupabaseApi(store).download("/storage/v1/object/$bucket/$path", apk)
+            val tasks = HubTasks(context)
+            SupabaseApi(store).download("/storage/v1/object/$bucket/$path", apk, resume = true) { bytes, total, speed ->
+                if (taskId != null) tasks.update(taskId, "downloading", bytes, total, speed)
+            }
+            payload.stringOrNull("sha256")?.let { expected ->
+                val hash = java.security.MessageDigest.getInstance("SHA-256")
+                apk.inputStream().use { input -> val buffer = ByteArray(65536); while (true) { val n = input.read(buffer); if (n < 0) break; hash.update(buffer, 0, n) } }
+                check(hash.digest().joinToString("") { "%02x".format(it) }.equals(expected, true)) { "The APK download is damaged. Please retry." }
+            }
             val info = archiveInfo(apk)
             payload.stringOrNull("package")?.let { require(info.packageName == it) { "APK package does not match catalog" } }
             if (info.packageName == context.packageName) throw IllegalArgumentException("use the agent update instead")
+            if (taskId != null) tasks.update(taskId, "installing")
             installFile(apk, info.packageName)
             return JSONObject()
                 .put("package", info.packageName)
                 .put("version", info.versionName ?: JSONObject.NULL)
         } finally {
-            apk.delete()
+            // Keep an interrupted download for a resumed background attempt.
+            if (taskId == null || apk.length() == 0L || runCatching { archiveInfo(apk) }.isSuccess) apk.delete()
         }
     }
 

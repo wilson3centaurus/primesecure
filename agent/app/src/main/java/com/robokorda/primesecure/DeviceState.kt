@@ -46,9 +46,12 @@ object DeviceState {
         unlock(context)
         val store = AgentStore(context)
         PolicyApplier(context, store).undoAll()
+        PasswordRecovery.clear(context)
         CheckInWorker.cancel(context)
         store.clearEnrollment()
         HubStore(context) // discard school-private inbox and downloads when enrollment is removed
+        HubTasks(context)
+        context.getSharedPreferences("agent-policy",Context.MODE_PRIVATE).edit().clear().commit()
         @Suppress("DEPRECATION")
         AdminReceiver.dpm(context).clearDeviceOwnerApp(context.packageName)
     }

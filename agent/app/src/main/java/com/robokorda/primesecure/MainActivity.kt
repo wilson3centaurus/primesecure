@@ -132,7 +132,7 @@ class MainActivity : Activity() {
             try {
                 block()
             } catch (e: Exception) {
-                toast("Failed: ${e.message}")
+                toast(Connectivity.message(e))
             } finally {
                 busy = false
                 refresh()
@@ -149,7 +149,7 @@ class MainActivity : Activity() {
             if (AdminReceiver.isDeviceOwner(this)) AdminReceiver.dpm(this).clearDeviceOwnerApp(packageName)
             toast("Released")
         } catch (e: Exception) {
-            toast("Failed: ${e.message}")
+            toast(Connectivity.message(e))
         }
         refresh()
     }

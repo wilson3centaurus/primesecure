@@ -96,6 +96,17 @@ export async function deleteDevice(_prev: FormState, formData: FormData): Promis
 }
 
 const SETTABLE = ["active", "suspended", "locked", "retired"] as const;
+export async function resetDevicePassword(_prev:FormState,form:FormData):Promise<FormState> {
+ const staff=await requireStaff(),id=String(form.get('device_id')||'');const ctx=await deviceForManager(id);
+ if(!ctx)return {error:'School administrator access required.'};
+ const password=String(form.get('password')||'');if(password.length<6||password.length>64||password!==String(form.get('confirmation')||''))return {error:'Enter matching passwords of 6 to 64 characters.'};
+ const {data:runtime}=await ctx.supabase.from('device_runtime').select('readings,reported_at').eq('device_id',id).maybeSingle();
+ if(runtime?.readings?.recovery!=='ready'||Date.now()-Date.parse(runtime.reported_at)>86400000)return {error:'Recovery must be active and recently reported by this Primebook. Ask it to check in first.'};
+ const {data:pending}=await ctx.supabase.from('commands').select('id').eq('device_id',id).eq('type','reset_password').in('status',['pending','delivered']);
+ if(pending?.length)return {error:'A password reset is already waiting for this device.'};
+ const {error}=await ctx.supabase.from('commands').insert({device_id:id,type:'reset_password',payload:{password,expires_at:new Date(Date.now()+30*60000).toISOString()},created_by:staff.id});
+ if(error)return {error:error.message};revalidatePath(`/devices/${id}`);return {ok:'Reset queued for 30 minutes. Tell the student the temporary password after the command succeeds. It is removed from the command when acknowledged.'};
+}
 
 export async function setDeviceStatus(_prev: FormState, formData: FormData): Promise<FormState> {
   const id = String(formData.get("id") ?? "");

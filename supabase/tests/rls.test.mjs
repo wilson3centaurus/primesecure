@@ -372,7 +372,7 @@ test("storage objects are scoped by the school id path prefix", async () => {
 
 test("realtime publication carries devices, commands and policies", async () => {
   const rows = (await db.query(`select tablename from pg_publication_tables where pubname = 'supabase_realtime' order by 1`)).rows;
-  assert.deepEqual(rows.map((r) => r.tablename), ["commands", "devices", "policies"]);
+  assert.deepEqual(rows.map((r) => r.tablename), ["commands", "devices", "hub_access", "hub_items", "hub_settings", "policies", "support_messages"]);
 });
 
 test("student hub isolates private resources and requires school opt-in for shared content", async () => {
@@ -490,4 +490,64 @@ test('durable app imports are school-scoped and worker status cannot be forged',
  await rejects(as(ids.adminA,`insert into app_imports(school_id,package_id,created_by) values($1,'org.example.foreign',$2)`,[ids.schoolB,ids.adminA]));
  await rejects(as(ids.devA,`insert into app_imports(school_id,package_id,created_by) values($1,'org.example.device',$2)`,[ids.schoolA,ids.adminA]));
  await rejects(as(ids.adminA,`insert into app_imports(school_id,package_id,created_by,status) values($1,'org.example.forged',$2,'succeeded')`,[ids.schoolA,ids.adminA]));
+});
+
+test('offline support retries deduplicate and preserve private school conversations',async()=>{
+ const request=(await db.query('select gen_random_uuid() id')).rows[0].id,payload=JSON.stringify({body:'Help with a textbook'});
+ for(let i=0;i<2;i++)await as(ids.devA,'select device_offline_action($1,\'support\',$2::jsonb)',[request,payload]);
+ assert.equal((await as(ids.adminA,'select * from support_messages')).length,1);
+ for(const role of ['teacherA','adminB','devB','stray'])assert.equal((await as(ids[role],'select * from support_messages')).length,0);
+ await rejects(as(ids.teacherA,'select staff_support_reply($1,$2)',[ids.deviceA,'forged']),/Administrator/);
+ await rejects(as(ids.devB,'select staff_support_reply($1,$2)',[ids.deviceA,'forged']),/Administrator/);
+ await as(ids.adminA,'select staff_support_reply($1,$2)',[ids.deviceA,'We can help']);
+ assert.equal((await as(ids.devA,'select device_hub() value'))[0].value.support_messages.length,2);
+ await rejects(as(null,'select device_offline_action($1,\'support\',$2::jsonb)',[request,payload]));
+});
+test('offline reply retries produce one reply after a lost response',async()=>{
+ const cmd=(await as(ids.adminA,`insert into commands(device_id,type,payload) values($1,'message','{"body":"Offline test"}') returning id`,[ids.deviceA]))[0].id;
+ const request=(await db.query('select gen_random_uuid() id')).rows[0].id,payload=JSON.stringify({command_id:cmd,body:'Saved offline',anonymous:true});
+ for(let i=0;i<2;i++)await as(ids.devA,'select device_offline_action($1,\'reply\',$2::jsonb)',[request,payload]);
+ assert.equal((await as(ids.adminA,'select * from message_replies where command_id=$1',[cmd])).length,1);
+ await rejects(as(ids.devB,'select device_offline_action(gen_random_uuid(),\'reply\',$1::jsonb)',[payload]),/message not found/);
+});
+test('offline profile changes preserve school-assigned names and validate avatars',async()=>{
+ const profile={dob:'2010-02-04',home_address:'School Road',mother_phone:'0770000000',username:'learner_17',profile_photo:'data:image/jpeg;base64,YQ==',student_name:'Forged name'};
+ await as(ids.devA,'select device_offline_action(gen_random_uuid(),\'profile\',$1::jsonb)',[JSON.stringify(profile)]);
+ assert.equal((await as(ids.adminA,'select * from student_records where device_id=$1',[ids.deviceA]))[0].username,'learner_17');
+ assert.notEqual((await db.query('select student_name from devices where id=$1',[ids.deviceA])).rows[0].student_name,'Forged name');
+ await rejects(as(ids.devA,'select device_student_profile($1::jsonb)',[JSON.stringify({...profile,profile_photo:'https://evil.test/x'})]),/smaller profile picture/);
+ await rejects(as(ids.devA,'select device_student_profile($1::jsonb)',[JSON.stringify({...profile,username:'<script>'})]),/Username/);
+});
+test('class lists and runtime diagnostics respect administrator boundaries',async()=>{
+ await as(ids.adminA,'insert into school_classes(school_id,form_level,class_name) values($1,\'Form 3\',\'3A\')',[ids.schoolA]);
+ assert.equal((await as(ids.teacherA,'select * from school_classes')).length,1);
+ assert.equal((await as(ids.adminB,'select * from school_classes')).length,0);
+ await rejects(as(ids.teacherA,'insert into school_classes(school_id,form_level) values($1,\'Forged\')',[ids.schoolA]));
+ await rejects(as(ids.adminB,'insert into school_classes(school_id,form_level) values($1,\'Forged\')',[ids.schoolA]));
+ await as(ids.devA,'select device_runtime_report($1::jsonb)',[JSON.stringify({recovery:'ready',usb:{mounted_drives:1}})]);
+ assert.equal((await as(ids.adminA,'select * from device_runtime')).length,1);
+ assert.equal((await as(ids.adminB,'select * from device_runtime')).length,0);
+ await rejects(as(ids.adminA,'update device_runtime set readings=\'{}\''));
+ await rejects(as(ids.adminA,'select device_runtime_report(\'{}\')'));
+});
+test('recovery commands require admins and redact temporary passwords after acknowledgement',async()=>{
+ await rejects(as(ids.teacherA,`insert into commands(device_id,type,payload) values($1,'reset_password','{"password":"Temp4321"}')`,[ids.deviceA]));
+ const cmd=(await as(ids.adminA,`insert into commands(device_id,type,payload) values($1,'reset_password','{"password":"Temp4321"}') returning id`,[ids.deviceA]))[0].id;
+ assert.equal((await as(ids.teacherA,'select * from commands where id=$1',[cmd])).length,0);
+ await as(ids.devA,`select device_ack_command($1,'succeeded','{"reset":true}')`,[cmd]);
+ assert.equal((await as(ids.adminA,'select payload from commands where id=$1',[cmd]))[0].payload.password,undefined);
+});
+
+test('boot recovery capabilities can only fetch and acknowledge their own password reset',async()=>{
+ const secret='a'.repeat(64);
+ await as(ids.devA,'select device_register_recovery($1)',[secret]);
+ await rejects(as(ids.teacherA,'select device_register_recovery($1)',[secret]));
+ await rejects(as(ids.devA,'select * from device_recovery_channels'));
+ const cmd=(await as(ids.adminA,`insert into commands(device_id,type,payload) values($1,'reset_password',jsonb_build_object('password','Temp4321','expires_at',now()+interval '30 minutes')) returning id`,[ids.deviceA]))[0].id;
+ await rejects(as(null,'select device_recovery_poll($1,$2)',[ids.deviceA,'b'.repeat(64)]),/invalid recovery/);
+ await rejects(as(null,'select device_recovery_poll($1,$2)',[ids.deviceB,secret]),/invalid recovery/);
+ const result=(await as(null,'select device_recovery_poll($1,$2) value',[ids.deviceA,secret]))[0].value;
+ assert.equal(result.commands.length,1);assert.equal(result.commands[0].id,cmd);
+ await as(null,'select device_recovery_ack($1,$2,$3,\'succeeded\')',[ids.deviceA,secret,cmd]);
+ assert.equal((await as(ids.adminA,'select payload from commands where id=$1',[cmd]))[0].payload.password,undefined);
 });

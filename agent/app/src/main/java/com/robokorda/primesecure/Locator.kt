@@ -16,8 +16,8 @@ import org.json.JSONObject
 import kotlin.coroutines.resume
 
 /**
- * Best-effort position for the 'locate' command. Primebooks have no GPS, so
- * this tries Android's network/fused providers (if PrimeOS ships one), then a
+ * Best-effort position for the 'locate' command. Reported GNSS hardware support
+ * does not guarantee a real fix. Try GPS first, then network/fused providers, then a
  * recent last-known fix, then a city-level IP lookup.
  */
 class Locator(private val context: Context, private val store: AgentStore) {
@@ -53,13 +53,13 @@ class Locator(private val context: Context, private val store: AgentStore) {
     }
 
     private fun usableProviders(): List<String> =
-        listOf(LocationManager.NETWORK_PROVIDER, "fused", LocationManager.GPS_PROVIDER)
+        listOf(LocationManager.GPS_PROVIDER, "fused", LocationManager.NETWORK_PROVIDER)
             .filter { it in lm.allProviders && runCatching { lm.isProviderEnabled(it) }.getOrDefault(false) }
 
     private suspend fun fromProviders(): Location? {
         for (provider in usableProviders()) {
-            val fix = withTimeoutOrNull(30_000) { current(provider) }
-            if (fix != null) return fix
+            val fix = withTimeoutOrNull(if(provider==LocationManager.GPS_PROVIDER)15_000L else 10_000L) { current(provider) }
+            if (fix != null && valid(fix)) return fix
         }
         return null
     }
@@ -91,10 +91,10 @@ class Locator(private val context: Context, private val store: AgentStore) {
 
     @Suppress("MissingPermission")
     private fun lastKnown(): Location? {
-        val fresh = System.currentTimeMillis() - 30 * 60_000
+        val fresh = System.currentTimeMillis() - 2 * 60_000
         return usableProviders()
             .mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
-            .filter { it.time >= fresh }
+            .filter { it.time >= fresh && valid(it) }
             .minByOrNull { if (it.hasAccuracy()) it.accuracy else Float.MAX_VALUE }
     }
 
@@ -104,6 +104,10 @@ class Locator(private val context: Context, private val store: AgentStore) {
         "fused" -> "fused"
         else -> "network"
     }
+    @Suppress("DEPRECATION")
+    private fun valid(location:Location):Boolean = !location.isFromMockProvider && location.latitude.isFinite() && location.longitude.isFinite() &&
+        location.latitude in -90.0..90.0 && location.longitude in -180.0..180.0 &&
+        location.elapsedRealtimeNanos>0 && android.os.SystemClock.elapsedRealtimeNanos()-location.elapsedRealtimeNanos in 0..120_000_000_000L
 
     /** City-level position of the school's internet connection. */
     private suspend fun ipLookup(): Fix? = withContext(Dispatchers.IO) {

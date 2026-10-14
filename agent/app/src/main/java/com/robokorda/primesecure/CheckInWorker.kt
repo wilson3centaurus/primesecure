@@ -59,6 +59,7 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
             WorkManager.getInstance(context).cancelUniqueWork(PERIODIC)
             WorkManager.getInstance(context).cancelUniqueWork(NOW)
             WorkManager.getInstance(context).cancelUniqueWork("student-hub-sync")
+            WorkManager.getInstance(context).cancelUniqueWork("hub-outbox")
             WorkManager.getInstance(context).cancelUniqueWork("message-acknowledgements")
             WorkManager.getInstance(context).cancelUniqueWork("device-telemetry-now")
             WorkManager.getInstance(context).cancelUniqueWork("device-telemetry")
@@ -90,6 +91,11 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 runCatching {
                     val hub = SupabaseApi(store).rpc("device_hub")
                     HubStore(context).catalog = hub
+                    val local = HubStore(context).localWallpaper
+                    if (local != null && HubTasks(context).pending().any { it.optString("action") == "wallpaper" } && hub.optBoolean("allow_wallpaper_choice")) {
+                        val chosen = HubStore(context).items().find { it.optString("id") == local }
+                        if (chosen != null) hub.put("wallpaper", chosen)
+                    }
                     hub.optJSONObject("wallpaper")?.let { policy.put("wallpaper_url", "hub:" + it.getString("storage_path")).put("lock_wallpaper", true) }
                     if (hub.optBoolean("hide_vendor_store")) {
                         val hidden = policy.optJSONArray("hidden_apps") ?: org.json.JSONArray()
@@ -97,11 +103,19 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                         policy.put("hidden_apps", hidden).put("block_installs", true)
                     }
                     hub.optJSONObject("management")?.let { policy.put("hub_management",it) }
+                    runCatching {
+                        val contacts=hub.optJSONArray("support_contacts")
+                        val phones=contacts?.let { array->(0 until array.length()).joinToString(" / ") { array.getJSONObject(it).optString("phone") } } ?: ""
+                        AdminReceiver.dpm(context).setDeviceOwnerLockScreenInfo(AdminReceiver.component(context),"RoboKorda · ${hub.optString("school_name")}\nSupport: $phones")
+                    }
                     SupabaseApi(store).rpc("device_battery_report", JSONObject().put("p_readings", DeviceInfo.batteryDiagnostics(context)))
-                }.onFailure { HubStore(context).syncError = it.message }
+                }.onFailure { HubStore(context).syncError = Connectivity.message(it) }
+                context.getSharedPreferences("agent-policy", Context.MODE_PRIVATE).edit().putString("policy", policy.toString()).putString("device",store.deviceId).commit()
                 store.lastPolicySummary = PolicyApplier(context, store).apply(policy, suspended = status == "suspended")
                 DeviceState.apply(context, status)
                 store.lastCheckInAt = System.currentTimeMillis()
+                runCatching { PasswordRecovery.registerBoot(context) }
+                runCatching { SupabaseApi(store).rpc("device_runtime_report", JSONObject().put("p_readings", DeviceRuntime.collect(context))) }
                 store.lastError = null
                 if (response.optInt("pending_commands", 0) > 0) CommandRunner(context, store).runPending()
                 HubSync.schedule(context)
@@ -110,7 +124,7 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 SelfUpdater.maybeUpdate(context, store, response.optJSONObject("agent_update"))
                 return response
             } catch (e: Exception) {
-                store.lastError = "${e.javaClass.simpleName}: ${e.message}"
+                store.lastError = Connectivity.message(e)
                 throw e
             }
         }

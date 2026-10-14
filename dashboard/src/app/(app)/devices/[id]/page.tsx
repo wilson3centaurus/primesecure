@@ -13,6 +13,7 @@ import { getPolicy } from "@/lib/policy";
 import { createClient } from "@/lib/supabase/server";
 import type { App, Command, Device, DeviceLocation } from "@/lib/types";
 import { DeleteDeviceForm, IssueTokenForm, StudentForm } from "./forms";
+import { RecoveryControls } from "@/components/recovery-controls";
 import { StateControls } from "./state-controls";
 
 export const metadata: Metadata = { title: "Device" };
@@ -44,6 +45,8 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
   const installed = [...(d.installed_apps ?? [])].sort((a, b) => Number(a.system) - Number(b.system) || a.label.localeCompare(b.label));
   const enrolled = d.status !== "pending" && d.status !== "retired";
   const tokenValid = d.enroll_token && d.enroll_token_expires_at && new Date(d.enroll_token_expires_at) > new Date();
+  const {data:groups}=await supabase.from('school_classes').select('id,form_level,class_name').eq('school_id',d.school_id);
+  const {data:runtime}=manager?await supabase.from('device_runtime').select('*').eq('device_id',d.id).maybeSingle():{data:null};
   const {data:studentRecord}=manager?await supabase.from('student_records').select('*').eq('device_id',d.id).maybeSingle():{data:null};
 
   return (
@@ -127,7 +130,7 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
           {manager && (
             <section className="card p-4">
               <h2 className="mb-3 font-semibold">Lock, suspend, retire</h2>
-              <StateControls id={d.id} status={d.status} message={d.status_message} />
+              <RecoveryControls deviceId={d.id} runtime={runtime}/><StateControls id={d.id} status={d.status} message={d.status_message} />
               {d.status_changed_at && <p className="mt-3 text-xs text-slate-400">State last changed {dateTime(d.status_changed_at)}</p>}
             </section>
           )}
@@ -166,7 +169,7 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
           {manager && (
             <section className="card p-4">
               <h2 className="mb-3 font-semibold">Student</h2>
-              <StudentForm id={d.id} name={d.student_name} studentId={d.student_id} formLevel={d.form_level} className={d.class_name} gender={d.gender} />
+              <StudentForm id={d.id} name={d.student_name} studentId={d.student_id} formLevel={d.form_level} className={d.class_name} gender={d.gender} groups={groups||[]} />
               <h3 className="mt-6 mb-3 font-semibold">Emergency record</h3>{studentRecord?<dl className="divide-y divide-slate-100"><Row label="Date of birth">{studentRecord.dob}</Row><Row label="Home address">{studentRecord.home_address}</Row><Row label="Mother / guardian">{studentRecord.mother_phone||'Not provided'}</Row><Row label="Father / guardian">{studentRecord.father_phone||'Not provided'}</Row><Row label="Student phone">{studentRecord.personal_phone||'Not provided'}</Row></dl>:<p className="text-sm text-slate-400">The student will complete emergency details when the updated app is opened.</p>}
             </section>
           )}

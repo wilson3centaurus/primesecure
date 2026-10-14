@@ -78,7 +78,7 @@ export type Policy = {
 
 export type CommandType =
   | "message" | "install_apk" | "remove_apk" | "push_file" | "delete_file" | "list_files"
-  | "locate" | "suspend" | "unsuspend" | "lock" | "unlock" | "retire";
+  | "locate" | "suspend" | "unsuspend" | "lock" | "unlock" | "retire" | "reset_password";
 
 export type CommandStatus = "pending" | "delivered" | "succeeded" | "failed" | "cancelled";
 

@@ -32,6 +32,7 @@ export default async function DevicesPage({ searchParams }: PageProps<"/devices"
     .order("student_name", { ascending: true, nullsFirst: false })
     .limit(2000);
   const all = (data ?? []) as Device[];
+  const {data:groups}=await supabase.from('school_classes').select('id,form_level,class_name').eq('school_id',school.id).order('form_level').order('class_name');
   const levels=[...new Set(all.map(d=>d.form_level).filter(Boolean))].sort(), classes=[...new Set(all.map(d=>d.class_name).filter(Boolean))].sort(), genders=[...new Set(all.map(d=>d.gender).filter(Boolean))].sort();
   const selectedForm=String(sp.form_level||''),selectedClass=String(sp.class_name||''),selectedGender=String(sp.gender||'');
 
@@ -44,7 +45,7 @@ export default async function DevicesPage({ searchParams }: PageProps<"/devices"
       <PageHeader title="Devices" description={`Primebooks enrolled at ${school.name}.`}>
         <div className="flex flex-wrap gap-2">
           <MessageForm target="school" collapsible label="Message all devices" />
-          {canManage(staff, school.id) && <AddDevicesForm />}
+          {canManage(staff, school.id) && <AddDevicesForm groups={groups||[]} />}
         </div>
       </PageHeader>
 

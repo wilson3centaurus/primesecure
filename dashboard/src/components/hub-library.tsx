@@ -11,10 +11,11 @@ export async function HubLibrary({ kind }: { kind: "resource" | "wallpaper" | "a
   const staff = await requireStaff(); const school = await getCurrentSchool();
   if (!school) return <PageHeader title="Student library" description="Create a school first." />;
   const supabase = await createClient();
-  const [{ data: items, error }, { data: access }, { data: settings }] = await Promise.all([
+  const [{ data: items, error }, { data: access }, { data: settings },{data:groups}] = await Promise.all([
     supabase.from("hub_items").select("*").eq("kind", kind).or(`school_id.is.null,school_id.eq.${school.id}`).order("created_at", { ascending: false }),
     supabase.from("hub_access").select("item_id").eq("school_id", school.id),
     supabase.from("hub_settings").select("*").or(`scope.eq.global,school_id.eq.${school.id}`),
+    supabase.from("school_classes").select("form_level,class_name").eq("school_id",school.id),
   ]);
   const manager = canManage(staff, school.id); const enabled = new Set((access || []).map(a => a.item_id));
   const { data: previews } = items?.length ? await supabase.storage.from("primesecure-hub").createSignedUrls(items.map(i => i.storage_path), 600) : { data: [] };
@@ -24,7 +25,7 @@ export async function HubLibrary({ kind }: { kind: "resource" | "wallpaper" | "a
     <PageHeader title={title} description={kind === "resource" ? "An organised, offline-ready learning library for every Primebook." : kind === "app" ? "Only approved apps appear in the student hub. Publish, assign and preinstall from one place." : "Set your school's look. Give students a choice within your approved gallery."} />
     {error && <p role="alert" className="card p-4 text-red-700">Library unavailable: {error.message}</p>}
     {kind==='app'&&manager&&<div className="card overflow-hidden"><div className="border-b border-brand-100 bg-brand-50/60 p-6"><div className="flex items-center gap-3"><span className="rounded-2xl bg-white p-3 text-brand-700"><Upload size={24}/></span><div><h2 className="text-lg font-semibold">Upload an app for your students</h2><p className="mt-1 text-sm text-slate-600">Choose an APK you downloaded. We read the app name, icon and version automatically.</p></div></div><div className="mt-5 flex flex-wrap gap-5 text-sm text-brand-700"><span className="flex items-center gap-2"><Upload size={16}/> Upload your APK</span><span className="flex items-center gap-2"><CheckCircle2 size={16}/> Publish to your school</span><span className="flex items-center gap-2"><Download size={16}/> Students install from your server</span></div></div><div className="p-6"><HubUpload key={school.id} kind="app" schoolId={school.id} superAdmin={staff.role==='super_admin'}/></div></div>}
-    {kind==='resource'&&<FolderLibrary items={(items||[]).map(i=>({...i,url:previewUrls.get(i.storage_path)}))} schoolId={school.id} superAdmin={staff.role==='super_admin'} manager={manager} enabled={[...enabled]}/>}
+    {kind==='resource'&&<FolderLibrary items={(items||[]).map(i=>({...i,url:previewUrls.get(i.storage_path)}))} schoolId={school.id} superAdmin={staff.role==='super_admin'} manager={manager} enabled={[...enabled]} forms={[...new Set((groups||[]).map(g=>g.form_level))]}/>}
     {kind==='wallpaper'&&manager && <details className="card p-5"><summary className="cursor-pointer font-semibold text-brand-700">+ Publish a wallpaper</summary><div className="pt-5"><HubUpload kind={kind} schoolId={school.id} superAdmin={staff.role === "super_admin"} /></div></details>}
     {kind === "wallpaper" && manager && <div className="grid gap-5 lg:grid-cols-2">
       <div className="card p-5"><h2 className="mb-4 font-semibold">{school.name} defaults</h2><HubSettingsForm wallpapers={(items || []).filter(i => i.published)} settings={settings?.find(s => s.school_id === school.id) || null} /></div>

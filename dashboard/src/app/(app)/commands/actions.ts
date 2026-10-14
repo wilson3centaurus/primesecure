@@ -78,13 +78,13 @@ export async function cancelCommand(_prev: FormState, formData: FormData): Promi
   const staff = await requireStaff();
   const id = String(formData.get("id") ?? "");
   const supabase = await createClient();
-  const { data: cmd } = await supabase.from("commands").select("id, school_id, device_id, status").eq("id", id).maybeSingle();
+  const { data: cmd } = await supabase.from("commands").select("id, school_id, device_id, status,type,payload").eq("id", id).maybeSingle();
   if (!cmd || !canManage(staff, cmd.school_id)) return { error: "You can't cancel this." };
   if (cmd.status !== "pending") return { error: "Already delivered; it can't be cancelled now." };
 
   const { data, error } = await supabase
     .from("commands")
-    .update({ status: "cancelled" })
+    .update({ status: "cancelled",...(cmd.type==="reset_password"?{payload:{expires_at:cmd.payload?.expires_at}}:{}) })
     .eq("id", id)
     .eq("status", "pending")
     .select("id");

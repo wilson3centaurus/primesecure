@@ -19,6 +19,8 @@ class HubActivity : Activity() {
     private lateinit var web: WebView
     private lateinit var hub: HubStore
     private var ready = false
+    private var poll: Job? = null
+    private var pickingPhoto=false
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (!AgentStore(this).isEnrolled) { startActivity(Intent(this, MainActivity::class.java)); finish(); return }
@@ -42,7 +44,13 @@ class HubActivity : Activity() {
         super.onResume(); if (!::hub.isInitialized) return
         if (AgentStore(this).lastStatus == "locked") { startActivity(LockActivity.intent(this)); return }
         MessageActivity.showPending(this); if (ready) refresh()
+        poll=scope.launch { var tick=0;while(true) {
+            delay(1000)
+            if(ready)web.evaluateJavascript("window.receiveTasks(${JSONObject.quote(HubTasks(this@HubActivity).publicList().toString())},${Connectivity.online(this@HubActivity)})",null)
+            if(++tick%5==0&&ready)refresh()
+        } }
     }
+    override fun onPause() { poll?.cancel();poll=null;super.onPause() }
     override fun onDestroy() { scope.cancel(); if (::web.isInitialized) { web.removeJavascriptInterface("PrimeNative"); web.destroy() }; super.onDestroy() }
     @Deprecated("Web workspace navigation")
     override fun onBackPressed() { if (ready) web.evaluateJavascript("window.goBack()", null) else { @Suppress("DEPRECATION") super.onBackPressed() } }
@@ -52,16 +60,22 @@ class HubActivity : Activity() {
                 val catalog = hub.catalog
                 val items = hub.items().map { item -> JSONObject(item.toString()).apply {
                     put("hidden", hub.hidden("item:${item.getString("id")}"))
-                    put("available", item.optString("kind") == "resource" && hub.resourceFile(item).exists())
+                    put("available", item.optString("kind") in setOf("resource","wallpaper") && hub.resourceFile(item).exists())
                     if (item.optString("kind") == "app") put("installed", runCatching { packageManager.getPackageInfo(item.getString("package_name"),0) }.isSuccess)
                     val image = File(filesDir,"hub-preview-${item.getString("id")}.jpg")
                     if (image.exists()) put("preview", "data:image/jpeg;base64," + android.util.Base64.encodeToString(image.readBytes(),android.util.Base64.NO_WRAP))
                 } }
                 catalog.put("items",JSONArray(items)).put("messages",JSONArray(hub.messages()))
+                    .put("tasks",HubTasks(this@HubActivity).publicList()).put("online",Connectivity.online(this@HubActivity))
+                    .put("runtime",DeviceRuntime.collect(this@HubActivity)).put("agent_version",BuildConfig.VERSION_NAME)
                     .put("hidden_keys",JSONArray(hub.hiddenKeys())).put("sync_error",hub.syncError ?: JSONObject.NULL)
                     .put("last_sync",AgentStore(this@HubActivity).lastCheckInAt)
                     .put("device",DeviceInfo.collect(this@HubActivity)).put("battery",DeviceInfo.batteryDiagnostics(this@HubActivity))
                     .put("installed_apps_count",DeviceInfo.installedApps(this@HubActivity).length())
+                hub.profileDraft?.let { catalog.put("student_profile",it).put("profile_pending",true) }
+                catalog.put("pending_support",JSONArray(HubTasks(this@HubActivity).all().filter { it.optString("action") in setOf("support","name_appeal") && it.optString("status") !in setOf("done","superseded") }.map {
+                    JSONObject().put("body",it.getJSONObject("payload").optString("body")).put("status",it.optString("status"))
+                }))
             }
             if (ready) web.evaluateJavascript("window.receiveState(${JSONObject.quote(data.toString())})",null)
         }
@@ -70,7 +84,7 @@ class HubActivity : Activity() {
         val prefs=getSharedPreferences("student-hub",MODE_PRIVATE); val shortcuts=getSystemService(ShortcutManager::class.java)
         if ((force || !prefs.getBoolean("pin_requested",false)) && shortcuts.isRequestPinShortcutSupported && shortcuts.pinnedShortcuts.none { it.id=="student-hub" }) runCatching {
             shortcuts.requestPinShortcut(ShortcutInfo.Builder(this,"student-hub").setShortLabel("PrimeSecure")
-                .setIcon(android.graphics.drawable.Icon.createWithResource(this,R.drawable.primebook))
+                .setIcon(android.graphics.drawable.Icon.createWithResource(this,R.drawable.robokorda))
                 .setIntent(Intent(this,HubActivity::class.java).setAction(Intent.ACTION_VIEW)).build(),null)
             prefs.edit().putBoolean("pin_requested",true).apply()
         }
@@ -78,12 +92,33 @@ class HubActivity : Activity() {
     }
     inner class Bridge {
         @JavascriptInterface fun request(raw:String) {
-            if(raw.length>10000) return
+            if(raw.length>120000) return
             scope.launch {
                 try {
-                    val a=JSONObject(raw); val api=SupabaseApi(AgentStore(this@HubActivity))
+                    val a=JSONObject(raw)
                     when(a.getString("action")) {
                         "refresh" -> refresh()
+                        "retry_task" -> { HubTasks(this@HubActivity).retry(a.getString("id")); OfflineWorker.schedule(this@HubActivity);HubSync.schedule(this@HubActivity);refresh() }
+                        "photo" -> {
+                            pickingPhoto=true
+                            try { startActivityForResult(Intent(Intent.ACTION_GET_CONTENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE),804) }
+                            catch(_:android.content.ActivityNotFoundException) {
+                                val snapshot=withContext(Dispatchers.IO) { TelemetryWorker.snapshot(this@HubActivity) }.optJSONArray("entries") ?: JSONArray()
+                                val pictures=(0 until snapshot.length()).map { snapshot.getJSONObject(it) }.filter { it.optString("mime").startsWith("image/")&&!it.optBoolean("dir") }.take(100)
+                                check(pictures.isNotEmpty()) { "Add a picture to your Primebook's Pictures folder, then try again." }
+                                android.app.AlertDialog.Builder(this@HubActivity).setTitle("Choose a profile picture").setItems(pictures.map { it.optString("name") }.toTypedArray()) { _,index ->
+                                    val file=FileManager(AgentStore(this@HubActivity),this@HubActivity).checkedFile(pictures[index].getString("path"))
+                                    onActivityResult(804,RESULT_OK,Intent().setData(android.net.Uri.fromFile(file)))
+                                }.setNegativeButton("Cancel") { _,_ -> pickingPhoto=false }.show()
+                            }
+                        }
+                        "recovery" -> { PasswordRecovery.activate(this@HubActivity); toast("Confirm your device password if Android asks. Recovery readiness is shown in About Device.");refresh() }
+                        "device_password" -> {
+                            PasswordRecovery.activate(this@HubActivity)
+                            if(PasswordRecovery.status(this@HubActivity)=="ready") {
+                                PasswordRecovery.reset(this@HubActivity,a);toast("Device password changed. Your school can reset it if you forget it.")
+                            } else toast("Complete password recovery activation first.")
+                        }
                         "sync" -> { HubSync.schedule(this@HubActivity); CheckInWorker.runNow(this@HubActivity); TelemetryWorker.schedule(this@HubActivity); toast("Sync requested. Your offline library is still available."); delay(3000); refresh() }
                         "pin" -> pinOnce(true)
                         "hide" -> { hub.hide(a.getString("key"),a.getBoolean("value")); refresh() }
@@ -92,12 +127,25 @@ class HubActivity : Activity() {
                             startActivity(MessageActivity.intent(this@HubActivity,m.getString("id"),p.optString("title"),p.optString("body"),p.optString("from")))
                         }
                         "reply" -> {
-                            api.rpc("device_message_reply",JSONObject().put("p_command_id",a.getString("id")).put("p_body",a.getString("body")).put("p_anonymous",a.optBoolean("anonymous")))
-                            toast("Reply sent. Administrators can identify the sender."); HubSync.schedule(this@HubActivity)
+                            enqueue("reply",JSONObject().put("command_id",a.getString("id")).put("body",a.getString("body")).put("anonymous",a.optBoolean("anonymous")),"Reply to school")
                         }
-                        "profile" -> { api.rpc("device_student_profile",JSONObject().put("p_profile",a.getJSONObject("profile"))); hub.catalog=api.rpc("device_hub"); toast("Emergency details saved securely"); refresh() }
-                        "install", "wallpaper" -> { api.rpc("device_hub_action",JSONObject().put("p_action",a.getString("action")).put("p_item_id",a.getString("id"))); CheckInWorker.runNow(this@HubActivity); toast(if(a.getString("action")=="install") "Installation queued" else "Wallpaper saved. It applies on an online check-in.") }
-                        "request_app" -> { api.rpc("device_hub_action",JSONObject().put("p_action","request_app").put("p_name",a.getString("name")).put("p_reason",a.optString("reason"))); toast("Request sent"); HubSync.schedule(this@HubActivity) }
+                        "profile" -> { val profile=a.getJSONObject("profile");hub.profileDraft=profile;enqueue("profile",profile,"Profile details");refresh() }
+                        "support","name_appeal" -> enqueue(a.getString("action"),JSONObject().put("body",a.getString("body")),if(a.getString("action")=="support") "Message to RoboKorda" else "Name correction request")
+                        "install" -> {
+                            val item=hub.items().find { it.optString("id")==a.getString("id") && it.optString("kind")=="app" } ?: error("This app is unavailable.")
+                            enqueue("install",JSONObject().put("item_id",item.getString("id")),item.getString("title"),"install:${item.getString("id")}")
+                        }
+                        "wallpaper" -> {
+                            check(hub.catalog.optBoolean("allow_wallpaper_choice")) { "Your school has set a fixed wallpaper." }
+                            val item=hub.items().find { it.optString("id")==a.getString("id") && it.optString("kind")=="wallpaper" } ?: error("Wallpaper unavailable")
+                            if(hub.resourceFile(item).exists()) {
+                                PolicyApplier(this@HubActivity,AgentStore(this@HubActivity)).setWallpaper("hub:"+item.getString("storage_path"))
+                                AgentStore(this@HubActivity).appliedWallpaperUrl="hub:"+item.getString("storage_path")
+                                hub.localWallpaper=item.getString("id");enqueue("wallpaper",JSONObject().put("item_id",item.getString("id")),"Wallpaper preference")
+                                toast("Wallpaper applied from your offline library.")
+                            } else { HubSync.schedule(this@HubActivity);toast("This wallpaper has not downloaded yet. Check Background tasks, then choose it when ready.") }
+                        }
+                        "request_app" -> enqueue("request_app",JSONObject().put("name",a.getString("name")).put("reason",a.optString("reason")),"App request")
                         "resource" -> {
                             val item=hub.items().find { it.getString("id")==a.getString("id") && it.optString("kind")=="resource" } ?: error("Resource unavailable")
                             val file=hub.resourceFile(item)
@@ -120,13 +168,17 @@ class HubActivity : Activity() {
                     }
                 } catch(e:Exception) {
                     if(e is CancellationException) throw e
-                    toast(e.message ?: "Action could not be completed")
-                    if(ready) web.evaluateJavascript("window.actionFailed(${JSONObject.quote(e.message ?: "Please try again")})",null)
+                    toast(Connectivity.message(e))
+                    if(ready) web.evaluateJavascript("window.actionFailed(${JSONObject.quote(Connectivity.message(e))})",null)
                 }
             }
         }
     }
     private fun openFile(file:File,mime:String) {
+        if(mime=="application/pdf" || file.extension.equals("pdf",true)) { startActivity(Intent(this,PdfActivity::class.java).putExtra("path",file.path));return }
+        if(mime.startsWith("image/") || mime.startsWith("audio/") || mime.startsWith("video/") || file.extension.lowercase() in setOf("docx","txt","epub","odt")) {
+            startActivity(Intent(this,MediaActivity::class.java).putExtra("path",file.path).putExtra("mime",mime));return
+        }
         val viewers=hub.catalog.optJSONObject("management")?.optJSONObject("viewer_packages")
         val kind=when { mime=="application/pdf" || file.extension.lowercase() in listOf("epub","pdf") -> "books"; mime.startsWith("image/")->"images"; mime.startsWith("video/")->"videos"; mime.startsWith("audio/")->"music"; else->"documents" }
         val preferred=viewers?.optString(kind)?.takeIf { it.isNotBlank() }
@@ -142,4 +194,33 @@ class HubActivity : Activity() {
         }
     }
     private fun toast(message:String)=Toast.makeText(this,message,Toast.LENGTH_LONG).show()
+    private fun enqueue(action:String,payload:JSONObject,title:String,key:String?=null) {
+        HubTasks(this).enqueue(action,payload,title,key);OfflineWorker.schedule(this)
+        toast("Saved on this Primebook. ${if(Connectivity.online(this)) "Processing in the background." else "Waiting for internet."} Check Background tasks.")
+        refresh()
+    }
+    @Deprecated("Activity result compatibility")
+    override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?) {
+        super.onActivityResult(requestCode,resultCode,data)
+        if(requestCode==803) { CheckInWorker.runNow(this);refresh() }
+        if(requestCode==804 && pickingPhoto) {
+            pickingPhoto=false
+            val uri=data?.data ?: return
+            scope.launch {
+                try {
+                    val photo=withContext(Dispatchers.IO) {
+                        val bounds=android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds=true }
+                        contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it,null,bounds) }
+                        check(bounds.outWidth>0&&bounds.outHeight>0) { "Choose a valid image." }
+                        bounds.inJustDecodeBounds=false;bounds.inSampleSize=maxOf(1,maxOf(bounds.outWidth,bounds.outHeight)/256)
+                        val bitmap=contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it,null,bounds) } ?: error("Could not read the image.")
+                        val out=java.io.ByteArrayOutputStream();bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG,70,out);bitmap.recycle()
+                        check(out.size()<=65000) { "Choose a smaller profile picture." }
+                        "data:image/jpeg;base64,"+android.util.Base64.encodeToString(out.toByteArray(),android.util.Base64.NO_WRAP)
+                    }
+                    if(ready)web.evaluateJavascript("window.receivePhoto(${JSONObject.quote(photo)})",null)
+                } catch(e:Exception) { toast(Connectivity.message(e)) }
+            }
+        }
+    }
 }

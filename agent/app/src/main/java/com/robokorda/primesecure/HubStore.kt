@@ -27,6 +27,12 @@ class HubStore(private val context: Context) {
     var syncError: String?
         get() = prefs.getString("sync_error", null)
         set(value) { prefs.edit().putString("sync_error", value).apply() }
+    var profileDraft: JSONObject?
+        get() = prefs.getString("profile_draft", null)?.let(::JSONObject)
+        set(value) { prefs.edit().putString("profile_draft", value?.toString()).commit() }
+    var localWallpaper: String?
+        get() = prefs.getString("local_wallpaper", null)
+        set(value) { prefs.edit().putString("local_wallpaper", value).commit() }
     fun hidden(key: String) = prefs.getBoolean("hidden:$key", false)
     fun hiddenKeys() = prefs.all.keys.filter { it.startsWith("hidden:") && prefs.getBoolean(it,false) }.map { it.removePrefix("hidden:") }
     fun hide(key: String, value: Boolean) { prefs.edit().putBoolean("hidden:$key", value).commit() }

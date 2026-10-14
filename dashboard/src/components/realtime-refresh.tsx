@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/browser";
 
 // Re-renders the page when rows change. Realtime applies RLS per subscriber,
 // so staff only hear about their own school's rows.
-export function RealtimeRefresh({ table, filter }: { table: "devices" | "commands" | "policies"; filter?: string }) {
+export function RealtimeRefresh({ table, filter }: { table: "devices" | "commands" | "policies" | "support_messages"; filter?: string }) {
   const router = useRouter();
   useEffect(() => {
     const supabase = createClient();

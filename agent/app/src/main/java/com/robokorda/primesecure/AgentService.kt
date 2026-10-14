@@ -26,6 +26,8 @@ class AgentService : Service() {
     private var realtime: RealtimeClient? = null
     private var pendingCheckIn: Job? = null
     private var telemetryLoop: Job? = null
+    private var networkCallback: android.net.ConnectivityManager.NetworkCallback? = null
+    private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -49,14 +51,35 @@ class AgentService : Service() {
                 onConnected = { checkInSoon() }, // catch up on anything missed while disconnected
                 onChange = { table, record -> onChange(store, table, record) },
             ).also { it.start() }
+            val cm=getSystemService(android.net.ConnectivityManager::class.java)
+            networkCallback=object:android.net.ConnectivityManager.NetworkCallback() {
+                override fun onCapabilitiesChanged(network:android.net.Network,caps:android.net.NetworkCapabilities) {
+                    if(caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+                        checkInSoon(); HubSync.schedule(this@AgentService)
+                        if(HubTasks(this@AgentService).pending().any { it.optString("action") !in setOf("download","admin_command") }) OfflineWorker.schedule(this@AgentService)
+                    }
+                }
+            }.also { cm.registerDefaultNetworkCallback(it) }
+            scope.launch {
+                val cached=getSharedPreferences("agent-policy",MODE_PRIVATE).getString("policy",null)
+                if(cached!=null && getSharedPreferences("agent-policy",MODE_PRIVATE).getString("device",null)==store.deviceId) runCatching { PolicyApplier(this@AgentService,store).apply(JSONObject(cached),store.lastStatus=="suspended") }
+            }
         }
         return START_STICKY
-            .also { if (telemetryLoop == null) telemetryLoop = scope.launch { while (true) { delay(5 * 60_000L); TelemetryWorker.schedule(this@AgentService) } } }
+            .also { if (telemetryLoop == null) telemetryLoop = scope.launch { var tick=0; while (true) {
+                keepWifi(); delay(30_000L); tick++
+                if(Connectivity.online(this@AgentService)) {
+                    if(tick%2==0) { CheckInWorker.runNow(this@AgentService); HubSync.schedule(this@AgentService) }
+                    if(HubTasks(this@AgentService).pending().any { it.optString("action") !in setOf("download","admin_command") }) OfflineWorker.schedule(this@AgentService)
+                    if(tick%10==0) TelemetryWorker.schedule(this@AgentService)
+                }
+            } } }
     }
 
     private fun onChange(store: AgentStore, table: String, record: JSONObject?) {
         when (table) {
             "commands", "policies" -> checkInSoon()
+            "hub_items", "hub_access", "hub_settings", "support_messages" -> { checkInSoon();HubSync.schedule(this) }
             // Every check-in updates our own row; only a status change needs action.
             "devices" -> if (record?.optString("status") != store.lastStatus) checkInSoon()
         }
@@ -66,18 +89,31 @@ class AgentService : Service() {
     private fun checkInSoon() {
         pendingCheckIn?.cancel()
         pendingCheckIn = scope.launch {
-            delay(1_500)
+            delay(250)
             CheckInWorker.runNow(this@AgentService)
         }
     }
 
     override fun onDestroy() {
+        networkCallback?.let { runCatching { getSystemService(android.net.ConnectivityManager::class.java).unregisterNetworkCallback(it) } }
+        if(wifiLock?.isHeld==true)wifiLock?.release()
         realtime?.stop()
         scope.cancel()
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+    @Suppress("DEPRECATION")
+    private fun keepWifi() {
+        val wanted=HubStore(this).catalog.optJSONObject("management")?.optBoolean("keep_wifi_on",true) != false
+        if(!wanted) { if(wifiLock?.isHeld==true)wifiLock?.release(); return }
+        runCatching {
+            val wm=applicationContext.getSystemService(android.net.wifi.WifiManager::class.java)
+            if(AdminReceiver.isDeviceOwner(this)&&!wm.isWifiEnabled) wm.isWifiEnabled=true
+            if(wifiLock==null) wifiLock=wm.createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF,"PrimeSecure:school-connection").apply { setReferenceCounted(false) }
+            if(wifiLock?.isHeld==false)wifiLock?.acquire()
+        }
+    }
 
     companion object {
         fun start(context: Context) {
