@@ -67,7 +67,7 @@ export async function saveHubSettings(_prev: FormState, form: FormData): Promise
   const { error } = await supabase.from("hub_settings").upsert({ scope: global ? "global" : school.id, school_id: global ? null : school.id,
     default_wallpaper_id: wallpaper || null, allow_wallpaper_choice: form.get("allow_choice") === "on", hide_vendor_store: form.get("hide_vendor_store") === "on" });
   if (error) return { error: error.message };
-  revalidatePath("/wallpapers"); return { ok: global ? "Master defaults saved for all schools without an override." : "School defaults saved." };
+  revalidatePath("/settings"); revalidatePath("/library"); revalidatePath("/wallpapers"); return { ok: global ? "Master defaults saved for all schools without an override." : "School defaults saved." };
 }
 
 export async function reviewAppRequest(_prev: FormState, form: FormData): Promise<FormState> {
@@ -76,5 +76,5 @@ export async function reviewAppRequest(_prev: FormState, form: FormData): Promis
   if (!["reviewing", "approved", "declined"].includes(status)) return { error: "Invalid status." };
   const { data, error } = await supabase.from("hub_requests").update({ status }).eq("id", String(form.get("id"))).select("id");
   if (error || !data?.length) return { error: error?.message || "You cannot review this request." };
-  revalidatePath("/requests"); return { ok: "Updated. Approved apps must also be published to the library." };
+  revalidatePath("/apps"); revalidatePath("/requests"); return { ok: "Updated. Approved apps must also be published to the library." };
 }

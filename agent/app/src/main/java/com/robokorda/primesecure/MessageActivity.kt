@@ -10,12 +10,17 @@ import android.widget.*
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import org.json.JSONObject
 
 class MessageActivity : Activity() {
     private val scope = MainScope()
     private var required = false
     private var messageId = ""
+    private var watch:Job?=null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setFinishOnTouchOutside(false)
@@ -24,7 +29,14 @@ class MessageActivity : Activity() {
         render(intent)
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); render(intent); enforce() }
-    override fun onResume() { super.onResume(); enforce() }
+    override fun onResume() { super.onResume(); enforce();watch=scope.launch {
+        while(true) {
+            delay(2000)
+            val removed=withContext(Dispatchers.IO) { messageId.isNotBlank() && HubStore(this@MessageActivity).message(messageId)==null }
+            if(removed) { required=false;if(AgentStore(this@MessageActivity).lastStatus!="locked")runCatching { stopLockTask() };finish();showPending(this@MessageActivity);break }
+        }
+    } }
+    override fun onPause() { watch?.cancel();watch=null;super.onPause() }
     private fun enforce() {
         if (AgentStore(this).lastStatus == "locked") { startActivity(LockActivity.intent(this)); finish(); return }
         if (required && AdminReceiver.isDeviceOwner(this)) runCatching {
@@ -60,9 +72,9 @@ class MessageActivity : Activity() {
         root.addView(Button(this).apply { text="Send reply"; setOnClickListener {
             val body=reply.text.toString().trim()
             if(body.isNotBlank()) scope.launch {
-                runCatching { SupabaseApi(AgentStore(this@MessageActivity)).rpc("device_message_reply",JSONObject().put("p_command_id",messageId).put("p_body",body).put("p_anonymous",anonymous.isChecked)) }
-                    .onSuccess { reply.text.clear(); Toast.makeText(this@MessageActivity,"Reply sent",Toast.LENGTH_SHORT).show() }
-                    .onFailure { Toast.makeText(this@MessageActivity,it.message,Toast.LENGTH_LONG).show() }
+                runCatching { withContext(Dispatchers.IO) { HubTasks(this@MessageActivity).enqueue("reply",JSONObject().put("command_id",messageId).put("body",body).put("anonymous",anonymous.isChecked),"Reply to school") } }
+                    .onSuccess { OfflineWorker.schedule(this@MessageActivity);reply.text.clear();Toast.makeText(this@MessageActivity,"Reply saved. It will send when internet is available.",Toast.LENGTH_LONG).show() }
+                    .onFailure { Toast.makeText(this@MessageActivity,Connectivity.message(it),Toast.LENGTH_LONG).show() }
             }
         } })
         root.addView(Button(this).apply {

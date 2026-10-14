@@ -551,3 +551,55 @@ test('boot recovery capabilities can only fetch and acknowledge their own passwo
  await as(null,'select device_recovery_ack($1,$2,$3,\'succeeded\')',[ids.deviceA,secret,cmd]);
  assert.equal((await as(ids.adminA,'select payload from commands where id=$1',[cmd]))[0].payload.password,undefined);
 });
+
+
+test('message deletion checks ownership and school, preserves receipts and supplies device tombstones',async()=>{
+ const own=(await as(ids.teacherA,"insert into commands(device_id,type,payload) values($1,'message','{}') returning id",[ids.deviceA]))[0].id;
+ const other=(await as(ids.adminA,"insert into commands(device_id,type,payload) values($1,'message','{}') returning id",[ids.deviceA]))[0].id;
+ await as(ids.devA,'select device_ack_message($1)',[own]);
+ const ack=(await db.query('select acknowledged_at from commands where id=$1',[own])).rows[0].acknowledged_at;
+ await rejects(as(ids.adminB,'select staff_delete_messages($1::uuid[])',[[own]]),/cannot delete/);
+ await rejects(as(ids.teacherA,'select staff_delete_messages($1::uuid[])',[[other]]),/cannot delete/);
+ await rejects(as(ids.devA,'select staff_delete_messages($1::uuid[])',[[own]]),/Invalid/);
+ await rejects(as(null,'select staff_delete_messages($1::uuid[])',[[own]]));
+ await rejects(as(ids.adminA,'select staff_delete_messages(null)'),/Invalid/);
+ const location=(await as(ids.adminA,"insert into commands(device_id,type) values($1,'locate') returning id",[ids.deviceA]))[0].id;
+ await rejects(as(ids.adminA,'select staff_delete_messages($1::uuid[])',[[own,location]]),/cannot delete/);
+ assert.equal((await db.query('select deleted_at from commands where id=$1',[own])).rows[0].deleted_at,null);
+ await as(ids.teacherA,'select staff_delete_messages($1::uuid[])',[[own]]);
+ const row=(await db.query('select status,deleted_at,acknowledged_at from commands where id=$1',[own])).rows[0];
+ assert.equal(row.status,'cancelled');assert.ok(row.deleted_at);assert.deepEqual(row.acknowledged_at,ack);
+ const inbox=(await as(ids.devA,'select device_message_history() as inbox'))[0].inbox;
+ assert.ok(!inbox.messages.some(m=>m.id===own));assert.ok(inbox.deleted_ids.includes(own));assert.ok(inbox.messages.some(m=>m.id===other));
+ await rejects(as(ids.devA,"select device_message_reply($1,'Deleted notice')",[own]),/message not found/);
+ assert.equal((await as(ids.adminA,'select staff_delete_messages($1::uuid[]) as result',[[own]]))[0].result.deleted,0);
+});
+
+test('catalogue app approval overrides stale lists and isolates schools and withdrawn apps',async()=>{
+ const app=(await db.query("insert into hub_items(school_id,kind,title,storage_path,size,package_name) values($1,'app','Viewer',$2,200,'org.test.viewer') returning id",[ids.schoolA,ids.schoolA+'/viewer.apk'])).rows[0].id;
+ await db.query("insert into hub_settings(scope,school_id,approved_apps_only) values($1,$2,true) on conflict(scope) do update set approved_apps_only=true",[ids.schoolA,ids.schoolA]);
+ await db.query("update policies set hidden_apps='{org.test.viewer}',allowed_apps='{org.legacy.only}' where school_id=$1",[ids.schoolA]);
+ let hub=(await as(ids.devA,'select device_hub() as hub'))[0].hub;
+ assert.equal(hub.management.approved_apps_only,true);assert.ok(hub.management.approved_packages.includes('org.test.viewer'));assert.ok(hub.items.some(i=>i.id===app));
+ const other=(await as(ids.devB,'select device_hub() as hub'))[0].hub;assert.ok(!other.management.approved_packages.includes('org.test.viewer'));
+ await db.query('update hub_items set published=false where id=$1',[app]);
+ hub=(await as(ids.devA,'select device_hub() as hub'))[0].hub;assert.ok(!hub.management.approved_packages.includes('org.test.viewer'));assert.ok(!hub.items.some(i=>i.id===app));
+ await rejects(as(ids.devA,"select device_hub_action('install',$1)",[app]),/not available/);
+ await db.query('update hub_items set published=true where id=$1',[app]);
+ await db.query('update hub_settings set approved_apps_only=false where school_id=$1',[ids.schoolA]);
+ hub=(await as(ids.devA,'select device_hub() as hub'))[0].hub;assert.equal(hub.management.approved_apps_only,false);assert.ok(!hub.items.some(i=>i.id===app));
+});
+
+test('a 300-device notice has complete receipts and deletes as one broadcast',async()=>{
+ const broadcast=(await db.query('select gen_random_uuid() as id')).rows[0].id;
+ const payload=JSON.stringify({title:'Fleet test',body:'One notice for 300 devices',broadcast_id:broadcast});
+ const devices=(await db.query("insert into devices(school_id,student_name) select $1,'Fleet QA '||n from generate_series(1,300)n returning id",[ids.schoolA])).rows;
+ for(const d of devices) await as(ids.adminA,"insert into commands(device_id,type,payload) values($1,'message',$2::jsonb)",[d.id,payload]);
+ await rejects(as(ids.adminB,'select staff_message_history($1)',[ids.schoolA]),/staff access/);
+ await rejects(as(ids.devA,'select staff_message_history($1)',[ids.schoolA]),/staff access/);
+ const history=(await as(ids.adminA,'select staff_message_history($1) as result',[ids.schoolA]))[0].result;
+ const notice=history.find(n=>n.title==='Fleet test');assert.equal(notice.receipts.length,300);assert.equal(notice.body,'One notice for 300 devices');
+ const result=(await as(ids.adminA,'select staff_delete_messages($1::uuid[]) as result',[[notice.receipts[0].id]]))[0].result;
+ assert.equal(result.deleted,300);
+ assert.equal((await db.query("select count(*)::int as n from commands where payload->>'broadcast_id'=$1 and deleted_at is not null",[broadcast])).rows[0].n,300);
+});

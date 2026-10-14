@@ -29,8 +29,8 @@ function Toggle({ name, label, hint, defaultChecked, disabled }: { name: string;
 }
 
 export function PolicyEditor({
-  policy, schoolId, deviceId, canEdit,
-}: { policy: Policy | null; schoolId: string; deviceId?: string; canEdit: boolean }) {
+  policy, schoolId, deviceId, canEdit, mode="full",
+}: { policy: Policy | null; schoolId: string; deviceId?: string; canEdit: boolean; mode?:"full"|"web" }) {
   const [state, action] = useActionState(savePolicy, undefined);
   const [removeState, removeAction] = useActionState(removePolicy, undefined);
   const [wallpaper, setWallpaper] = useState(policy?.wallpaper_url ?? "");
@@ -55,11 +55,12 @@ export function PolicyEditor({
   return (
     <div className="space-y-6">
       <form action={action} className="space-y-6">
+        <input type="hidden" name="editor_mode" value={mode} />
         <input type="hidden" name="school_id" value={schoolId} />
         {deviceId && <input type="hidden" name="device_id" value={deviceId} />}
         <input type="hidden" name="wallpaper_url" value={wallpaper} />
 
-        <section className="card space-y-3 p-4">
+        {mode==="full"&&<><section className="card space-y-3 p-4">
           <h2 className="font-semibold">Wallpaper</h2>
           <div className="flex flex-wrap items-start gap-4">
             <div className="flex aspect-video w-64 items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-100 text-xs text-slate-400">
@@ -109,13 +110,11 @@ export function PolicyEditor({
           </div>
         </section>
 
+        </>}
         <section className="card space-y-4 p-4">
           <div>
             <h2 className="font-semibold">Web filtering</h2>
-            <p className="text-xs text-slate-500">
-              Enforced in Chrome and in the School Browser (which appears on devices once filtering is on).
-              To stop students using other browsers, hide them above or use Allowed apps.
-            </p>
+<p className="text-xs text-slate-500">Applies to approved Chrome and the School Browser. Manage which apps students may use in Apps.</p>
           </div>
           <div className="flex flex-wrap gap-4 text-sm">
             {([["off", "No filtering"], ["blocklist", "Block listed sites"], ["allowlist", "Only allow listed sites"]] as const).map(([v, l]) => (

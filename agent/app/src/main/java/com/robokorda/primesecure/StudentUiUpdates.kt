@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit
 /** Signed presentation-only releases. The native bridge stays versioned in the APK. */
 object StudentUiUpdates {
     const val ORIGIN = "https://student.primesecure.local/"
-    const val BUNDLED_VERSION = 7
+    val BUNDLED_VERSION = BuildConfig.UI_BUNDLED_VERSION
     private val names = setOf("index.html","workspace.js","workspace.css","primebook.png","robokorda.jpg")
     private val client = OkHttpClient.Builder().connectTimeout(10,TimeUnit.SECONDS).readTimeout(20,TimeUnit.SECONDS)
         .followRedirects(false).build()

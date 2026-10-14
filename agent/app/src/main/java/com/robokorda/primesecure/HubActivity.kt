@@ -21,6 +21,12 @@ class HubActivity : Activity() {
     private var ready = false
     private var poll: Job? = null
     private var pickingPhoto=false
+    private var refreshing=false
+    private var wallpaperBusy=false
+    private var cachedRuntime: JSONObject?=null
+    private var cachedDevice: JSONObject?=null
+    private var cachedAppCount=0
+    private var runtimeAt=0L
     private var uiDirectory: File? = null
     private var uiConfirmed = false
     private val uiTimeout: Runnable = Runnable { if (!uiConfirmed && uiDirectory != null) { StudentUiUpdates.reject(this); uiDirectory=StudentUiUpdates.begin(this); ready=false; web.loadUrl(StudentUiUpdates.ORIGIN+"index.html"); web.postDelayed(uiTimeout,10000) } }
@@ -55,7 +61,10 @@ class HubActivity : Activity() {
         MessageActivity.showPending(this); if (ready) refresh()
         poll=scope.launch { var tick=0;while(true) {
             delay(1000)
-            if(ready)web.evaluateJavascript("window.receiveTasks(${JSONObject.quote(HubTasks(this@HubActivity).publicList().toString())},${Connectivity.online(this@HubActivity)})",null)
+            if(ready) {
+                val tasks=withContext(Dispatchers.IO) { JSONObject.quote(HubTasks(this@HubActivity).publicList().toString()) }
+                web.evaluateJavascript("window.receiveTasks($tasks,${Connectivity.online(this@HubActivity)})",null)
+            }
             if(++tick%5==0&&ready)refresh()
         } }
     }
@@ -64,8 +73,15 @@ class HubActivity : Activity() {
     @Deprecated("Web workspace navigation")
     override fun onBackPressed() { if (ready) web.evaluateJavascript("window.goBack()", null) else { @Suppress("DEPRECATION") super.onBackPressed() } }
     private fun refresh() {
+        if(refreshing)return
+        refreshing=true
         scope.launch {
+          try {
             val data = withContext(Dispatchers.IO) {
+                if(cachedRuntime==null || System.currentTimeMillis()-runtimeAt>60_000L) {
+                    cachedRuntime=DeviceRuntime.collect(this@HubActivity);cachedDevice=DeviceInfo.collect(this@HubActivity)
+                    cachedAppCount=DeviceInfo.installedApps(this@HubActivity).length();runtimeAt=System.currentTimeMillis()
+                }
                 val catalog = hub.catalog
                 val items = hub.items().map { item -> JSONObject(item.toString()).apply {
                     put("hidden", hub.hidden("item:${item.getString("id")}"))
@@ -76,17 +92,18 @@ class HubActivity : Activity() {
                 } }
                 catalog.put("items",JSONArray(items)).put("messages",JSONArray(hub.messages()))
                     .put("tasks",HubTasks(this@HubActivity).publicList()).put("online",Connectivity.online(this@HubActivity))
-                    .put("runtime",DeviceRuntime.collect(this@HubActivity)).put("agent_version",BuildConfig.VERSION_NAME).put("ui_version",uiDirectory?.name?.drop(1)?.toIntOrNull() ?: StudentUiUpdates.BUNDLED_VERSION)
+                    .put("runtime",cachedRuntime).put("agent_version",BuildConfig.VERSION_NAME).put("ui_version",uiDirectory?.name?.drop(1)?.toIntOrNull() ?: StudentUiUpdates.BUNDLED_VERSION)
                     .put("hidden_keys",JSONArray(hub.hiddenKeys())).put("sync_error",hub.syncError ?: JSONObject.NULL)
                     .put("last_sync",AgentStore(this@HubActivity).lastCheckInAt)
-                    .put("device",DeviceInfo.collect(this@HubActivity)).put("battery",DeviceInfo.batteryDiagnostics(this@HubActivity))
-                    .put("installed_apps_count",DeviceInfo.installedApps(this@HubActivity).length())
+                    .put("device",cachedDevice).put("battery",DeviceInfo.batteryDiagnostics(this@HubActivity))
+                    .put("installed_apps_count",cachedAppCount)
                 hub.profileDraft?.let { catalog.put("student_profile",it).put("profile_pending",true) }
                 catalog.put("pending_support",JSONArray(HubTasks(this@HubActivity).all().filter { it.optString("action") in setOf("support","name_appeal") && it.optString("status") !in setOf("done","superseded") }.map {
                     JSONObject().put("body",it.getJSONObject("payload").optString("body")).put("status",it.optString("status"))
                 }))
             }
             if (ready) web.evaluateJavascript("window.receiveState(${JSONObject.quote(data.toString())})",null)
+          } finally { refreshing=false }
         }
     }
     private fun pinOnce(force: Boolean = false) {
@@ -108,7 +125,7 @@ class HubActivity : Activity() {
                     when(a.getString("action")) {
                         "ui_ready" -> if (!uiConfirmed) { uiConfirmed=true; web.removeCallbacks(uiTimeout); StudentUiUpdates.accept(this@HubActivity) }
                         "refresh" -> refresh()
-                        "retry_task" -> { HubTasks(this@HubActivity).retry(a.getString("id")); OfflineWorker.schedule(this@HubActivity);HubSync.schedule(this@HubActivity);refresh() }
+                        "retry_task" -> { withContext(Dispatchers.IO) { HubTasks(this@HubActivity).retry(a.getString("id")) }; OfflineWorker.schedule(this@HubActivity);HubSync.schedule(this@HubActivity);refresh() }
                         "photo" -> {
                             pickingPhoto=true
                             try { startActivityForResult(Intent(Intent.ACTION_GET_CONTENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE),804) }
@@ -131,7 +148,7 @@ class HubActivity : Activity() {
                         }
                         "sync" -> { HubSync.schedule(this@HubActivity); CheckInWorker.runNow(this@HubActivity); TelemetryWorker.schedule(this@HubActivity); toast("Sync requested. Your offline library is still available."); delay(3000); refresh() }
                         "pin" -> pinOnce(true)
-                        "hide" -> { hub.hide(a.getString("key"),a.getBoolean("value")); refresh() }
+                        "hide" -> { withContext(Dispatchers.IO) { hub.hide(a.getString("key"),a.getBoolean("value")) }; refresh() }
                         "message" -> {
                             val m=hub.message(a.getString("id")) ?: error("Message unavailable"); val p=m.getJSONObject("payload")
                             startActivity(MessageActivity.intent(this@HubActivity,m.getString("id"),p.optString("title"),p.optString("body"),p.optString("from")))
@@ -139,7 +156,7 @@ class HubActivity : Activity() {
                         "reply" -> {
                             enqueue("reply",JSONObject().put("command_id",a.getString("id")).put("body",a.getString("body")).put("anonymous",a.optBoolean("anonymous")),"Reply to school")
                         }
-                        "profile" -> { val profile=a.getJSONObject("profile");hub.profileDraft=profile;enqueue("profile",profile,"Profile details");refresh() }
+                        "profile" -> { val profile=a.getJSONObject("profile");withContext(Dispatchers.IO) { hub.profileDraft=profile };enqueue("profile",profile,"Profile details");refresh() }
                         "support","name_appeal" -> enqueue(a.getString("action"),JSONObject().put("body",a.getString("body")),if(a.getString("action")=="support") "Message to RoboKorda" else "Name correction request")
                         "install" -> {
                             val item=hub.items().find { it.optString("id")==a.getString("id") && it.optString("kind")=="app" } ?: error("This app is unavailable.")
@@ -148,11 +165,15 @@ class HubActivity : Activity() {
                         "wallpaper" -> {
                             check(hub.catalog.optBoolean("allow_wallpaper_choice")) { "Your school has set a fixed wallpaper." }
                             val item=hub.items().find { it.optString("id")==a.getString("id") && it.optString("kind")=="wallpaper" } ?: error("Wallpaper unavailable")
+                            check(!wallpaperBusy) { "A wallpaper is being applied. Please wait a moment." }
                             if(hub.resourceFile(item).exists()) {
+                                wallpaperBusy=true
+                                try {
                                 PolicyApplier(this@HubActivity,AgentStore(this@HubActivity)).setWallpaper("hub:"+item.getString("storage_path"))
                                 AgentStore(this@HubActivity).appliedWallpaperUrl="hub:"+item.getString("storage_path")
-                                hub.localWallpaper=item.getString("id");enqueue("wallpaper",JSONObject().put("item_id",item.getString("id")),"Wallpaper preference")
+                                withContext(Dispatchers.IO) { hub.localWallpaper=item.getString("id") };enqueue("wallpaper",JSONObject().put("item_id",item.getString("id")),"Wallpaper preference")
                                 toast("Wallpaper applied from your offline library.")
+                                } finally { wallpaperBusy=false }
                             } else { HubSync.schedule(this@HubActivity);toast("This wallpaper has not downloaded yet. Check Background tasks, then choose it when ready.") }
                         }
                         "request_app" -> enqueue("request_app",JSONObject().put("name",a.getString("name")).put("reason",a.optString("reason")),"App request")
@@ -185,27 +206,25 @@ class HubActivity : Activity() {
         }
     }
     private fun openFile(file:File,mime:String) {
-        if(mime=="application/pdf" || file.extension.equals("pdf",true)) { startActivity(Intent(this,PdfActivity::class.java).putExtra("path",file.path));return }
-        if(mime.startsWith("image/") || mime.startsWith("audio/") || mime.startsWith("video/") || file.extension.lowercase() in setOf("docx","txt","epub","odt")) {
+        val extension=file.extension.lowercase()
+        val kind=when { mime=="application/pdf" || extension in setOf("pdf","epub") -> "books";mime.startsWith("image/")->"images";mime.startsWith("video/")->"videos";mime.startsWith("audio/")->"music";else->"documents" }
+        val management=hub.catalog.optJSONObject("management")
+        val preferred=management?.optJSONObject("viewer_packages")?.optString(kind)?.takeIf { it.isNotBlank() }
+        // A viewer is a preference, never an exception to the school's app approval.
+        val approved=hub.items().any { it.optString("kind")=="app" && it.optString("package_name")==preferred }
+        if(preferred!=null && approved) runCatching {
+            val uri=FileProvider.getUriForFile(this,"$packageName.resources",file)
+            startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri,mime).setPackage(preferred).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+        }.onSuccess { return }.onFailure { toast("Your selected viewer is unavailable for this file. Opening the built-in viewer instead.") }
+        if(mime=="application/pdf" || extension=="pdf") { startActivity(Intent(this,PdfActivity::class.java).putExtra("path",file.path));return }
+        if(mime.startsWith("image/") || mime.startsWith("audio/") || mime.startsWith("video/") || extension in setOf("docx","txt","epub","odt")) {
             startActivity(Intent(this,MediaActivity::class.java).putExtra("path",file.path).putExtra("mime",mime));return
         }
-        val viewers=hub.catalog.optJSONObject("management")?.optJSONObject("viewer_packages")
-        val kind=when { mime=="application/pdf" || file.extension.lowercase() in listOf("epub","pdf") -> "books"; mime.startsWith("image/")->"images"; mime.startsWith("video/")->"videos"; mime.startsWith("audio/")->"music"; else->"documents" }
-        val preferred=viewers?.optString(kind)?.takeIf { it.isNotBlank() }
-        val uri=FileProvider.getUriForFile(this,"$packageName.resources",file)
-        val view=Intent(Intent.ACTION_VIEW).setDataAndType(uri,mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        if(preferred!=null) view.setPackage(preferred)
-        try { startActivity(view) } catch(_:android.content.ActivityNotFoundException) {
-            if(preferred!=null) view.setPackage(null)
-            try { startActivity(view) } catch(_:android.content.ActivityNotFoundException) {
-                if(mime=="application/pdf" || file.extension.equals("pdf",true)) startActivity(Intent(this,PdfActivity::class.java).putExtra("path",file.path))
-                else toast("No reader installed for this type. Ask school to approve a viewer in the App Store.")
-            }
-        }
+        toast("No approved viewer can open this format. Ask your school to select one in Apps → Media viewers.")
     }
     private fun toast(message:String)=Toast.makeText(this,message,Toast.LENGTH_LONG).show()
-    private fun enqueue(action:String,payload:JSONObject,title:String,key:String?=null) {
-        HubTasks(this).enqueue(action,payload,title,key);OfflineWorker.schedule(this)
+    private suspend fun enqueue(action:String,payload:JSONObject,title:String,key:String?=null) {
+        withContext(Dispatchers.IO) { HubTasks(this@HubActivity).enqueue(action,payload,title,key) };OfflineWorker.schedule(this)
         toast("Saved on this Primebook. ${if(Connectivity.online(this)) "Processing in the background." else "Waiting for internet."} Check Background tasks.")
         refresh()
     }

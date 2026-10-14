@@ -102,7 +102,13 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                         hidden.put("com.floydwiz.primestore")
                         policy.put("hidden_apps", hidden).put("block_installs", true)
                     }
-                    hub.optJSONObject("management")?.let { policy.put("hub_management",it) }
+                    hub.optJSONObject("management")?.let { management ->
+                        policy.put("hub_management",management)
+                        if(management.optBoolean("approved_apps_only")) {
+                            policy.put("allowed_apps",management.optJSONArray("approved_packages") ?: org.json.JSONArray())
+                                .put("hidden_apps",org.json.JSONArray().put("com.floydwiz.primestore")).put("block_installs",true).put("hide_settings",true)
+                        }
+                    }
                     runCatching {
                         AdminReceiver.dpm(context).setDeviceOwnerLockScreenInfo(AdminReceiver.component(context),"RoboKorda · ${hub.optString("school_name")}")
                     }

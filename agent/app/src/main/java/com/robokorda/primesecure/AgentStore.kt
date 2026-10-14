@@ -98,6 +98,9 @@ class AgentStore(context: Context) {
         set(value) = prefs.edit().putString("applied_wallpaper_url", value).apply()
 
     /** Packages hidden by us, so we only ever unhide what we hid. */
+    var suspendedByUs: Set<String>
+        get() = prefs.getStringSet("suspended_by_us", emptySet())!!.toSet()
+        set(value) = prefs.edit().putStringSet("suspended_by_us", value).apply()
     var hiddenByUs: Set<String>
         get() = prefs.getStringSet("hidden_by_us", emptySet())!!.toSet()
         set(value) = prefs.edit().putStringSet("hidden_by_us", value).apply()

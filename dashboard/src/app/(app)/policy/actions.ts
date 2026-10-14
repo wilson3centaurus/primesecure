@@ -38,9 +38,9 @@ async function target(formData: FormData) {
   }
   if (!schoolId || !canManage(staff, schoolId)) return null;
 
-  const query = supabase.from("policies").select("id").eq("school_id", schoolId);
+  const query = supabase.from("policies").select("*").eq("school_id", schoolId);
   const { data: existing } = await (deviceId ? query.eq("device_id", deviceId) : query.is("device_id", null)).maybeSingle();
-  return { supabase, schoolId, deviceId, existingId: existing?.id as string | undefined };
+  return { supabase, schoolId, deviceId, existingId: existing?.id as string | undefined, existing };
 }
 
 function revalidate(deviceId: string | null) {
@@ -72,6 +72,7 @@ export async function savePolicy(_prev: FormState, formData: FormData): Promise<
   const home = String(formData.get("browser_home_url") ?? "").trim() || null;
   if (home && !/^https?:\/\/\S+$/.test(home)) return { error: "Home page must start with http:// or https://" };
 
+  const existing = t.existing;
   const row = {
     wallpaper_url: wallpaper,
     lock_wallpaper: formData.get("lock_wallpaper") === "on",
@@ -84,6 +85,11 @@ export async function savePolicy(_prev: FormState, formData: FormData): Promise<
     web_allowlist: allowlist,
     safe_search: formData.get("safe_search") === "on",
     browser_home_url: home,
+    ...(formData.get("editor_mode")==="web"?{
+      wallpaper_url:existing?.wallpaper_url??null,lock_wallpaper:existing?.lock_wallpaper??false,
+      block_installs:existing?.block_installs??false,hide_settings:existing?.hide_settings??false,
+      hidden_apps:existing?.hidden_apps??[],allowed_apps:existing?.allowed_apps??[]
+    }:{}),
   };
 
   const { error } = t.existingId
@@ -91,8 +97,9 @@ export async function savePolicy(_prev: FormState, formData: FormData): Promise<
     : await t.supabase.from("policies").insert({ ...row, school_id: t.schoolId, device_id: t.deviceId });
   if (error) return { error: error.message };
 
+  revalidatePath("/settings");
   revalidate(t.deviceId);
-  return { ok: "Saved. Devices apply it at their next check-in (within 15 minutes)." };
+  return { ok: "Saved. Devices apply it at their next check-in (at their next connection)." };
 }
 
 export async function removePolicy(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -102,6 +109,7 @@ export async function removePolicy(_prev: FormState, formData: FormData): Promis
     const { error } = await t.supabase.from("policies").delete().eq("id", t.existingId);
     if (error) return { error: error.message };
   }
+  revalidatePath("/settings");
   revalidate(t.deviceId);
   return { ok: t.deviceId ? "This device now follows the school policy." : "School policy removed. Devices without their own policy are unrestricted." };
 }

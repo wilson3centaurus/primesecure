@@ -17,11 +17,14 @@ android {
         applicationId = "com.robokorda.primesecure"
         minSdk = 26
         targetSdk = 34
-        versionCode = System.getenv("AGENT_VERSION_CODE")?.toIntOrNull() ?: 5
-        versionName = System.getenv("AGENT_VERSION_NAME") ?: "0.5.0"
+        versionCode = System.getenv("AGENT_VERSION_CODE")?.toIntOrNull() ?: 6
+        versionName = System.getenv("AGENT_VERSION_NAME") ?: "0.6.0"
 
         buildConfigField("String", "SUPABASE_URL", "\"${setting("primesecure.url", "PRIMESECURE_URL")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${setting("primesecure.anonKey", "PRIMESECURE_ANON_KEY")}\"")
+        // Same monotonically increasing epoch used by the UI publisher. A newer
+        // APK must never load an older cached web interface over its bundled UI.
+        buildConfigField("int", "UI_BUNDLED_VERSION", ((System.currentTimeMillis() - 1767225600000L) / 1000).toString())
     }
 
     // Release signing comes from the agent-release workflow (secrets) or a local keystore.

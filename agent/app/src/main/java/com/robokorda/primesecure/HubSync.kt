@@ -21,6 +21,7 @@ class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(cont
             if(draft!=null && saved!=null && tasks.pending().none { it.optString("action")=="profile" } && draft.keys().asSequence().all { draft.optString(it,"")==saved.optString(it,"").let { value->if(value=="null") "" else value } }) hub.profileDraft=null
             val history = api.rpc("device_message_history")
             hub.catalog = JSONObject(hub.catalog.toString()).put("replies", history.optJSONArray("replies"))
+            hub.removeMessages(history.stringSet("deleted_ids"))
             val messages = history.optJSONArray("messages")
             if (messages != null) for (i in 0 until messages.length()) {
                 val m = messages.getJSONObject(i)

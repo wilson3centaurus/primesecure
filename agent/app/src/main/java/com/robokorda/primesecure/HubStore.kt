@@ -41,6 +41,9 @@ class HubStore(private val context: Context) {
         prefs.edit().putString("message:$id", JSONObject().put("id", id).put("payload", payload)
             .put("created_at", created).toString()).commit()
     }
+    fun removeMessages(ids: Set<String>) {
+        val edit=prefs.edit();ids.forEach { edit.remove("message:$it") };edit.commit()
+    }
     fun message(id: String): JSONObject? = prefs.getString("message:$id", null)?.let(::JSONObject)
     fun messages(): List<JSONObject> = prefs.all.keys.filter { it.startsWith("message:") }
         .mapNotNull { message(it.removePrefix("message:")) }.sortedByDescending { it.optString("created_at") }

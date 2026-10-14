@@ -4,13 +4,13 @@ import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { ManagementSettings } from "@/components/management-settings";
 import { SchoolClassSettings } from "@/components/school-class-settings";
-export default async function Settings() {
+import { SectionTabs } from "@/components/section-tabs";
+import { PolicyEditor } from "@/components/policy-editor";
+import { HubLibrary } from "@/components/hub-library";
+import { getPolicy } from "@/lib/policy";
+export default async function Settings({searchParams}:{searchParams:Promise<{tab?:string}>}) {
  const staff=await requireStaff(),school=await getCurrentSchool();if(!school)return <p>Select a school first.</p>;if(!canManage(staff,school.id))redirect('/overview');
- const db=await createClient();const [{data:settings},{data:apps},{data:access}]=await Promise.all([
-  db.from('hub_settings').select('*').eq('scope',school.id).maybeSingle(),
-  db.from('hub_items').select('id,title,package_name,school_id').eq('kind','app').eq('published',true).or(`school_id.is.null,school_id.eq.${school.id}`),
-  db.from('hub_access').select('item_id').eq('school_id',school.id)
- ]);
- const {data:groups}=await db.from('school_classes').select('id,form_level,class_name').eq('school_id',school.id).order('form_level').order('class_name');
- return <><PageHeader title="Workspace settings" description={`Controls, media viewers and support for ${school.name}.`}/><SchoolClassSettings groups={groups||[]}/><ManagementSettings settings={settings||{}} apps={(apps||[]).filter(a=>a.school_id||(access||[]).some(x=>x.item_id===a.id))}/></>;
+ const {tab="device"}=await searchParams;const tabs=[{id:"device",label:"Device & support"},{id:"classes",label:"Forms & classes"},{id:"web",label:"Web filtering"},{id:"appearance",label:"Wallpaper defaults"}];const current=tabs.some(t=>t.id===tab)?tab:"device";
+ const db=await createClient();const [{data:settings},{data:groups},policy]=await Promise.all([db.from('hub_settings').select('*').eq('scope',school.id).maybeSingle(),db.from('school_classes').select('id,form_level,class_name').eq('school_id',school.id).order('form_level').order('class_name'),getPolicy(school.id,null)]);
+ return <><PageHeader title="Settings" description={school.name}/><SectionTabs base="/settings" current={current} tabs={tabs}/>{current==="device"?<ManagementSettings settings={settings||{}} apps={[]}/>:current==="classes"?<SchoolClassSettings groups={groups||[]}/>:current==="appearance"?<HubLibrary kind="wallpaper" settingsOnly/>:<PolicyEditor key={policy?.id||"new"} policy={policy} schoolId={school.id} canEdit mode="web"/>}</>;
 }

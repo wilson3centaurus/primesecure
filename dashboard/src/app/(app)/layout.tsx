@@ -3,7 +3,7 @@ import { NavLink } from "@/components/nav-link";
 import { SchoolSwitcher } from "@/components/school-switcher";
 import { getCurrentSchool, getVisibleSchools, requireStaff, ROLE_LABEL } from "@/lib/auth";
 import Image from "next/image";
-import { LayoutDashboard, Laptop, Mail, FolderOpen, AppWindow, MessageCircle, ImageIcon, Files, ShieldCheck, Users, School, Download, Settings } from "lucide-react";
+import { LayoutDashboard, Laptop, Mail, FolderOpen, AppWindow, MessageCircle, Users, School, Download, Settings } from "lucide-react";
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const staff = await requireStaff();
@@ -27,14 +27,10 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
           <NavLink href="/overview"><LayoutDashboard size={18}/>Overview</NavLink>
           <NavLink href="/devices"><Laptop size={18}/>Students & devices</NavLink>
           <NavLink href="/messages"><Mail size={18}/>Messages</NavLink>
-          <NavLink href="/library"><FolderOpen size={18}/>School Notes</NavLink>
-          <NavLink href="/apps"><AppWindow size={18}/>App Store</NavLink>
+          <NavLink href="/library"><FolderOpen size={18}/>Content & files</NavLink>
+          <NavLink href="/apps"><AppWindow size={18}/>Apps</NavLink>
           {staff.role!=="teacher"&&<NavLink href="/support"><MessageCircle size={18}/>Student support</NavLink>}
-          <NavLink href="/requests"><MessageCircle size={18}/>App requests</NavLink>
-          <NavLink href="/wallpapers"><ImageIcon size={18}/>Wallpapers</NavLink>
-          {staff.role !== "teacher" && <NavLink href="/files"><Files size={18}/>Device files</NavLink>}
-          <NavLink href="/policy"><ShieldCheck size={18}/>School policy</NavLink>
-          {staff.role !== "teacher" && <NavLink href="/settings"><Settings size={18}/>Workspace settings</NavLink>}
+          {staff.role !== "teacher" && <NavLink href="/settings"><Settings size={18}/>Settings</NavLink>}
           <NavLink href="/staff"><Users size={18}/>Staff</NavLink>
           {staff.role === "super_admin" && <NavLink href="/schools"><School size={18}/>Schools</NavLink>}
           {staff.role === "super_admin" && <NavLink href="/agent"><Download size={18}/>Agent updates</NavLink>}

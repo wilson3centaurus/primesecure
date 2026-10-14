@@ -1,20 +1,28 @@
-import { getCurrentSchool, requireStaff } from "@/lib/auth";
+import { canManage, getCurrentSchool, requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/page-header";
 import { MessageForm } from "@/components/message-form";
+import { MessageHistory, type Notice } from "@/components/message-history";
 import { dateTime } from "@/lib/format";
-import { Mail, Eye, CheckCheck, MessageCircle } from "lucide-react";
+type Batch={id:string;created_by:string;created_at:string;title:string;body:string;receipts:{id:string;device_id:string;name:string;student_id:string;status:string;seen_at:string|null;acknowledged_at:string|null}[]};
+
 export default async function MessagesPage() {
- await requireStaff();const school=await getCurrentSchool();if(!school)return <PageHeader title="Messages" description="Select a school first."/>;
- const db=await createClient();
- const [{data,error},{data:replies,error:replyError},{data:devices}]=await Promise.all([
-  db.from('commands').select('id,device_id,payload,status,created_at,seen_at,acknowledged_at').eq('school_id',school.id).eq('type','message').order('created_at',{ascending:false}).limit(500),
-  db.from('message_replies').select('*').eq('school_id',school.id).order('created_at',{ascending:false}).limit(200),
-  db.from('devices').select('id,student_name,student_id,form_level,class_name').eq('school_id',school.id)
- ]);
- const names=new Map((devices||[]).map(d=>[d.id,d]));
- const summaries=[{label:'RECIPIENTS',value:data?.length||0,icon:Mail},{label:'OPENED',value:data?.filter(m=>m.seen_at).length||0,icon:Eye},{label:'ACKNOWLEDGED',value:data?.filter(m=>m.acknowledged_at).length||0,icon:CheckCheck},{label:'STUDENT REPLIES',value:replies?.length||0,icon:MessageCircle}];
- const batches=new Map<string,NonNullable<typeof data>>();
- for(const m of data||[]) {const key=m.payload?.broadcast_id||m.id;batches.set(key,[...(batches.get(key)||[]),m]);}
- return <div className="space-y-6"><PageHeader title="School conversations" description="Send a notice. See who opened it, who acknowledged, and what students have to say."/><div className="grid grid-cols-2 gap-4 xl:grid-cols-4">{summaries.map(s=><div key={s.label} className="stat-card"><s.icon className="mb-3 text-brand-500" size={22}/><div className="text-xs tracking-wider text-slate-400">{s.label}</div><div className="mt-2 text-3xl font-semibold">{s.value}</div><p className="mt-2 text-xs text-slate-400">Recent history shown below</p></div>)}</div><div className="grid items-start gap-6 xl:grid-cols-[1fr_1.2fr]"><section className="card p-6"><div className="mb-5 flex items-center gap-3"><div className="rounded-xl bg-brand-50 p-3 text-brand-600"><Mail size={20}/></div><h2 className="text-lg font-semibold">Compose a school message</h2></div><MessageForm target="school"/></section><section className="space-y-4"><h2 className="text-lg font-semibold">Sent notices & receipts</h2>{error&&<p role="alert" className="card p-5 text-red-600">{error.message}</p>}{[...batches.entries()].map(([key,rows])=><article key={key} className="card p-5"><div className="mb-3 flex flex-wrap items-center justify-between gap-3"><h3 className="font-semibold">{rows[0].payload?.title||'School message'}</h3><span className="text-xs text-slate-400">{dateTime(rows[0].created_at)}</span></div><p className="whitespace-pre-wrap text-sm leading-6 text-slate-500">{rows[0].payload?.body}</p><div className="my-4 flex gap-3 text-xs"><span className="rounded-full bg-slate-50 px-3 py-1">{rows.length} recipients</span><span className="rounded-full bg-blue-50 px-3 py-1 text-blue-600">{rows.filter(m=>m.seen_at).length} opened</span><span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-600">{rows.filter(m=>m.acknowledged_at).length} acknowledged</span></div><details><summary className="cursor-pointer text-sm font-medium text-brand-600">See each student’s receipt</summary><div className="mt-3 divide-y divide-slate-100">{rows.map(m=><div className="flex flex-wrap justify-between gap-3 py-3 text-xs" key={m.id}><div><b>{names.get(m.device_id)?.student_name||'Student'}</b><div className="mt-1 text-slate-400">{names.get(m.device_id)?.student_id}</div></div><div className="text-right text-slate-400"><div>{m.seen_at?`Opened ${dateTime(m.seen_at)}`:'Not opened yet'}</div><div className="mt-1 text-emerald-600">{m.acknowledged_at?`Acknowledged ${dateTime(m.acknowledged_at)}`:m.status==='succeeded'?'Delivered to device':m.status}</div></div></div>)}</div></details></article>)}{!data?.length&&!error&&<div className="card p-12 text-center text-sm text-slate-400">Your first notice starts here.</div>}</section></div><section className="card p-6"><div className="mb-6 flex items-center gap-3"><MessageCircle className="text-brand-500"/><h2 className="text-lg font-semibold">Student replies</h2></div>{replyError&&<p role="alert">{replyError.message}</p>}<div className="grid gap-4 lg:grid-cols-2">{(replies||[]).map(r=><article key={r.id} className="rounded-2xl border border-slate-200 p-5"><div className="flex justify-between gap-4"><h3 className="font-semibold">{names.get(r.device_id)?.student_name||'Student'}{r.anonymous?' (anonymous)':''}</h3><span className="text-xs text-slate-400">{dateTime(r.created_at)}</span></div><p className="mt-3 mb-4 whitespace-pre-wrap text-sm leading-6 text-slate-600">{r.body}</p><MessageForm target={r.device_id} collapsible label="Reply to student"/></article>)}</div>{!replies?.length&&!replyError&&<p className="py-6 text-sm text-slate-400">Student replies will appear here. Anonymous-marked replies retain the sender’s identity for administrators.</p>}</section></div>;
+  const staff=await requireStaff(), school=await getCurrentSchool();
+  if(!school)return <PageHeader title="Messages" description="Select a school first."/>;
+  const db=await createClient();
+  const [{data,error},{data:replies,error:replyError},{data:devices},{data:groups}]=await Promise.all([
+    db.rpc("staff_message_history",{p_school_id:school.id}),
+    db.from("message_replies").select("*,commands!inner(deleted_at)").eq("school_id",school.id).is("commands.deleted_at",null).order("created_at",{ascending:false}).limit(200),
+    db.from("devices").select("id,student_name,student_id").eq("school_id",school.id),
+    db.from("school_classes").select("form_level,class_name").eq("school_id",school.id)
+  ]);
+  const names=new Map((devices||[]).map(d=>[d.id,d]));
+  const batches=(data||[]) as Batch[];
+  const notices:Notice[]=batches.map(batch=>({id:batch.id,title:batch.title,body:batch.body,time:dateTime(batch.created_at),canDelete:canManage(staff,school.id)||batch.created_by===staff.id,receipts:batch.receipts.map(m=>({id:m.id,name:m.name||"Student",studentId:m.student_id||"",opened:m.seen_at?dateTime(m.seen_at):"",acknowledged:m.acknowledged_at?dateTime(m.acknowledged_at):"",status:m.status}))}));
+  return <div className="space-y-5"><PageHeader title="Messages" description="School notices, student replies and delivery receipts."/>
+    <div className="flex flex-wrap gap-5 text-xs text-slate-500"><span>{notices.length} recent notices (up to 25)</span><span>{batches.reduce((n,b)=>n+b.receipts.filter(r=>r.seen_at).length,0)} opened</span><span>{batches.reduce((n,b)=>n+b.receipts.filter(r=>r.acknowledged_at).length,0)} acknowledged</span><span>{replies?.length||0} replies</span></div>
+    <details className="rounded-xl border border-slate-200 bg-white p-4"><summary className="cursor-pointer text-sm font-semibold text-brand-700">+ New message</summary><div className="mt-4 max-w-2xl"><MessageForm target="school" groups={groups||[]}/></div></details>
+    {(error||replyError)&&<p role="alert" className="text-sm text-red-600">{error?.message||replyError?.message}</p>}
+    <MessageHistory notices={notices} replies={(replies||[]).map(r=>({id:r.id,deviceId:r.device_id,name:names.get(r.device_id)?.student_name||"Student",anonymous:r.anonymous,time:dateTime(r.created_at),body:r.body}))}/>
+  </div>;
 }
