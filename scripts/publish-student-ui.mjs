@@ -25,7 +25,11 @@ const version = automatic ? Math.floor((Date.now() - Date.UTC(2026,0,1))/1000) :
 if (!Number.isSafeInteger(version) || version < 1) throw Error('Usage: node scripts/publish-student-ui.mjs VERSION [--verify-only]');
 const privateKey = process.env.PRIMESECURE_UI_SIGNING_PEM || readFileSync(keyPath);
 const publicKey = createPublicKey({ key: Buffer.from(readFileSync(publicPath, 'utf8').trim(), 'base64'), format: 'der', type: 'spki' });
-const files = Object.fromEntries(['index.html','workspace.js','workspace.css','primebook.png','robokorda.jpg'].map(name => [name, readFileSync(join(root, 'agent/app/src/main/assets/student', name)).toString('base64')]));
+const files = Object.fromEntries(['index.html','workspace.js','workspace.css','primebook.png','robokorda.jpg'].map(name => {
+  const bytes=readFileSync(join(root, 'agent/app/src/main/assets/student', name));
+  const canonical=/\.(html|js|css)$/.test(name) ? Buffer.from(bytes.toString('utf8').replace(/\r\n/g,'\n')) : bytes;
+  return [name,canonical.toString('base64')];
+}));
 const payload = Buffer.from(JSON.stringify({ version, bridge: 1, files }));
 const signature = sign('sha256', payload, privateKey);
 if (!verify('sha256', payload, publicKey, signature)) throw Error('Private key does not match the APK trust key.');

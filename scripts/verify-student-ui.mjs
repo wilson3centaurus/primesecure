@@ -15,5 +15,10 @@ const release=JSON.parse(payload);
 assert.equal(release.bridge,1);
 assert(Number.isSafeInteger(release.version)&&release.version>0&&release.version<=2147483647);
 assert.deepEqual(Object.keys(release.files).sort(),['index.html','primebook.png','robokorda.jpg','workspace.css','workspace.js']);
-for(const [name,bytes] of Object.entries(release.files)) assert(Buffer.from(bytes,'base64').equals(readFileSync(join(root,'agent/app/src/main/assets/student',name))),`Published ${name} differs from source`);
+for(const [name,bytes] of Object.entries(release.files)) {
+  const actual=Buffer.from(bytes,'base64'), expected=readFileSync(join(root,'agent/app/src/main/assets/student',name));
+  assert(/\.(html|js|css)$/.test(name)
+    ? actual.toString('utf8').replace(/\r\n/g,'\n')===expected.toString('utf8').replace(/\r\n/g,'\n')
+    : actual.equals(expected),`Published ${name} differs from source`);
+}
 console.log(JSON.stringify({version:release.version,signature:'PASS',tamperRejection:'PASS',wrongSignerRejection:'PASS',bridge:release.bridge,sourceParity:'PASS'}));
