@@ -21,10 +21,13 @@ class HubActivity : Activity() {
     private var ready = false
     private var poll: Job? = null
     private var pickingPhoto=false
+    private var uiDirectory: File? = null
+    private var uiConfirmed = false
+    private val uiTimeout: Runnable = Runnable { if (!uiConfirmed && uiDirectory != null) { StudentUiUpdates.reject(this); uiDirectory=StudentUiUpdates.begin(this); ready=false; web.loadUrl(StudentUiUpdates.ORIGIN+"index.html"); web.postDelayed(uiTimeout,10000) } }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (!AgentStore(this).isEnrolled) { startActivity(Intent(this, MainActivity::class.java)); finish(); return }
-        hub = HubStore(this); web = WebView(this)
+        hub = HubStore(this); uiDirectory=StudentUiUpdates.begin(this); web = WebView(this)
         web.settings.apply {
             javaScriptEnabled = true; domStorageEnabled = false; allowFileAccess = false; allowContentAccess = false
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW; setSupportMultipleWindows(false)
@@ -32,12 +35,18 @@ class HubActivity : Activity() {
         web.addJavascriptInterface(Bridge(), "PrimeNative")
         web.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = true
-            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
-                if (request.url.toString().startsWith("file:///android_asset/student/")) null
-                else WebResourceResponse("text/plain", "UTF-8", java.io.ByteArrayInputStream(ByteArray(0)))
+            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse {
+                val uri=request.url
+                val name=uri.path?.removePrefix("/") ?: ""
+                if(uri.scheme=="https" && uri.host=="student.primesecure.local" && uri.port==-1 && name in setOf("index.html","workspace.js","workspace.css","primebook.png","robokorda.jpg")) {
+                    val mime=when(name.substringAfterLast('.')) { "html"->"text/html";"js"->"application/javascript";"css"->"text/css";"png"->"image/png";else->"image/jpeg" }
+                    return runCatching { WebResourceResponse(mime,"UTF-8",uiDirectory?.let { File(it,name).inputStream() } ?: assets.open("student/$name")) }.getOrElse { WebResourceResponse("text/plain","UTF-8",java.io.ByteArrayInputStream(ByteArray(0))) }
+                }
+                return WebResourceResponse("text/plain", "UTF-8", java.io.ByteArrayInputStream(ByteArray(0)))
+            }
             override fun onPageFinished(view: WebView, url: String) { ready = true; refresh() }
         }
-        setContentView(web); web.loadUrl("file:///android_asset/student/index.html")
+        setContentView(web); web.loadUrl(StudentUiUpdates.ORIGIN+"index.html"); web.postDelayed(uiTimeout,10000)
         HubSync.schedule(this); pinOnce()
     }
     override fun onResume() {
@@ -51,7 +60,7 @@ class HubActivity : Activity() {
         } }
     }
     override fun onPause() { poll?.cancel();poll=null;super.onPause() }
-    override fun onDestroy() { scope.cancel(); if (::web.isInitialized) { web.removeJavascriptInterface("PrimeNative"); web.destroy() }; super.onDestroy() }
+    override fun onDestroy() { scope.cancel(); if (::web.isInitialized) { web.removeCallbacks(uiTimeout); web.removeJavascriptInterface("PrimeNative"); web.destroy() }; super.onDestroy() }
     @Deprecated("Web workspace navigation")
     override fun onBackPressed() { if (ready) web.evaluateJavascript("window.goBack()", null) else { @Suppress("DEPRECATION") super.onBackPressed() } }
     private fun refresh() {
@@ -67,7 +76,7 @@ class HubActivity : Activity() {
                 } }
                 catalog.put("items",JSONArray(items)).put("messages",JSONArray(hub.messages()))
                     .put("tasks",HubTasks(this@HubActivity).publicList()).put("online",Connectivity.online(this@HubActivity))
-                    .put("runtime",DeviceRuntime.collect(this@HubActivity)).put("agent_version",BuildConfig.VERSION_NAME)
+                    .put("runtime",DeviceRuntime.collect(this@HubActivity)).put("agent_version",BuildConfig.VERSION_NAME).put("ui_version",uiDirectory?.name?.drop(1)?.toIntOrNull() ?: StudentUiUpdates.BUNDLED_VERSION)
                     .put("hidden_keys",JSONArray(hub.hiddenKeys())).put("sync_error",hub.syncError ?: JSONObject.NULL)
                     .put("last_sync",AgentStore(this@HubActivity).lastCheckInAt)
                     .put("device",DeviceInfo.collect(this@HubActivity)).put("battery",DeviceInfo.batteryDiagnostics(this@HubActivity))
@@ -97,6 +106,7 @@ class HubActivity : Activity() {
                 try {
                     val a=JSONObject(raw)
                     when(a.getString("action")) {
+                        "ui_ready" -> if (!uiConfirmed) { uiConfirmed=true; web.removeCallbacks(uiTimeout); StudentUiUpdates.accept(this@HubActivity) }
                         "refresh" -> refresh()
                         "retry_task" -> { HubTasks(this@HubActivity).retry(a.getString("id")); OfflineWorker.schedule(this@HubActivity);HubSync.schedule(this@HubActivity);refresh() }
                         "photo" -> {

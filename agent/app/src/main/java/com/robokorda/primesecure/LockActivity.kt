@@ -80,11 +80,6 @@ class LockActivity : Activity() {
             gravity = Gravity.CENTER
             setPadding(0, 32, 0, 0)
         })
-        val contacts=HubStore(this).catalog.optJSONArray("support_contacts")
-        if(contacts!=null)root.addView(TextView(this).apply {
-            text=(0 until contacts.length()).joinToString("\n") { val c=contacts.getJSONObject(it);"${c.optString("name")}: ${c.optString("phone")}" }
-            textSize=16f;setTextColor(Color.rgb(203,213,225));setPadding(0,24,0,18)
-        })
         root.addView(android.widget.Button(this).apply { text="Check for unlock";setOnClickListener { CheckInWorker.runNow(this@LockActivity);android.widget.Toast.makeText(this@LockActivity,"Check-in requested. Waiting for your school.",android.widget.Toast.LENGTH_LONG).show() } })
         root.addView(android.widget.Button(this).apply { text="Message RoboKorda support";setOnClickListener {
             val input=android.widget.EditText(this@LockActivity).apply { hint="How can we help?";maxLines=6 }

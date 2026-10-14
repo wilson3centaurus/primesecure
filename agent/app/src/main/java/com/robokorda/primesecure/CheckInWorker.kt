@@ -104,9 +104,7 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                     }
                     hub.optJSONObject("management")?.let { policy.put("hub_management",it) }
                     runCatching {
-                        val contacts=hub.optJSONArray("support_contacts")
-                        val phones=contacts?.let { array->(0 until array.length()).joinToString(" / ") { array.getJSONObject(it).optString("phone") } } ?: ""
-                        AdminReceiver.dpm(context).setDeviceOwnerLockScreenInfo(AdminReceiver.component(context),"RoboKorda · ${hub.optString("school_name")}\nSupport: $phones")
+                        AdminReceiver.dpm(context).setDeviceOwnerLockScreenInfo(AdminReceiver.component(context),"RoboKorda · ${hub.optString("school_name")}")
                     }
                     SupabaseApi(store).rpc("device_battery_report", JSONObject().put("p_readings", DeviceInfo.batteryDiagnostics(context)))
                 }.onFailure { HubStore(context).syncError = Connectivity.message(it) }

@@ -30,6 +30,11 @@ export default async function AgentPage() {
   return (
     <>
       <PageHeader title="Agent updates" description="Publish a new PrimeSecure agent; every enrolled Primebook installs it silently." />
+      <section className="card mb-6 p-5">
+        <h2 className="font-semibold">Student interface updates</h2>
+        <p className="mt-2 text-sm text-slate-600">PrimeSecure 0.5.0 and newer download signed interface updates in the background. Production deployments publish the interface automatically; devices check hourly and use it on their next opening. Their saved interface continues working offline.</p>
+        <p className="mt-2 text-sm text-slate-600">Changes to Android controls or native viewers still require an APK. Test those on one Primebook before publishing to the fleet. Automatic APK updates require the same signing key; test-only debug APKs require adb and are for testing.</p>
+      </section>
       <div className="card mb-6 p-4"><PublishRelease /></div>
 
       <div className="grid gap-6 lg:grid-cols-3">

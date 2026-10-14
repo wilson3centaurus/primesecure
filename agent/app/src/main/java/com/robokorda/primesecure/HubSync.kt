@@ -11,6 +11,7 @@ class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(cont
     override suspend fun doWork(): Result {
         val store = AgentStore(applicationContext)
         if (!store.isEnrolled || store.lastStatus == "retired") return Result.success()
+        StudentUiUpdates.check(applicationContext)
         val hub = HubStore(applicationContext); val tasks = HubTasks(applicationContext)
         val device = store.deviceId; val api = SupabaseApi(store)
         return try {

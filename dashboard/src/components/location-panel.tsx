@@ -26,16 +26,20 @@ export function LocationPanel({
 }: { deviceId: string; locations: DeviceLocation[]; canLocate: boolean; times: string[] }) {
   const [state, action] = useActionState(requestLocate, undefined);
   const latest = locations[0];
+  const gpsIndex = locations.findIndex((location) => location.source === "gps");
 
   return (
     <div className="space-y-3">
       {latest ? (
         <>
-          {latest.source!=="gps"&&<p className="rounded-xl bg-amber-50 p-3 text-xs text-amber-800">This is an estimate from the Primebook?s location provider or internet connection. Its reported accuracy has not been independently verified. A misconfigured provider can return a different city.</p>}
+          <p className="rounded-xl bg-amber-50 p-3 text-xs text-amber-800">{latest.source === "gps"
+            ? "The Primebook reports this as GPS. The accuracy below is reported by the device and has not been independently verified. Compare it with a phone pin taken at the same place and time."
+            : "This is an estimate from the Primebook’s location provider or internet connection, not a confirmed device position. A provider can return a different city; internet estimates can be much farther away than the displayed range."}</p>
+          {latest.source !== "gps" && gpsIndex > 0 && <p className="text-sm text-slate-600">Last reported GPS: <a href={osmLink(locations[gpsIndex])} target="_blank" rel="noreferrer" className="text-brand-700 underline">{times[gpsIndex]}</a>. This earlier reading may be out of date.</p>}
           <iframe title="Device location" src={embed(latest)} className="h-64 w-full rounded-md border border-slate-200" loading="lazy" />
           <p className="text-sm text-slate-600">
             {times[0]} · {SOURCE_LABEL[latest.source ?? "network"] ?? latest.source}
-            {latest.accuracy != null && ` · ±${latest.accuracy >= 1000 ? `${(latest.accuracy / 1000).toFixed(1)} km` : `${Math.round(latest.accuracy)} m`}`}
+            {latest.accuracy != null && ` · ${latest.source === "ip" ? "Approximate map range" : "Reported accuracy"}: ±${latest.accuracy >= 1000 ? `${(latest.accuracy / 1000).toFixed(1)} km` : `${Math.round(latest.accuracy)} m`}`}
             {" · "}<a href={osmLink(latest)} target="_blank" rel="noreferrer" className="text-brand-700 underline">Open map</a>
           </p>
         </>
