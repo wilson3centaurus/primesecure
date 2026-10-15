@@ -97,6 +97,14 @@ class AgentStore(context: Context) {
         get() = prefs.getString("applied_wallpaper_url", null)
         set(value) = prefs.edit().putString("applied_wallpaper_url", value).apply()
 
+    /** Commit both sets together, before and after changing Android package state. */
+    fun saveAppRestrictions(hidden: Set<String>, suspended: Set<String>) {
+        check(prefs.edit().putStringSet("hidden_by_us", hidden.toSet())
+            .putStringSet("suspended_by_us", suspended.toSet()).commit()) {
+            "Could not save app restriction recovery state; no further app changes will be made."
+        }
+    }
+
     /** Packages hidden by us, so we only ever unhide what we hid. */
     var suspendedByUs: Set<String>
         get() = prefs.getStringSet("suspended_by_us", emptySet())!!.toSet()

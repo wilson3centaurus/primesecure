@@ -29,7 +29,16 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
      * Returns a short human-readable summary of the resulting state. While
      * [suspended], only the policy's allowed apps stay usable (none if empty).
      */
-    suspend fun apply(policy: JSONObject, suspended: Boolean = false): String {
+    suspend fun apply(policy: JSONObject, suspended: Boolean = false): String =
+        policyQueue.apply({ policy }) { applyUnlocked(it, suspended) }
+
+    /** Loading inside the queue prevents an old boot task from overwriting a fresh check-in. */
+    suspend fun applyCached(): String? = policyQueue.apply({
+        val prefs = context.getSharedPreferences("agent-policy", Context.MODE_PRIVATE)
+        prefs.getString("policy", null)?.takeIf { prefs.getString("device", null) == store.deviceId }
+    }) { saved -> saved?.let { applyUnlocked(JSONObject(it), store.lastStatus == "suspended") } }
+
+    private suspend fun applyUnlocked(policy: JSONObject, suspended: Boolean): String {
         if (!AdminReceiver.isDeviceOwner(context)) return "Not Device Owner — policy not applied"
 
         val problems = mutableListOf<String>()
@@ -180,16 +189,29 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
         val nowHidden = mutableSetOf<String>()
         val nowSuspended = mutableSetOf<String>()
         val failures = mutableListOf<String>()
+        // Journal our intent before Android state changes. A process death must not
+        // leave a hidden app absent from the list we use to undo restrictions.
+        store.saveAppRestrictions(previouslyHidden + want, previouslySuspended + want)
         for (pkg in want) {
             val hiddenOk=runCatching { dpm.isApplicationHidden(admin,pkg) || dpm.setApplicationHidden(admin,pkg,true) }.getOrDefault(false)
             if(hiddenOk) nowHidden+=pkg
             else if(runCatching { dpm.setPackagesSuspended(admin,arrayOf(pkg),true).isEmpty() }.getOrDefault(false)) nowSuspended+=pkg
             else failures+=pkg
         }
-        for (pkg in previouslyHidden - want) runCatching { dpm.setApplicationHidden(admin,pkg,false) }
-        for (pkg in previouslySuspended - nowSuspended) runCatching { dpm.setPackagesSuspended(admin,arrayOf(pkg),false) }
-        store.hiddenByUs=nowHidden;store.suspendedByUs=nowSuspended
-        check(failures.isEmpty()) { "Android could not block: ${failures.joinToString()}" }
+        for (pkg in previouslyHidden - want) {
+            if (!runCatching { !dpm.isApplicationHidden(admin,pkg) || dpm.setApplicationHidden(admin,pkg,false) }.getOrDefault(false)) {
+                nowHidden += pkg
+                failures += "restore visibility: $pkg"
+            }
+        }
+        for (pkg in previouslySuspended - nowSuspended.toSet()) {
+            if (!runCatching { !dpm.isPackageSuspended(admin,pkg) || dpm.setPackagesSuspended(admin,arrayOf(pkg),false).isEmpty() }.getOrDefault(false)) {
+                nowSuspended += pkg
+                failures += "remove suspension: $pkg"
+            }
+        }
+        store.saveAppRestrictions(nowHidden, nowSuspended)
+        check(failures.isEmpty()) { "Android app restriction failures: ${failures.joinToString()}" }
         return nowHidden.size + nowSuspended.size
     }
 
@@ -224,6 +246,7 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
     }
 
     companion object {
+        private val policyQueue = PolicyQueue()
         private val wallpaperLock = Mutex()
         val SETTINGS_PACKAGES = setOf("com.android.settings")
     }

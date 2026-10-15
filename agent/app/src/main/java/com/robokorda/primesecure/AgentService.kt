@@ -61,8 +61,7 @@ class AgentService : Service() {
                 }
             }.also { cm.registerDefaultNetworkCallback(it) }
             scope.launch {
-                val cached=getSharedPreferences("agent-policy",MODE_PRIVATE).getString("policy",null)
-                if(cached!=null && getSharedPreferences("agent-policy",MODE_PRIVATE).getString("device",null)==store.deviceId) runCatching { PolicyApplier(this@AgentService,store).apply(JSONObject(cached),store.lastStatus=="suspended") }
+                runCatching { PolicyApplier(this@AgentService,store).applyCached() }
             }
         }
         return START_STICKY

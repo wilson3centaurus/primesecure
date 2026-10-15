@@ -12,6 +12,8 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import org.json.JSONObject
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -32,6 +34,7 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
     companion object {
         private const val PERIODIC = "check-in"
         private const val NOW = "check-in-now"
+        private val heartbeatLock = Mutex()
 
         private val online = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
 
@@ -66,7 +69,9 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
         }
 
         /** One heartbeat: report device state, receive status + policy, apply it, run queued commands. */
-        suspend fun checkIn(context: Context): JSONObject {
+        suspend fun checkIn(context: Context): JSONObject = heartbeatLock.withLock { checkInUnlocked(context) }
+
+        private suspend fun checkInUnlocked(context: Context): JSONObject {
             val store = AgentStore(context)
             try {
                 DeviceInfo.grantOwnPermissions(context)
