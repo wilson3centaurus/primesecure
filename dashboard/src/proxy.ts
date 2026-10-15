@@ -7,6 +7,8 @@ export async function proxy(request: NextRequest) {
   // Public, signed presentation assets contain no student data or credentials.
   // Devices verify the pinned signature before giving this content a native bridge.
   if (request.nextUrl.pathname === "/student-ui/release.json") return NextResponse.next();
+  // Publisher licences and corresponding source links are public; no school data.
+  if (request.nextUrl.pathname === "/school-app-notices.json") return NextResponse.next();
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
