@@ -6,7 +6,7 @@ import org.json.JSONObject
 import java.util.UUID
 
 /** Durable, per-enrollment outbox and download progress. Sensitive payloads never enter the WebView task list. */
-class HubTasks(context: Context) {
+class HubTasks(private val context: Context) {
     private val prefs = context.getSharedPreferences("hub-tasks", Context.MODE_PRIVATE)
     init { synchronized(lock) {
         val device = AgentStore(context).deviceId
@@ -42,6 +42,8 @@ class HubTasks(context: Context) {
         if (total != null) task.put("total", total)
         task.put("error", error ?: JSONObject.NULL)
         save(task)
+        if(status=="failed" && task.optString("action") in setOf("install","download","admin_command"))
+            DeviceLog.event(context,"error",if(task.optString("action")=="install")"install" else "download","background_task_failed")
     }
     fun retry(id: String) { if (all().any { it.optString("id") == id && it.optString("status") == "failed" }) update(id, "queued") }
     private fun save(task: JSONObject) { check(prefs.edit().putString("task:${task.getString("id")}", task.toString()).commit()) { "Could not save background task" } }

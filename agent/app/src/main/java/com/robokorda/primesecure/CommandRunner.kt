@@ -40,6 +40,7 @@ class CommandRunner(private val context: Context, private val store: AgentStore)
             }
         } catch (e: Exception) {
             if(e is kotlinx.coroutines.CancellationException)throw e
+            DeviceLog.event(context,"error","command","command_failed",e,JSONObject().put("phase",type))
             "failed" to JSONObject().put("error", Connectivity.message(e))
         }
         if (taskId != null) HubTasks(context).update(taskId, if(status=="succeeded") if(type=="install_apk") "installed" else "done" else "failed", error=result.stringOrNull("error"))

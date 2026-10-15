@@ -66,6 +66,8 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
             WorkManager.getInstance(context).cancelUniqueWork("message-acknowledgements")
             WorkManager.getInstance(context).cancelUniqueWork("device-telemetry-now")
             WorkManager.getInstance(context).cancelUniqueWork("device-telemetry")
+            WorkManager.getInstance(context).cancelUniqueWork("diagnostics-now")
+            WorkManager.getInstance(context).cancelUniqueWork("diagnostics")
         }
 
         /** One heartbeat: report device state, receive status + policy, apply it, run queued commands. */
@@ -127,7 +129,9 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 store.lastCheckInAt = System.currentTimeMillis()
                 runCatching { PasswordRecovery.registerBoot(context) }
                 runCatching { SupabaseApi(store).rpc("device_runtime_report", JSONObject().put("p_readings", DeviceRuntime.collect(context))) }
+                if(store.lastError!=null)DeviceLog.event(context,"info","check_in","connection_recovered")
                 store.lastError = null
+                DiagnosticsWorker.schedule(context)
                 if (response.optInt("pending_commands", 0) > 0) CommandRunner(context, store).runPending()
                 HubSync.schedule(context)
                 TelemetryWorker.schedule(context)
@@ -135,6 +139,8 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 SelfUpdater.maybeUpdate(context, store, response.optJSONObject("agent_update"))
                 return response
             } catch (e: Exception) {
+                if(e is kotlinx.coroutines.CancellationException)throw e
+                DeviceLog.event(context,"error","check_in","check_in_failed",e)
                 store.lastError = Connectivity.message(e)
                 throw e
             }
@@ -153,6 +159,8 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 email = result.getString("email"),
                 password = result.getString("password"),
             )
+            DeviceLog.bind(context,store.deviceId)
+            DeviceLog.event(context,"info","setup","enrollment_registered")
             InitialSetup(context).begin()
             Provisioning.clear(context)
             schedule(context)

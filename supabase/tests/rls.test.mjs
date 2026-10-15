@@ -603,3 +603,55 @@ test('a 300-device notice has complete receipts and deletes as one broadcast',as
  assert.equal(result.deleted,300);
  assert.equal((await db.query("select count(*)::int as n from commands where payload->>'broadcast_id'=$1 and deleted_at is not null",[broadcast])).rows[0].n,300);
 });
+
+async function diagnosticFixture() {
+ const user=(await db.query("insert into auth.users(email) values('diag-'||gen_random_uuid()||'@t') returning id")).rows[0].id;
+ const device=(await db.query("insert into devices(school_id,student_name,auth_user_id,status) values($1,'Diagnostics QA',$2,'active') returning id",[ids.schoolA,user])).rows[0].id;
+ const event={id:(await db.query('select gen_random_uuid() as id')).rows[0].id,occurred_at:new Date().toISOString(),severity:'error',category:'policy',code:'operation_failed',version:'0.6.5',details:{strict:false}};
+ return {user,device,event};
+}
+
+test('diagnostics are device-scoped, idempotent, immutable and restricted to school managers',async()=>{
+ const {user,device,event}=await diagnosticFixture();const batch=JSON.stringify([event]);
+ await rejects(as(null,'select device_report_events($1,$2::jsonb)',[device,batch]));
+ await rejects(as(ids.adminA,'select device_report_events($1,$2::jsonb)',[device,batch]));
+ await rejects(as(user,'select device_report_events($1,$2::jsonb)',[ids.deviceB,batch]));
+ await rejects(as(user,'select store_device_events($1,$2::jsonb)',[device,batch]));
+ await as(user,'select device_report_events($1,$2::jsonb)',[device,batch]);
+ await as(user,'select device_report_events($1,$2::jsonb)',[device,JSON.stringify([{...event,details:{strict:true}}])]);
+ const rows=await as(ids.adminA,'select * from device_events where device_id=$1',[device]);
+ assert.equal(rows.length,1);assert.equal(rows[0].details.strict,false);
+ assert.equal((await as(ids.adminB,'select * from device_events where device_id=$1',[device])).length,0);
+ assert.equal((await as(ids.teacherA,'select * from device_events where device_id=$1',[device])).length,0);
+ assert.equal((await as(user,'select * from device_events where device_id=$1',[device])).length,0);
+ await rejects(as(user,"delete from device_events where device_id=$1",[device]));
+});
+
+test('diagnostic batches reject unsupported private fields and oversized or malformed input atomically',async()=>{
+ const {user,device,event}=await diagnosticFixture();
+ for(const batch of [[{...event,details:{password:'do-not-accept'}}],Array(31).fill(event),[{...event,severity:'invented'}],[event,{...event,id:'invalid'}]])
+  await rejects(as(user,'select device_report_events($1,$2::jsonb)',[device,JSON.stringify(batch)]),/diagnostic|uuid/);
+ assert.equal((await db.query('select * from device_events where device_id=$1',[device])).rows.length,0);
+});
+
+test('server diagnostic retention remains bounded at 1000 events per device',async()=>{
+ const {user,device,event}=await diagnosticFixture();
+ await db.query("insert into device_events(device_id,id,occurred_at,received_at,severity,category,code,version) select $1,md5(n::text)::uuid,now(),now()-interval '1 day','info','boot','retention_test','test' from generate_series(1,1000)n",[device]);
+ await as(user,'select device_report_events($1,$2::jsonb)',[device,JSON.stringify([event])]);
+ assert.equal((await db.query('select count(*)::int as n from device_events where device_id=$1',[device])).rows[0].n,1000);
+ assert.equal((await db.query('select * from device_events where device_id=$1 and id=$2',[device,event.id])).rows.length,1);
+});
+
+test('pre-unlock diagnostic upload requires its registered capability, is rate limited and rejects retired devices',async()=>{
+ const {user,device,event}=await diagnosticFixture();const secret='d'.repeat(64),batch=JSON.stringify([event]);
+ await as(user,'select device_register_recovery($1)',[secret]);
+ await rejects(as(null,'select device_recovery_events($1,$2,$3::jsonb)',[device,'e'.repeat(64),batch]),/invalid recovery/);
+ const accepted=(await as(null,'select device_recovery_events($1,$2,$3::jsonb) as result',[device,secret,batch]))[0].result;
+ assert.deepEqual(accepted.accepted_ids,[event.id]);
+ const limited=(await as(null,'select device_recovery_events($1,$2,$3::jsonb) as result',[device,secret,batch]))[0].result;
+ assert.equal(limited.retry,true);assert.equal(limited.accepted_ids.length,0);
+ await db.query("update devices set status='retired' where id=$1",[device]);
+ await rejects(as(null,'select device_recovery_events($1,$2,$3::jsonb)',[device,secret,batch]),/invalid recovery/);
+ await rejects(as(user,'select device_report_events($1,$2::jsonb)',[device,batch]));
+ assert.equal((await as(ids.adminA,'select * from device_events where device_id=$1',[device])).length,1);
+});

@@ -15,6 +15,7 @@ import type { App, Command, Device, DeviceLocation } from "@/lib/types";
 import { DeleteDeviceForm, IssueTokenForm, StudentForm } from "./forms";
 import { RecoveryControls } from "@/components/recovery-controls";
 import { StateControls } from "./state-controls";
+import { DeviceDiagnostics, type DeviceEvent } from "@/components/device-diagnostics";
 
 export const metadata: Metadata = { title: "Device" };
 
@@ -48,6 +49,11 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
   const {data:groups}=await supabase.from('school_classes').select('id,form_level,class_name').eq('school_id',d.school_id);
   const {data:runtime}=manager?await supabase.from('device_runtime').select('*').eq('device_id',d.id).maybeSingle():{data:null};
   const {data:studentRecord}=manager?await supabase.from('student_records').select('*').eq('device_id',d.id).maybeSingle():{data:null};
+  const diagnostics = manager ? await supabase.from("device_events")
+    .select("id,occurred_at,received_at,severity,category,code,version,details")
+    .eq("device_id",d.id).order("received_at",{ascending:false}).order("id",{ascending:false}).limit(100) : {data:[],error:null};
+  const diagnosticEvents = (diagnostics.data ?? []).map((event) => ({...event,
+    occurredLabel:dateTime(event.occurred_at),receivedLabel:dateTime(event.received_at)})) as DeviceEvent[];
 
   return (
     <>
@@ -102,6 +108,7 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
         </section>
 
         <div className="space-y-6">
+          {manager && <DeviceDiagnostics events={diagnosticEvents} unavailable={Boolean(diagnostics.error)}/>}
           <section className="card p-5">
             <h2 className="mb-3 font-semibold">Battery diagnostics</h2>
             {d.battery_diagnostics ? <><dl className="divide-y divide-slate-100">

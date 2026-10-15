@@ -82,6 +82,7 @@ class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(cont
                     if (item.optString("kind") == "wallpaper") preview(item, target)
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
+                    DeviceLog.event(applicationContext,"error","download","resource_download_failed",e)
                     failed = true; tasks.update(id, "waiting", error = Connectivity.message(e))
                     hub.syncError = Connectivity.message(e)
                 }
@@ -93,6 +94,7 @@ class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(cont
             if (failed) Result.retry() else Result.success()
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
+            DeviceLog.event(applicationContext,"error","download","hub_sync_failed",e)
             hub.syncError = Connectivity.message(e); Result.retry()
         }
     }

@@ -73,6 +73,7 @@ class BootRecoveryReceiver:BroadcastReceiver() {
         val pending = goAsync()
         CoroutineScope(SupervisorJob()+Dispatchers.IO).launch {
             try {
+                DeviceLog.record(context,"info","boot","boot_safety_started",details=JSONObject().put("user_unlocked",context.getSystemService(UserManager::class.java).isUserUnlocked))
                 // Recover visibility locally, without Wi-Fi, account tokens or first unlock.
                 runCatching { AppSafety.restoreEssentialApps(context) }
                 BootRecovery.start(context)
@@ -103,6 +104,13 @@ class BootRecoveryService:Service() {
                     if(!wifi.isWifiEnabled)runCatching { wifi.isWifiEnabled=true }
                     if(Connectivity.online(this@BootRecoveryService)) {
                         val args=JSONObject().put("p_device_id",data.getString("device_id")).put("p_secret",data.getString("secret"))
+                        runCatching {
+                            val events=DeviceLog.batch(this@BootRecoveryService,data.getString("device_id"))
+                            if(events.length()>0) {
+                                val result=rpc(data,"device_recovery_events",JSONObject(args.toString()).put("p_events",events))
+                                DeviceLog.acknowledge(this@BootRecoveryService,result.stringSet("accepted_ids"))
+                            }
+                        }
                         val commands=rpc(data,"device_recovery_poll",args).optJSONArray("commands")
                         if(commands!=null) for(i in 0 until commands.length()) {
                             val command=commands.getJSONObject(i);val payload=command.getJSONObject("payload")

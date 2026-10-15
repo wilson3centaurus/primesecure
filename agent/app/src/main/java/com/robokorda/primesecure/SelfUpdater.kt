@@ -40,6 +40,8 @@ object SelfUpdater {
             store.updateError = null
             installer.installFile(apk, info.packageName) // the process is replaced shortly after success
         } catch (e: Exception) {
+            if(e is kotlinx.coroutines.CancellationException)throw e
+            DeviceLog.event(context,"error","update","agent_update_failed",e)
             store.updateError = "update to $code failed: ${e.message}"
         } finally {
             apk.delete()

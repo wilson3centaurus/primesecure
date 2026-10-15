@@ -10,6 +10,8 @@ class BootReceiver : BroadcastReceiver() {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED && intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
         val store = AgentStore(context)
         if (!store.isEnrolled) return
+        DeviceLog.event(context,"info","boot",if(intent.action==Intent.ACTION_MY_PACKAGE_REPLACED)"agent_updated" else "boot_unlocked")
+        DiagnosticsWorker.schedule(context)
         // Relock straight away, even before the network (and a check-in) is back.
         if (store.lastStatus == "locked" && AdminReceiver.isDeviceOwner(context)) {
             runCatching { context.startActivity(LockActivity.intent(context)) }

@@ -32,13 +32,13 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
      * [suspended], only the policy's allowed apps stay usable (none if empty).
      */
     suspend fun apply(policy: JSONObject, suspended: Boolean = false): String =
-        policyQueue.apply({ policy }) { applyUnlocked(it, suspended) }
+        policyQueue.apply({ policy }) { withContext(Dispatchers.IO) { applyUnlocked(it, suspended) } }
 
     /** Loading inside the queue prevents an old boot task from overwriting a fresh check-in. */
     suspend fun applyCached(): String? = policyQueue.apply({
         val prefs = context.getSharedPreferences("agent-policy", Context.MODE_PRIVATE)
         prefs.getString("policy", null)?.takeIf { prefs.getString("device", null) == store.deviceId }
-    }) { saved -> saved?.let { applyUnlocked(JSONObject(it), store.lastStatus == "suspended") } }
+    }) { saved -> saved?.let { withContext(Dispatchers.IO) { applyUnlocked(JSONObject(it), store.lastStatus == "suspended") } } }
 
     private suspend fun applyUnlocked(policy: JSONObject, suspended: Boolean): String {
         if (!AdminReceiver.isDeviceOwner(context)) return "Not Device Owner — policy not applied"
@@ -49,6 +49,7 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
             try {
                 block()
             } catch (e: Exception) {
+                DeviceLog.event(context,"error","policy","operation_failed",e,JSONObject().put("phase",what.replace(' ','_')))
                 problems += "$what: ${e.javaClass.simpleName}: ${e.message}"
             }
         }
@@ -63,6 +64,7 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
                 setWallpaper(url)
                 store.appliedWallpaperUrl = url
             } catch (e: Exception) {
+                DeviceLog.event(context,"error","wallpaper","wallpaper_failed",e)
                 problems += "wallpaper: ${e.javaClass.simpleName}: ${e.message}"
             }
         }
@@ -106,6 +108,8 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
             problems.forEach { append("\n⚠ ").append(it) }
         }
         lastProblems = problems.toList()
+        DeviceLog.state(context,"policy","policy","policy_applied",JSONObject()
+            .put("strict",management.optBoolean("approved_apps_only")).put("hidden",store.hiddenByUs.size).put("suspended",store.suspendedByUs.size))
         return summary
     }
 
@@ -196,8 +200,13 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
         // leave a hidden app absent from the list we use to undo restrictions.
         store.saveAppRestrictions(previouslyHidden + want, previouslySuspended + want)
         for (pkg in want) {
+            if(pkg !in previouslyHidden && pkg !in previouslySuspended)
+                DeviceLog.record(context,"info","policy","app_restriction_planned",details=JSONObject().put("package",pkg))
             val hiddenOk=runCatching { dpm.isApplicationHidden(admin,pkg) || dpm.setApplicationHidden(admin,pkg,true) }.getOrDefault(false)
-            if(hiddenOk) nowHidden+=pkg
+            if(hiddenOk) {
+                nowHidden+=pkg
+                if(pkg !in previouslyHidden)DeviceLog.event(context,"info","policy","app_hidden",details=JSONObject().put("package",pkg))
+            }
             else if(runCatching { dpm.setPackagesSuspended(admin,arrayOf(pkg),true).isEmpty() }.getOrDefault(false)) nowSuspended+=pkg
             else failures+=pkg
         }

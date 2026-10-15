@@ -37,6 +37,7 @@ class OfflineWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
+                DeviceLog.event(applicationContext,"error",if(action=="install")"install" else "command","offline_action_failed",e)
                 if (e is IOException || (e is ApiException && (e.code >= 500 || e.code == 429))) {
                     tasks.update(id, "waiting", error = Connectivity.message(e)); return@withLock Result.retry()
                 }

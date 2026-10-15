@@ -180,6 +180,8 @@ class MainActivity : Activity() {
             try {
                 block()
             } catch (e: Exception) {
+                if(e is kotlinx.coroutines.CancellationException)throw e
+                DeviceLog.event(this@MainActivity,"error","setup","enrollment_action_failed",e)
                 toast(Connectivity.message(e))
             } finally {
                 busy = false
