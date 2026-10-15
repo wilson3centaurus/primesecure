@@ -108,7 +108,7 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
         </section>
 
         <div className="space-y-6">
-          {manager && <DeviceDiagnostics events={diagnosticEvents} unavailable={Boolean(diagnostics.error)}/>}
+          {manager && <DeviceDiagnostics events={diagnosticEvents} unavailable={Boolean(diagnostics.error)} currentVersion={d.agent_version}/>}
           <section className="card p-5">
             <h2 className="mb-3 font-semibold">Battery diagnostics</h2>
             {d.battery_diagnostics ? <><dl className="divide-y divide-slate-100">
