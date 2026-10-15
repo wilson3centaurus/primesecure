@@ -10,6 +10,9 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.widget.*
 import java.io.File
+import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** Continuous offline reader. Only visible pages and their neighbours retain bitmaps. */
 class PdfActivity : Activity() {
@@ -22,6 +25,13 @@ class PdfActivity : Activity() {
     private var zoom = 1f
     private lateinit var position: TextView
     private val paintVisible = Runnable { renderVisible() }
+    private val scope=MainScope()
+    private val rendererLock=Mutex()
+    private var pageJob:Job?=null
+    private var renderJob:Job?=null
+    private var layoutVersion=0
+    private var repaint=false
+    private var pageSizes:List<Pair<Int,Int>>?=null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,7 +48,7 @@ class PdfActivity : Activity() {
             val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.rgb(239,243,252)) }
             val bar = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(12,8,12,8) }
             bar.addView(Button(this).apply { text = "Back"; setOnClickListener { finish() } })
-            bar.addView(TextView(this).apply { text = file.name; textSize = 18f; gravity = Gravity.CENTER; maxLines = 2; setTextColor(Color.rgb(35,39,74)) }, LinearLayout.LayoutParams(0,-2,1f))
+            bar.addView(TextView(this).apply { text = file.name; textSize = 14f; gravity = Gravity.CENTER; maxLines = 2; ellipsize=android.text.TextUtils.TruncateAt.MIDDLE; setTextColor(Color.rgb(35,39,74)) }, LinearLayout.LayoutParams(0,-2,1f))
             position = TextView(this).apply { setPadding(16,0,16,0); textSize = 14f }
             bar.addView(position); root.addView(bar)
             pages = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
@@ -50,39 +60,84 @@ class PdfActivity : Activity() {
                 controls.addView(Button(this).apply { text = label; setOnClickListener { changeZoom(value) } })
             }
             controls.addView(TextView(this).apply { text = "  Arrows scroll  |  PgUp / PgDn  |  Home / End"; textSize = 12f })
-            root.addView(controls); setContentView(root)
+            root.addView(controls); StudentTheme.styleReader(this,root);setContentView(root)
             scroll.setOnScrollChangeListener { _,_,_,_,_ -> scroll.removeCallbacks(paintVisible); scroll.postDelayed(paintVisible,40) }
             scroll.post { createPages(); renderVisible() }
         } catch (e: Exception) { Toast.makeText(this,e.message ?: "Could not open PDF.",Toast.LENGTH_LONG).show(); finish() }
     }
 
-    private fun createPages() {
+    private fun createPages(scrollFraction:Double?=null) {
+        val version=++layoutVersion
+        pageJob?.cancel();renderJob?.cancel();renderJob=null
         images.forEach { it.setImageDrawable(null) }; bitmaps.values.forEach { it.recycle() }; bitmaps.clear(); images.clear(); pages.removeAllViews()
         val r = renderer ?: return
         val width = ((scroll.width - 32).coerceAtLeast(200) * zoom).toInt()
-        for (index in 0 until r.pageCount) r.openPage(index).use { page ->
-            val height = (width.toDouble() * page.height / page.width).toInt().coerceAtLeast(1)
-            val image = ImageView(this).apply { setBackgroundColor(Color.WHITE); scaleType = ImageView.ScaleType.FIT_CENTER; contentDescription = "Page ${index+1}" }
-            images.add(image); pages.addView(image,LinearLayout.LayoutParams(width,height).apply { setMargins(16,8,16,8) })
+        position.text="Preparing pages…"
+        pageJob=scope.launch {
+            try {
+                val sizes=pageSizes ?: withContext(Dispatchers.IO) { rendererLock.withLock {
+                    (0 until r.pageCount).map { index->ensureActive();r.openPage(index).use { it.width to it.height } }
+                } }.also { pageSizes=it }
+                if(version!=layoutVersion)return@launch
+                for((index,size) in sizes.withIndex()) {
+                    ensureActive()
+                    val height=(width.toDouble()*size.second/size.first).toInt().coerceAtLeast(1)
+                    val image=ImageView(this@PdfActivity).apply { setBackgroundColor(Color.WHITE);scaleType=ImageView.ScaleType.FIT_CENTER;contentDescription="Page ${index+1}" }
+                    images.add(image);pages.addView(image,LinearLayout.LayoutParams(width,height).apply { setMargins(16,8,16,8) })
+                    if(index%40==39)yield()
+                }
+                pages.post {
+                    if(version==layoutVersion) {
+                        if(scrollFraction!=null)scroll.scrollTo(0,(scrollFraction*pages.height).toInt())
+                        renderVisible()
+                    }
+                }
+            } catch(e:Exception) {
+                if(e is CancellationException)throw e
+                Toast.makeText(this@PdfActivity,"Could not prepare this PDF.",Toast.LENGTH_LONG).show()
+            }
         }
-        pages.post(paintVisible)
     }
 
     private fun renderVisible() {
         val r = renderer ?: return
         if (images.isEmpty()) return
+        if(renderJob?.isActive==true) { repaint=true;return }
         val top = scroll.scrollY; val bottom = top + scroll.height
         val first = images.indexOfFirst { it.bottom >= top }.coerceAtLeast(0)
         val last = images.indexOfLast { it.top <= bottom }.coerceAtLeast(first)
         val keep = (first-1).coerceAtLeast(0)..(last+1).coerceAtMost(images.lastIndex)
         for (index in bitmaps.keys.toList()) if (index !in keep) { images[index].setImageDrawable(null); bitmaps.remove(index)?.recycle() }
-        for (index in keep) if (!bitmaps.containsKey(index)) runCatching {
-            r.openPage(index).use { page ->
-                val width = images[index].layoutParams.width.coerceAtMost(1400)
-                val height = (width.toDouble()*page.height/page.width).toInt().coerceIn(1,3000)
-                val bitmap = Bitmap.createBitmap(width,height,Bitmap.Config.ARGB_8888).apply { eraseColor(Color.WHITE) }
-                page.render(bitmap,null,null,PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                bitmaps[index] = bitmap; images[index].setImageBitmap(bitmap)
+        val version=layoutVersion
+        renderJob=scope.launch {
+            try {
+                for(index in keep)if(!bitmaps.containsKey(index)) {
+                    var generated:Bitmap?=null
+                    try {
+                        val width=images[index].layoutParams.width.coerceAtMost(1400)
+                        withContext(Dispatchers.IO) { rendererLock.withLock {
+                            ensureActive()
+                            r.openPage(index).use { page->
+                                val height=(width.toDouble()*page.height/page.width).toInt().coerceIn(1,3000)
+                                val bitmap=Bitmap.createBitmap(width,height,Bitmap.Config.ARGB_8888).apply { eraseColor(Color.WHITE) }
+                                generated=bitmap;page.render(bitmap,null,null,PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                            }
+                        } }
+                        if(version==layoutVersion) {
+                            val bitmap=generated ?: continue
+                            bitmaps[index]=bitmap;images[index].setImageBitmap(bitmap);generated=null
+                        }
+                    } finally { generated?.recycle() }
+                }
+            } catch(e:Exception) {
+                if(e is CancellationException)throw e
+                Toast.makeText(this@PdfActivity,"This PDF page could not be displayed.",Toast.LENGTH_SHORT).show()
+            } finally {
+                // A cancelled older zoom must not clear the newer render job.
+                if(version==layoutVersion) {
+                    renderJob=null
+                    if(repaint) { repaint=false;scroll.post(paintVisible) }
+                }
             }
         }
         position.text = "${first+1} / ${r.pageCount}"
@@ -91,7 +146,7 @@ class PdfActivity : Activity() {
     private fun changeZoom(delta: Float) {
         val fraction = scroll.scrollY.toDouble() / pages.height.coerceAtLeast(1)
         zoom = if (delta == 0f) 1f else (zoom+delta).coerceIn(0.5f,2f)
-        createPages(); pages.post { scroll.scrollTo(0,(fraction*pages.height).toInt()); renderVisible() }
+        createPages(fraction)
     }
 
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
@@ -115,8 +170,12 @@ class PdfActivity : Activity() {
     }
 
     override fun onDestroy() {
+        scope.cancel();layoutVersion++
         if (::scroll.isInitialized) scroll.removeCallbacks(paintVisible)
         images.forEach { it.setImageDrawable(null) }; bitmaps.values.forEach { it.recycle() }; bitmaps.clear()
-        renderer?.close(); renderer = null; descriptor?.close(); super.onDestroy()
+        val closing=renderer;val fileDescriptor=descriptor;renderer=null;descriptor=null
+        // Finish any native render before closing its descriptor; never wait on the UI thread.
+        CoroutineScope(Dispatchers.IO).launch { rendererLock.withLock { runCatching { closing?.close() };runCatching { fileDescriptor?.close() } } }
+        super.onDestroy()
     }
 }

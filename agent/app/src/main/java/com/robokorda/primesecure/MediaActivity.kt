@@ -29,10 +29,10 @@ class MediaActivity : Activity() {
             @Suppress("DEPRECATION") val shared=android.os.Environment.getExternalStorageDirectory().canonicalFile
             val usb=file.path.matches(Regex("/storage/[0-9a-fA-F]{4}-[0-9a-fA-F]{4}/.+")) && HubStore(this).catalog.optJSONObject("management")?.optBoolean("block_usb_storage") != true
             require(file.isFile && (file.path.startsWith(notes.path+File.separator) || file.path.startsWith(shared.path+File.separator) || usb)) { "File unavailable" }
-            val root = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;setPadding(24,20,24,20);setBackgroundColor(android.graphics.Color.rgb(245,247,255)) }
+            val root = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;setPadding(16,8,16,8);setBackgroundColor(android.graphics.Color.rgb(245,247,255)) }
             val bar=LinearLayout(this).apply { gravity=android.view.Gravity.CENTER_VERTICAL }
             bar.addView(Button(this).apply { text="Back";setOnClickListener { finish() } })
-            bar.addView(TextView(this).apply { text=file.name;textSize=20f;gravity=android.view.Gravity.CENTER;setTextColor(android.graphics.Color.rgb(41,39,75));setPadding(12,18,12,18) },LinearLayout.LayoutParams(0,-2,1f))
+            bar.addView(TextView(this).apply { text=file.name;textSize=14f;maxLines=2;ellipsize=android.text.TextUtils.TruncateAt.MIDDLE;gravity=android.view.Gravity.CENTER;setTextColor(android.graphics.Color.rgb(41,39,75));setPadding(12,8,12,8) },LinearLayout.LayoutParams(0,-2,1f))
             root.addView(bar)
             val mime=intent.getStringExtra("mime") ?: ""
             currentFile=file;kind=mime.substringBefore('/')
@@ -99,7 +99,7 @@ class MediaActivity : Activity() {
                 root.addView(nav)
                 root.addView(TextView(this).apply { text=if(kind=="image") "← / → change image   |   + / − zoom   |   0 fit" else "Space: play / pause   |   ← / → seek   |   PgUp / PgDn change video";gravity=android.view.Gravity.CENTER;setPadding(0,8,0,8);textSize=12f })
             }
-            setContentView(root)
+            StudentTheme.styleReader(this,root);setContentView(root)
         } catch(e:Exception) { Toast.makeText(this,e.message ?: "Could not open this file.",Toast.LENGTH_LONG).show();finish() }
     }
     private fun cycle(step: Int) {

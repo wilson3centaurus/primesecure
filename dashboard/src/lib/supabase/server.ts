@@ -1,10 +1,12 @@
 import "server-only";
+import { cache } from "react";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from "@/lib/env";
 
 // Acts as the signed-in staff member, so RLS applies to every query.
-export async function createClient() {
+// One cookie-bound client per React request; never share staff sessions across requests.
+export const createClient = cache(async () => {
   const cookieStore = await cookies();
   return createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     cookies: {
@@ -18,4 +20,4 @@ export async function createClient() {
       },
     },
   });
-}
+});

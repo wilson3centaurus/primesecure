@@ -26,7 +26,7 @@ class SupportCaptureActivity : Activity() {
         root.addView(TextView(this).apply { text="Your camera opens only when you choose Take photo. Review the picture before sending. Nothing is recorded in the background.";textSize=17f;setPadding(0,24,0,24) })
         root.addView(Button(this).apply { text="Take photo";setOnClickListener { capture() } })
         root.addView(Button(this).apply { text="Cancel";setOnClickListener { finish() } })
-        setContentView(root)
+        StudentTheme.styleReader(this,root);setContentView(root)
     }
 
     @Suppress("DEPRECATION")

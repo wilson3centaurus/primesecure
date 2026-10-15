@@ -50,8 +50,7 @@ export const getVisibleSchools = cache(async (): Promise<School[]> => {
 // The school the dashboard is working in. School staff are pinned to their
 // own; a super_admin picks one with the switcher (cookie), defaulting to the first.
 export const getCurrentSchool = cache(async (): Promise<School | null> => {
-  const staff = await requireStaff();
-  const schools = await getVisibleSchools();
+  const [staff, schools] = await Promise.all([requireStaff(), getVisibleSchools()]);
   if (staff.role !== "super_admin") {
     return schools.find((s) => s.id === staff.schoolId) ?? null;
   }

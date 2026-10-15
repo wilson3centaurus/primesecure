@@ -6,14 +6,14 @@ import type { School } from "@/lib/types";
 export function SchoolSwitcher({ schools, currentId }: { schools: School[]; currentId: string | null }) {
   return (
     <form action={switchSchool}>
-      <label htmlFor="school_id" className="mb-1 block text-xs font-medium tracking-wide text-slate-400 uppercase">
-        School
+      <label htmlFor="school_id" className="mb-1.5 block text-[10px] font-semibold tracking-wide text-muted uppercase">
+        School workspace
       </label>
       <select
         id="school_id"
         name="school_id"
         defaultValue={currentId ?? ""}
-        className="w-full rounded-md border border-slate-700 bg-slate-800 px-2 py-1.5 text-sm text-white"
+        className="w-full min-w-0 bg-transparent py-0.5 text-xs font-medium text-ink outline-none"
         onChange={(e) => e.currentTarget.form?.requestSubmit()}
       >
         {schools.length === 0 && <option value="">No schools yet</option>}

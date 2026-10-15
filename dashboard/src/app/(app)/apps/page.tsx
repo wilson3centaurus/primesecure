@@ -20,18 +20,25 @@ function size(bytes: number | null) {
   return bytes > 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(bytes / 1024)} KB`;
 }
 
-export default async function AppsPage({searchParams}:{searchParams:Promise<{tab?:string}>}) {
+export default async function AppsPage({searchParams}:{searchParams:Promise<{tab?:string;q?:string;page?:string}>}) {
   const staff = await requireStaff();
   const school = await getCurrentSchool();
   if (!school) return <PageHeader title="Apps" description="Add a school first." />;
   const manager = canManage(staff, school.id);
 
   const supabase = await createClient();
-  const { data } = await supabase.from("apps").select("*").eq("school_id", school.id).order("name");
-  const apps = (data ?? []) as App[];
-  const {tab="store"}=await searchParams;
+  const params=await searchParams;
+  const {tab="store"}=params;
   const tabs=[{id:"store",label:"App Store"},{id:"requests",label:"Student requests"},...(manager?[{id:"rules",label:"App rules"},{id:"viewers",label:"Media viewers"},{id:"legacy",label:"Older deployments"}]:[])];
   const current=tabs.some(t=>t.id===tab)?tab:"store";
+  const navigation=<SectionTabs base="/apps" current={current} tabs={tabs}/>;
+  if(current==="store")return <>{navigation}<HubLibrary kind="app" query={typeof params.q==='string'?params.q:''} page={Number(params.page)||1}/></>;
+  if(current==="requests")return <>{navigation}<AppRequests/></>;
+  if(current==="legacy") {
+    const {data}=await supabase.from("apps").select("*").eq("school_id",school.id).order("name");
+    const apps=(data??[]) as App[];
+    return <>{navigation}<PageHeader title="Administrator deployments" description="Previous direct-install library. Publish an APK in App Store to make it available to students."/>{manager&&<details className="card mb-4 p-4"><summary className="cursor-pointer text-xs font-semibold">Upload administrator deployment</summary><div className="mt-4"><UploadApp schoolId={school.id}/></div></details>}<div className="card divide-y divide-slate-100">{!apps.length&&<p className="p-5 text-xs text-muted">No administrator deployments yet.</p>}{apps.map(app=><div key={app.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><p className="text-xs font-semibold">{app.name}</p><p className="mt-1 text-[11px] text-muted">{size(app.size)} · {dateTime(app.created_at)}</p></div>{manager&&<div className="flex gap-3"><InstallOnAllButton appId={app.id} name={app.name}/><DeleteAppButton id={app.id}/></div>}</div>)}</div></>;
+  }
   const [{data:settings},{data:global},{data:approved},{data:access}]=await Promise.all([
     supabase.from("hub_settings").select("*").eq("scope",school.id).maybeSingle(),
     supabase.from("hub_settings").select("*").eq("scope","global").maybeSingle(),
@@ -39,35 +46,8 @@ export default async function AppsPage({searchParams}:{searchParams:Promise<{tab
     supabase.from("hub_access").select("item_id").eq("school_id",school.id)
   ]);
   const available=[...new Map((approved||[]).filter(a=>a.school_id===school.id||(access||[]).some(x=>x.item_id===a.id)).map(a=>[a.package_name,a])).values()];
-  const navigation=<SectionTabs base="/apps" current={current} tabs={tabs}/>;
-  if(current==="requests")return <>{navigation}<AppRequests/></>;
   if(current==="viewers")return <>{navigation}<PageHeader title="Media viewers" description="Choose which approved app opens each file type."/><ManagementSettings section="viewers" settings={settings||global||{}} apps={available}/></>;
   if(current==="rules")return <>{navigation}<AppRules strict={settings?.approved_apps_only??global?.approved_apps_only??true} approvedCount={available.length} blocked={settings?.blocked_packages??global?.blocked_packages??[]}/></>;
-  if(current==="store")return <>{navigation}<HubLibrary kind="app"/></>;
 
-  return (
-    <>
-      {navigation}
-      <details className="card mt-10 p-5"><summary className="cursor-pointer font-semibold text-slate-600">Previous administrator deployments ({apps.length})</summary><div className="mt-5"><PageHeader title="Administrator deployments" description="Existing direct-install library. Upload above to make an app available in the student App Store." /></div>
-      {manager && <div className="card mb-6 p-4"><UploadApp schoolId={school.id} /></div>}
-      <div className="card divide-y divide-slate-100">
-        {apps.length === 0 && <p className="p-4 text-sm text-slate-500">No apps in the library yet.</p>}
-        {apps.map((a) => (
-          <div key={a.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
-            <div>
-              <div className="font-medium">{a.name}</div>
-              <div className="text-xs text-slate-500">{[size(a.size), `added ${dateTime(a.created_at)}`].filter(Boolean).join(" · ")}</div>
-            </div>
-            {manager && (
-              <div className="flex items-start gap-4">
-                <InstallOnAllButton appId={a.id} name={a.name} />
-                <DeleteAppButton id={a.id} />
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-      </details>
-    </>
-  );
+  return null;
 }

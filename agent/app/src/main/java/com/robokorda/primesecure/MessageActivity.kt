@@ -57,13 +57,13 @@ class MessageActivity : Activity() {
         Notifications.cancelMessage(this, messageId)
         hub.seen(messageId)
         MessageAckWorker.schedule(this)
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(40, 28, 40, 24); setBackgroundColor(android.graphics.Color.rgb(244,247,253)) }
-        val header=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(28,24,28,24); background=android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xff5147bb.toInt(),0xff8997ed.toInt())).apply { cornerRadius=24f } }
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(20, 16, 20, 16); setBackgroundColor(StudentTheme.background(this@MessageActivity)) }
+        val header=LinearLayout(this).apply { tag="preserve-tone";orientation=LinearLayout.VERTICAL; setPadding(20,16,20,16); background=android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,intArrayOf(0xff5147bb.toInt(),0xff6b72c9.toInt())).apply { cornerRadius=20f } }
         header.addView(TextView(this).apply { text=if(required) "SCHOOL NOTICE · ACKNOWLEDGEMENT REQUIRED" else "YOUR SCHOOL INBOX"; textSize=11f; setTextColor(0xffddd9ff.toInt()); setPadding(0,0,0,14) })
-        header.addView(TextView(this).apply { text = payload.optString("title", "Message from school"); textSize = 28f; setTextColor(android.graphics.Color.WHITE); setTypeface(null,android.graphics.Typeface.BOLD) })
+        header.addView(TextView(this).apply { text = payload.optString("title", "Message from school"); textSize = 22f; setTextColor(android.graphics.Color.WHITE); setTypeface(null,android.graphics.Typeface.BOLD) })
         header.addView(TextView(this).apply { text = "${payload.optString("from")}  •  ${message?.optString("created_at").orEmpty()}"; setTextColor(0xffe4e0ff.toInt()); textSize=12f; setPadding(0, 12, 0, 0) })
         root.addView(header)
-        val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24,18,24,18); setBackgroundColor(android.graphics.Color.WHITE) }
+        val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(16,14,16,14); setBackgroundColor(StudentTheme.surface(this@MessageActivity)) }
         MessageContent.render(this, body, payload, scope)
         root.addView(ScrollView(this).apply { addView(body) }, LinearLayout.LayoutParams(-1, 0, 1f))
         val reply=EditText(this).apply { hint="Reply to school"; maxLines=3 }
@@ -88,7 +88,7 @@ class MessageActivity : Activity() {
                 showPending(this@MessageActivity)
             }
         })
-        setContentView(root)
+        StudentTheme.styleReader(this,root);setContentView(root)
     }
     @Deprecated("Required notices must be acknowledged")
     override fun onBackPressed() { if (!required) { @Suppress("DEPRECATION") super.onBackPressed() } }
