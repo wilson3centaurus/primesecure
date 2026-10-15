@@ -17,8 +17,8 @@ android {
         applicationId = "com.robokorda.primesecure"
         minSdk = 26
         targetSdk = 34
-        versionCode = System.getenv("AGENT_VERSION_CODE")?.toIntOrNull() ?: 6
-        versionName = System.getenv("AGENT_VERSION_NAME") ?: "0.6.0"
+        versionCode = System.getenv("AGENT_VERSION_CODE")?.toIntOrNull() ?: 8
+        versionName = System.getenv("AGENT_VERSION_NAME") ?: "0.6.2"
 
         buildConfigField("String", "SUPABASE_URL", "\"${setting("primesecure.url", "PRIMESECURE_URL")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${setting("primesecure.anonKey", "PRIMESECURE_ANON_KEY")}\"")
@@ -68,6 +68,7 @@ kotlin {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     implementation("androidx.work:work-runtime-ktx:2.10.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")

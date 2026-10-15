@@ -68,7 +68,17 @@ object BootRecovery {
 }
 
 class BootRecoveryReceiver:BroadcastReceiver() {
-    override fun onReceive(context:Context,intent:Intent) { if(intent.action==Intent.ACTION_LOCKED_BOOT_COMPLETED)BootRecovery.start(context) }
+    override fun onReceive(context:Context,intent:Intent) {
+        if(intent.action !in setOf(Intent.ACTION_LOCKED_BOOT_COMPLETED, Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED)) return
+        val pending = goAsync()
+        CoroutineScope(SupervisorJob()+Dispatchers.IO).launch {
+            try {
+                // Recover visibility locally, without Wi-Fi, account tokens or first unlock.
+                runCatching { AppSafety.restoreEssentialApps(context) }
+                BootRecovery.start(context)
+            } finally { pending.finish() }
+        }
+    }
 }
 
 class BootRecoveryService:Service() {

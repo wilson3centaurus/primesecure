@@ -3,11 +3,9 @@ package com.robokorda.primesecure
 import android.app.WallpaperManager
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.UserManager
-import android.provider.Settings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
@@ -91,7 +89,7 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
             append(" · wallpaper ").append(if (wallpaperUrl != null) "set" else "unmanaged")
             if (lockWallpaper) append(" (locked)")
             append(" · installs ").append(if (blockInstalls) "blocked" else "allowed")
-            append(" · settings ").append(if (hideSettings) "hidden" else "visible")
+            append(" · settings visible (login safety)")
             append(" · $hiddenCount app(s) hidden")
             if (webSummary.isNotEmpty()) append(" · ").append(webSummary)
             problems.forEach { append("\n⚠ ").append(it) }
@@ -170,16 +168,14 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
     ): Int {
         val previouslyHidden = store.hiddenByUs
         val previouslySuspended = store.suspendedByUs
-        val protected = protectedPackages(hideSettings)
+        val protected = AppSafety.protectedPackages(context)
 
-        val want = buildSet {
-            addAll(hidden)
-            if (hideSettings) addAll(SETTINGS_PACKAGES)
-            if (allowed.isNotEmpty() || allowListOnly) {
-                // Apps we hid no longer show up as launchable, so include them as candidates.
-                (launchablePackages() + previouslyHidden + previouslySuspended).filterTo(this) { it !in allowed }
-            }
-        } - protected
+        val want = AppVisibilityRules.hiddenPackages(
+            requested = hidden + if (hideSettings) SETTINGS_PACKAGES else emptySet(),
+            allowed = allowed, launchable = launchablePackages(),
+            previouslyRestricted = previouslyHidden + previouslySuspended,
+            protected = protected, allowListOnly = allowListOnly,
+        )
 
         val nowHidden = mutableSetOf<String>()
         val nowSuspended = mutableSetOf<String>()
@@ -205,26 +201,6 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
         pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER),0).filter {
             it.loadLabel(pm).toString().lowercase() in setOf("files","file manager","file explorer","filemanager","fileexplorer")
         }.map { it.activityInfo.packageName }.filter { it!=context.packageName }
-
-    /** Never hide these, whatever the policy says, or the laptop becomes unusable. */
-    private fun protectedPackages(hideSettings: Boolean): Set<String> = buildSet {
-        add(context.packageName)
-        add("com.android.systemui")
-        add("android")
-        homePackage()?.let(::add)
-        defaultInputMethodPackage()?.let(::add)
-        if (!hideSettings) addAll(SETTINGS_PACKAGES)
-    }
-
-    private fun homePackage(): String? {
-        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-        return pm.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo?.packageName
-            ?.takeIf { it != "android" } // "android" = the chooser, i.e. no default set
-    }
-
-    private fun defaultInputMethodPackage(): String? =
-        Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
-            ?.substringBefore('/')
 
     /** Called from the debug "release" button and, later, the retire command. */
     fun undoAll() {
