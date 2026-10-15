@@ -66,6 +66,14 @@
             </intent-filter>
         </activity>
 
+        <!-- Keep other Startup initializers; use Application's on-demand WorkManager configuration. -->
+        <provider android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false" tools:node="merge">
+            <meta-data android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup" tools:node="remove" />
+        </provider>
+
         <provider android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.resources" android:exported="false" android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/resource_paths" />

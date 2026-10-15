@@ -7,6 +7,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -55,8 +56,11 @@ class AgentService : Service() {
             networkCallback=object:android.net.ConnectivityManager.NetworkCallback() {
                 override fun onCapabilitiesChanged(network:android.net.Network,caps:android.net.NetworkCapabilities) {
                     if(caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
-                        checkInSoon(); HubSync.schedule(this@AgentService)
-                        if(HubTasks(this@AgentService).pending().any { it.optString("action") !in setOf("download","admin_command") }) OfflineWorker.schedule(this@AgentService)
+                        checkInSoon()
+                        scheduleSafely("network_hub") { HubSync.schedule(this@AgentService) }
+                        scheduleSafely("network_outbox") {
+                            if(HubTasks(this@AgentService).pending().any { it.optString("action") !in setOf("download","admin_command") }) OfflineWorker.schedule(this@AgentService)
+                        }
                     }
                 }
             }.also { cm.registerDefaultNetworkCallback(it) }
@@ -68,9 +72,14 @@ class AgentService : Service() {
             .also { if (telemetryLoop == null) telemetryLoop = scope.launch { var tick=0; while (true) {
                 keepWifi(); delay(30_000L); tick++
                 if(Connectivity.online(this@AgentService)) {
-                    if(tick%2==0) { CheckInWorker.runNow(this@AgentService); HubSync.schedule(this@AgentService) }
-                    if(HubTasks(this@AgentService).pending().any { it.optString("action") !in setOf("download","admin_command") }) OfflineWorker.schedule(this@AgentService)
-                    if(tick%10==0) TelemetryWorker.schedule(this@AgentService)
+                    if(tick%2==0) {
+                        scheduleSafely("periodic_check_in") { CheckInWorker.runNow(this@AgentService) }
+                        scheduleSafely("periodic_hub") { HubSync.schedule(this@AgentService) }
+                    }
+                    scheduleSafely("periodic_outbox") {
+                        if(HubTasks(this@AgentService).pending().any { it.optString("action") !in setOf("download","admin_command") }) OfflineWorker.schedule(this@AgentService)
+                    }
+                    if(tick%10==0) scheduleSafely("periodic_telemetry") { TelemetryWorker.schedule(this@AgentService) }
                 }
             } } }
     }
@@ -78,7 +87,9 @@ class AgentService : Service() {
     private fun onChange(store: AgentStore, table: String, record: JSONObject?) {
         when (table) {
             "commands", "policies" -> checkInSoon()
-            "hub_items", "hub_access", "hub_settings", "support_messages" -> { checkInSoon();HubSync.schedule(this) }
+            "hub_items", "hub_access", "hub_settings", "support_messages" -> {
+                checkInSoon();scheduleSafely("realtime_hub") { HubSync.schedule(this) }
+            }
             // Every check-in updates our own row; only a status change needs action.
             "devices" -> if (record?.optString("status") != store.lastStatus) checkInSoon()
         }
@@ -89,7 +100,14 @@ class AgentService : Service() {
         pendingCheckIn?.cancel()
         pendingCheckIn = scope.launch {
             delay(250)
-            CheckInWorker.runNow(this@AgentService)
+            scheduleSafely("realtime_check_in") { CheckInWorker.runNow(this@AgentService) }
+        }
+    }
+
+    private fun scheduleSafely(phase:String, block:()->Unit) {
+        try { block() } catch(e:Exception) {
+            if(e is CancellationException)throw e
+            DeviceLog.event(this,"error","check_in","background_schedule_failed",e,JSONObject().put("phase",phase))
         }
     }
 
