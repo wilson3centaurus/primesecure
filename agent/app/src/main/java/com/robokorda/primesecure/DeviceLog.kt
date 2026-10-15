@@ -37,7 +37,9 @@ internal object DeviceLog {
             if(value is Boolean || value is Number) safe.put(k,value)
             else if(value is String && value.matches(Regex("[A-Za-z0-9_.:$-]{1,160}"))) safe.put(k,value)
         }
-        error?.let { safe.put("exception",it.javaClass.name.take(160)).put("frames",JSONArray(DiagnosticFormat.frames(it.stackTrace))) }
+        error?.let { DiagnosticFormat.rootCause(it) }?.let {
+            safe.put("exception",it.javaClass.name.take(160)).put("frames",JSONArray(DiagnosticFormat.frames(it.stackTrace)))
+        }
         val fingerprint="$severity:$category:${DiagnosticFormat.safeCode(code)}:$safe"
         if(p.getString("last_key",null)==fingerprint && now-p.getLong("last_at",0) in 0..59_999) return@synchronized
         val e=JSONObject().put("id",UUID.randomUUID().toString()).put("occurred_at",Instant.ofEpochMilli(now).toString())

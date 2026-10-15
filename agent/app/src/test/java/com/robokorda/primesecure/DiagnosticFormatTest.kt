@@ -4,6 +4,22 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DiagnosticFormatTest {
+    @Test fun androidWrapperExposesRootCauseWithoutPrivateMessages() {
+        val cause=IllegalStateException("SECRET token and student content")
+        cause.stackTrace=arrayOf(StackTraceElement("AgentBoot","schedule","private-file.txt",42))
+        val wrapper=RuntimeException("Unable to receive intent PRIVATE",cause)
+        assertSame(cause,DiagnosticFormat.rootCause(wrapper))
+        assertEquals(listOf("AgentBoot.schedule:42"),DiagnosticFormat.frames(DiagnosticFormat.rootCause(wrapper).stackTrace))
+    }
+    @Test fun cyclicCauseChainTerminates() {
+        val a=RuntimeException();val b=RuntimeException();a.initCause(b);b.initCause(a)
+        assertSame(b,DiagnosticFormat.rootCause(a))
+    }
+    @Test fun deepCauseChainIsBounded() {
+        var error:Throwable=IllegalStateException()
+        repeat(100) { error=RuntimeException(error) }
+        assertNotNull(DiagnosticFormat.rootCause(error))
+    }
     @Test fun exceptionMessagesNeverEnterStackFrames() {
         val error=IllegalStateException("password=SECRET token=JWT student-message=PRIVATE")
         val text=DiagnosticFormat.frames(error.stackTrace).joinToString()
