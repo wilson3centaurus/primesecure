@@ -94,9 +94,14 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                     DeviceState.apply(context, status) // forgets the enrollment; nothing more to do
                     return response
                 }
+                val sync=SupabaseApi(store).rpc("device_sync_state")
+                val syncRevision=sync.optLong("revision")
+                val changesPending=syncRevision>sync.optLong("applied_revision")
+                SettingsSync.observe(context,sync)
+                SettingsSync.phase(context,"applying")
                 val policy = response.optJSONObject("policy") ?: JSONObject()
-                runCatching {
-                    val hub = SupabaseApi(store).rpc("device_hub")
+                run {
+                    val hub = SupabaseApi(store).rpc("device_hub").put("_sync_revision",syncRevision)
                     HubStore(context).catalog = hub
                     val local = HubStore(context).localWallpaper
                     if (local != null && HubTasks(context).pending().any { it.optString("action") == "wallpaper" } && hub.optBoolean("allow_wallpaper_choice")) {
@@ -119,12 +124,20 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                     runCatching {
                         AdminReceiver.dpm(context).setDeviceOwnerLockScreenInfo(AdminReceiver.component(context),"RoboKorda · ${hub.optString("school_name")}")
                     }
-                    SupabaseApi(store).rpc("device_battery_report", JSONObject().put("p_readings", DeviceInfo.batteryDiagnostics(context)))
-                }.onFailure { HubStore(context).syncError = Connectivity.message(it) }
+                    runCatching { SupabaseApi(store).rpc("device_battery_report", JSONObject().put("p_readings", DeviceInfo.batteryDiagnostics(context))) }
+                }
                 context.getSharedPreferences("agent-policy", Context.MODE_PRIVATE).edit().putString("policy", policy.toString()).putString("device",store.deviceId).commit()
                 val applier = PolicyApplier(context, store)
                 store.lastPolicySummary = applier.apply(policy, suspended = status == "suspended")
                 InitialSetup(context).policyResult(applier.lastProblems)
+                if(applier.lastProblems.isEmpty()) {
+                    val wasPending=SettingsSync.pending(context)
+                    SettingsSync.observe(context,SupabaseApi(store).rpc("device_ack_sync",JSONObject().put("p_revision",syncRevision)))
+                    if(wasPending && !SettingsSync.pending(context)) {
+                        DeviceLog.event(context,"info","policy","school_changes_applied")
+                        Notifications.schoolSync(context,"School settings updated","Your settings and library list are synced. Books, wallpapers and app downloads continue in Background tasks.")
+                    }
+                } else SettingsSync.phase(context,"attention")
                 DeviceState.apply(context, status)
                 store.lastCheckInAt = System.currentTimeMillis()
                 runCatching { PasswordRecovery.registerBoot(context) }
@@ -133,7 +146,7 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 store.lastError = null
                 DiagnosticsWorker.schedule(context)
                 if (response.optInt("pending_commands", 0) > 0) CommandRunner(context, store).runPending()
-                HubSync.schedule(context)
+                HubSync.schedule(context,followUp=changesPending)
                 TelemetryWorker.schedule(context)
                 // Last: a successful update replaces this process.
                 SelfUpdater.maybeUpdate(context, store, response.optJSONObject("agent_update"))
@@ -142,6 +155,7 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 if(e is kotlinx.coroutines.CancellationException)throw e
                 DeviceLog.event(context,"error","check_in","check_in_failed",e)
                 store.lastError = Connectivity.message(e)
+                SettingsSync.phase(context,"waiting")
                 throw e
             }
         }

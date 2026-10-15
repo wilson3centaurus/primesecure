@@ -12,6 +12,7 @@ object Notifications {
     const val SERVICE_ID = 1
     private const val SERVICE_CHANNEL = "service"
     private const val MESSAGE_CHANNEL = "messages"
+    private const val SYNC_CHANNEL = "school-updates"
 
     private fun manager(context: Context) =
         context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -23,6 +24,7 @@ object Notifications {
                 setShowBadge(false)
             },
             NotificationChannel(MESSAGE_CHANNEL, "Messages from school", NotificationManager.IMPORTANCE_HIGH),
+            NotificationChannel(SYNC_CHANNEL, "School updates", NotificationManager.IMPORTANCE_DEFAULT),
         ))
     }
 
@@ -72,5 +74,15 @@ object Notifications {
 
     fun cancelMessage(context: Context, commandId: String) {
         manager(context).cancel(commandId.hashCode())
+    }
+
+    fun schoolSync(context:Context,title:String,body:String) {
+        runCatching {
+            createChannels(context)
+            val open=PendingIntent.getActivity(context,902,Intent(context,HubActivity::class.java),PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            manager(context).notify(902,builder(context,SYNC_CHANNEL).setSmallIcon(android.R.drawable.stat_notify_sync)
+                .setContentTitle(title).setContentText(body).setStyle(Notification.BigTextStyle().bigText(body))
+                .setContentIntent(open).setAutoCancel(true).build())
+        }
     }
 }

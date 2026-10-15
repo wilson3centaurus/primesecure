@@ -9,6 +9,17 @@ import type { FormState } from "@/lib/types";
 
 export type AddDevicesState = (NonNullable<FormState> & { created?: { id: string; name: string; token: string }[] }) | undefined;
 
+export async function requestDeviceSync(_previous:FormState,form:FormData):Promise<FormState> {
+  await requireStaff();
+  const device=String(form.get('device_id')||'');
+  if(!/^[0-9a-f-]{36}$/i.test(device))return {error:'Invalid device.'};
+  const db=await createClient();
+  const {error}=await db.rpc('staff_request_device_sync',{p_device:device});
+  if(error)return {error:error.message};
+  revalidatePath(`/devices/${device}`);
+  return {ok:'Sync requested. Connected agents receive a signal; offline devices catch up after reconnecting.'};
+}
+
 // One device per line: "Student name" or "Student name, student ID".
 export async function addDevices(_prev: AddDevicesState, formData: FormData): Promise<AddDevicesState> {
   const staff = await requireStaff();

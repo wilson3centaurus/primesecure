@@ -16,6 +16,7 @@ import { DeleteDeviceForm, IssueTokenForm, StudentForm } from "./forms";
 import { RecoveryControls } from "@/components/recovery-controls";
 import { StateControls } from "./state-controls";
 import { DeviceDiagnostics, type DeviceEvent } from "@/components/device-diagnostics";
+import { DeviceSync } from "@/components/device-sync";
 
 export const metadata: Metadata = { title: "Device" };
 
@@ -92,7 +93,7 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
               {installed.map((a) => (
                 <li key={a.package} className="flex items-center justify-between gap-3 py-1.5">
                   <div className="min-w-0">
-                    <div className="truncate">{a.label}{a.system && <span className="ml-2 text-xs text-slate-400">system</span>}</div>
+                    <div className="truncate">{a.label}{a.system && <span className="ml-2 text-xs text-slate-400">system</span>}{a.hidden && <span className="ml-2 text-xs text-amber-700">Hidden on device</span>}{a.suspended && <span className="ml-2 text-xs text-amber-700">Suspended</span>}</div>
                     <div className="truncate font-mono text-xs text-slate-500">{a.package}{a.version && ` · ${a.version}`}</div>
                   </div>
                   {manager && enrolled && !a.system && a.package !== "com.robokorda.primesecure" && (
@@ -108,6 +109,7 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
         </section>
 
         <div className="space-y-6">
+          {manager && <DeviceSync deviceId={d.id} requested={d.sync_revision??0} applied={d.sync_applied_revision??0} requestedLabel={dateTime(d.sync_requested_at)} appliedLabel={dateTime(d.sync_applied_at)} topics={d.sync_topics??[]}/>}
           {manager && <DeviceDiagnostics events={diagnosticEvents} unavailable={Boolean(diagnostics.error)} currentVersion={d.agent_version}/>}
           <section className="card p-5">
             <h2 className="mb-3 font-semibold">Battery diagnostics</h2>

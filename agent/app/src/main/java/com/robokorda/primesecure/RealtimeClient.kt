@@ -75,9 +75,8 @@ class RealtimeClient(
                     .put(change("INSERT", "commands", "device_id=eq.$deviceId"))
                     .put(change("*", "policies", null))
                     .put(change("UPDATE", "devices", "id=eq.$deviceId"))
-                    .put(change("*", "hub_items", null))
-                    .put(change("*", "hub_access", null))
-                    .put(change("*", "hub_settings", null))
+                    // Library/settings changes update our device row's sync_revision.
+                    // Devices have no direct SELECT permission on school settings/access.
                     .put(change("INSERT", "support_messages", "device_id=eq.$deviceId"))
                 val payload = JSONObject()
                     .put("config", JSONObject()
@@ -153,6 +152,6 @@ class RealtimeClient(
         private const val HEARTBEAT_MS = 25_000L
         private const val SESSION_MS = 45 * 60_000L
         private const val INITIAL_BACKOFF_MS = 5_000L
-        private const val MAX_BACKOFF_MS = 5 * 60_000L
+        private const val MAX_BACKOFF_MS = 30_000L
     }
 }

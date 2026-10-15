@@ -15,7 +15,8 @@ class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(cont
         val hub = HubStore(applicationContext); val tasks = HubTasks(applicationContext)
         val device = store.deviceId; val api = SupabaseApi(store)
         return try {
-            hub.catalog = api.rpc("device_hub")
+            val revision=api.rpc("device_sync_state").optLong("revision")
+            hub.catalog = api.rpc("device_hub").put("_sync_revision",revision)
             if (store.deviceId != device) return Result.success()
             val draft=hub.profileDraft;val saved=hub.catalog.optJSONObject("student_profile")
             if(draft!=null && saved!=null && tasks.pending().none { it.optString("action")=="profile" } && draft.keys().asSequence().all { draft.optString(it,"")==saved.optString(it,"").let { value->if(value=="null") "" else value } }) hub.profileDraft=null
@@ -113,8 +114,8 @@ class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(cont
         Unit
     }
     companion object {
-        fun schedule(context: Context) {
-            WorkManager.getInstance(context).enqueueUniqueWork("student-hub-sync", ExistingWorkPolicy.KEEP,
+        fun schedule(context: Context,followUp:Boolean=false) {
+            WorkManager.getInstance(context).enqueueUniqueWork("student-hub-sync", if(followUp) ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.KEEP,
                 OneTimeWorkRequestBuilder<HubSync>().setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build())
         }
     }

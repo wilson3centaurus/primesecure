@@ -23,6 +23,11 @@ export type Device = {
   android_id: string | null;
   os_version: string | null;
   agent_version: string | null;
+  sync_revision: number;
+  sync_applied_revision: number;
+  sync_topics: string[];
+  sync_requested_at: string | null;
+  sync_applied_at: string | null;
   student_name: string | null;
   student_id: string | null;
   form_level: string;
@@ -44,7 +49,7 @@ export type Device = {
   updated_at: string;
 };
 
-export type InstalledApp = { package: string; label: string; version: string | null; system: boolean };
+export type InstalledApp = { package: string; label: string; version: string | null; system: boolean; hidden?: boolean; suspended?: boolean };
 
 export type App = {
   id: string;

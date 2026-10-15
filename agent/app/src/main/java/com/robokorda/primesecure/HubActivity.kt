@@ -96,6 +96,7 @@ class HubActivity : Activity() {
                     .put("runtime",cachedRuntime).put("agent_version",BuildConfig.VERSION_NAME).put("ui_version",uiDirectory?.name?.drop(1)?.toIntOrNull() ?: StudentUiUpdates.BUNDLED_VERSION)
                     .put("hidden_keys",JSONArray(hub.hiddenKeys())).put("sync_error",hub.syncError ?: JSONObject.NULL)
                     .put("last_sync",AgentStore(this@HubActivity).lastCheckInAt)
+                    .put("school_sync",SettingsSync.snapshot(this@HubActivity))
                     .put("device",cachedDevice).put("battery",DeviceInfo.batteryDiagnostics(this@HubActivity))
                     .put("installed_apps_count",cachedAppCount)
                 hub.profileDraft?.let { catalog.put("student_profile",it).put("profile_pending",true) }

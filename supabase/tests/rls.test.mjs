@@ -611,6 +611,66 @@ async function diagnosticFixture() {
  return {user,device,event};
 }
 
+test('school changes signal only relevant devices and cannot be forged by device or staff writes',async()=>{
+ const f=await diagnosticFixture();
+ const other=(await db.query('select sync_revision from devices where id=$1',[ids.deviceB])).rows[0].sync_revision;
+ await as(ids.adminA,"insert into hub_settings(scope,school_id) values($1,$2) on conflict(scope) do update set approved_apps_only=not hub_settings.approved_apps_only",[ids.schoolA,ids.schoolA]);
+ const state=(await as(f.user,'select device_sync_state() as s'))[0].s;
+ assert.ok(state.revision>state.applied_revision);assert.ok(state.topics.includes('settings'));
+ assert.equal((await db.query('select sync_revision from devices where id=$1',[ids.deviceB])).rows[0].sync_revision,other);
+ await rejects(as(f.user,"select queue_device_sync(null,null,'settings')"));
+ await rejects(as(ids.adminA,'update devices set sync_revision=999 where id=$1',[f.device]));
+ await rejects(as(null,'select device_sync_state()'));
+ await rejects(as(ids.teacherA,'select staff_request_device_sync($1)',[f.device]),/administrator/);
+ await rejects(as(ids.adminB,'select staff_request_device_sync($1)',[f.device]),/administrator/);
+ await as(ids.adminA,'select staff_request_device_sync($1)',[f.device]);
+});
+
+test('sync acknowledgement is monotonic and a newer revision stays pending',async()=>{
+ const f=await diagnosticFixture();
+ await as(ids.adminA,'select staff_request_device_sync($1)',[f.device]);
+ const first=(await as(f.user,'select device_sync_state() as s'))[0].s.revision;
+ await as(ids.adminA,'select staff_request_device_sync($1)',[f.device]);
+ const oldAck=(await as(f.user,'select device_ack_sync($1) as s',[first]))[0].s;
+ assert.equal(oldAck.applied_revision,first);assert.ok(oldAck.revision>oldAck.applied_revision);
+ await rejects(as(f.user,'select device_ack_sync($1)',[oldAck.revision+1]),/invalid sync/);
+ await rejects(as(ids.adminA,'select device_ack_sync($1)',[first]));
+ await as(f.user,'select device_ack_sync($1)',[oldAck.revision]);
+ const stale=(await as(f.user,'select device_ack_sync($1) as s',[first]))[0].s;
+ assert.equal(stale.applied_revision,oldAck.revision);
+ await db.query("update devices set status='retired' where id=$1",[f.device]);
+ await rejects(as(f.user,'select device_sync_state()'));
+});
+
+test('library additions, removals, school access and device policy changes persist sync hints',async()=>{
+ const f=await diagnosticFixture();
+ const item=(await as(ids.adminA,"insert into hub_items(school_id,kind,title,storage_path,size) values($1::uuid,'resource','Sync notes',$1::text||'/sync-'||gen_random_uuid()||'.pdf',100) returning id",[ids.schoolA])).at(0).id;
+ let state=(await as(f.user,'select device_sync_state() as s'))[0].s;assert.ok(state.topics.includes('notes'));
+ await as(f.user,'select device_ack_sync($1)',[state.revision]);
+ await as(ids.adminA,'delete from hub_items where id=$1',[item]);
+ state=(await as(f.user,'select device_sync_state() as s'))[0].s;assert.ok(state.revision>state.applied_revision);
+ const shared=(await as(ids.super,"insert into hub_items(kind,title,storage_path,size) values('resource','Shared sync','shared/'||gen_random_uuid()||'.pdf',100) returning id"))[0].id;
+ const before=(await as(f.user,'select device_sync_state() as s'))[0].s.revision;
+ await as(ids.super,'insert into hub_access(item_id,school_id) values($1,$2)',[shared,ids.schoolA]);
+ assert.ok((await as(f.user,'select device_sync_state() as s'))[0].s.revision>before);
+ const accessRevision=(await as(f.user,'select device_sync_state() as s'))[0].s.revision;
+ await as(ids.super,'delete from hub_access where item_id=$1 and school_id=$2',[shared,ids.schoolA]);
+ assert.ok((await as(f.user,'select device_sync_state() as s'))[0].s.revision>accessRevision);
+ const sibling=await diagnosticFixture();const siblingBefore=(await as(sibling.user,'select device_sync_state() as s'))[0].s.revision;
+ await as(ids.adminA,'insert into policies(school_id,device_id) values($1,$2)',[ids.schoolA,f.device]);
+ assert.equal((await as(sibling.user,'select device_sync_state() as s'))[0].s.revision,siblingBefore);
+});
+
+test('a school edit queues all 300 enrolled devices but excludes pending and retired devices',async()=>{
+ const school=(await db.query("insert into schools(name) values('Sync 300 QA') returning id")).rows[0].id;
+ await db.query("insert into devices(school_id,status) select $1,'active' from generate_series(1,300)",[school]);
+ await db.query("insert into devices(school_id,status) values($1,'pending'),($1,'retired')",[school]);
+ await db.query('insert into hub_settings(scope,school_id) values($1,$2)',[school,school]);
+ const rows=(await db.query('select status,sync_revision,count(*)::int as n from devices where school_id=$1 group by status,sync_revision',[school])).rows;
+ assert.ok(rows.some(r=>r.status==='active'&&r.sync_revision===1&&r.n===300));
+ assert.ok(rows.filter(r=>r.status!=='active').every(r=>r.sync_revision===0));
+});
+
 test('diagnostics are device-scoped, idempotent, immutable and restricted to school managers',async()=>{
  const {user,device,event}=await diagnosticFixture();const batch=JSON.stringify([event]);
  await rejects(as(null,'select device_report_events($1,$2::jsonb)',[device,batch]));

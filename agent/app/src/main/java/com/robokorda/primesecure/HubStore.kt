@@ -23,7 +23,14 @@ class HubStore(private val context: Context) {
     }
     var catalog: JSONObject
         get() = JSONObject(prefs.getString("catalog", "{}")!!)
-        set(value) { prefs.edit().putString("catalog", value.toString()).commit() }
+        set(value) { synchronized(bindingLock) {
+            val previous=JSONObject(prefs.getString("catalog","{}")!!)
+            if(value.optLong("_sync_revision",-1)>=previous.optLong("_sync_revision",-1))
+                prefs.edit().putString("catalog", value.toString()).commit()
+        } }
+    var managementSync:JSONObject
+        get()=JSONObject(prefs.getString("management_sync","{}")!!)
+        set(value) { prefs.edit().putString("management_sync",value.toString()).commit() }
     var syncError: String?
         get() = prefs.getString("sync_error", null)
         set(value) { prefs.edit().putString("sync_error", value).apply() }

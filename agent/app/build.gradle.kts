@@ -17,8 +17,8 @@ android {
         applicationId = "com.robokorda.primesecure"
         minSdk = 26
         targetSdk = 34
-        versionCode = System.getenv("AGENT_VERSION_CODE")?.toIntOrNull() ?: 13
-        versionName = System.getenv("AGENT_VERSION_NAME") ?: "0.6.7"
+        versionCode = System.getenv("AGENT_VERSION_CODE")?.toIntOrNull() ?: 14
+        versionName = System.getenv("AGENT_VERSION_NAME") ?: "0.6.8"
 
         buildConfigField("String", "SUPABASE_URL", "\"${setting("primesecure.url", "PRIMESECURE_URL")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${setting("primesecure.anonKey", "PRIMESECURE_ANON_KEY")}\"")

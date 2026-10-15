@@ -18,12 +18,12 @@ export async function saveManagementSettings(_prev:FormState,form:FormData):Prom
   viewers[kind]=pkg;
  }
  const {error}=await db.from('hub_settings').upsert({scope:school.id,school_id:school.id,viewer_packages:viewers});
- if(error)return {error:error.message};revalidatePath('/apps');return {ok:'Saved. Selected viewers take priority on PrimeSecure 0.6.0 and newer.'};
+ if(error)return {error:error.message};revalidatePath('/apps');return {ok:'Saved. A sync request is queued for connected Primebooks. See School sync on each device.'};
  }
  const contacts=[0,1].map(n=>({name:String(form.get(`contact_name_${n}`)||'').trim(),phone:String(form.get(`contact_phone_${n}`)||'').trim()}));
  if(contacts.some(c=>!c.name||c.name.length>100||!c.phone||c.phone.length>40))return {error:'Enter each support contact’s name and phone.'};
  const {error}=await db.from('hub_settings').upsert({scope:school.id,school_id:school.id,block_usb_storage:form.get('block_usb_storage')==='on',block_usb_transfer:form.get('block_usb_transfer')==='on',keep_wifi_on:form.get('keep_wifi_on')==='on',hide_file_managers:form.get('hide_file_managers')==='on',support_contacts:contacts});
- if(error)return {error:error.message};revalidatePath('/settings');return {ok:'Saved. Primebooks apply these settings at their next check-in.'};
+ if(error)return {error:error.message};revalidatePath('/settings');return {ok:'Saved. A sync request is queued for connected Primebooks. Offline devices catch up after reconnecting.'};
 }
 export async function saveSchoolClass(_prev:FormState,form:FormData):Promise<FormState> {
  const staff=await requireStaff(),school=await getCurrentSchool();if(!school||!canManage(staff,school.id))return {error:'School administrator access required.'};
@@ -36,5 +36,5 @@ export async function saveSchoolClass(_prev:FormState,form:FormData):Promise<For
 export async function saveAppRules(_prev:FormState,form:FormData):Promise<FormState> {
  const staff=await requireStaff(),school=await getCurrentSchool();if(!school||!canManage(staff,school.id))return {error:'School administrator access required.'};
  const db=await createClient();const {error}=await db.from('hub_settings').upsert({scope:school.id,school_id:school.id,approved_apps_only:form.get('approved_apps_only')==='on'});
- if(error)return {error:error.message};revalidatePath('/apps');return {ok:'Saved. PrimeSecure 0.6.0 applies the app rule at check-in.'};
+ if(error)return {error:error.message};revalidatePath('/apps');return {ok:'Saved. A sync request is queued. Check School sync on each device for confirmation.'};
 }

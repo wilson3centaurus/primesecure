@@ -25,7 +25,10 @@ class AgentService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var realtime: RealtimeClient? = null
-    private var pendingCheckIn: Job? = null
+    private val checkIns=SyncCoordinator(scope,{
+        delay(250)
+        CheckInWorker.checkIn(this@AgentService)
+    },{ scheduleSafely("check_in_retry") { CheckInWorker.runNow(this@AgentService) } })
     private var telemetryLoop: Job? = null
     private var networkCallback: android.net.ConnectivityManager.NetworkCallback? = null
     private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
@@ -72,9 +75,11 @@ class AgentService : Service() {
             .also { if (telemetryLoop == null) telemetryLoop = scope.launch { var tick=0; while (true) {
                 keepWifi(); delay(30_000L); tick++
                 if(Connectivity.online(this@AgentService)) {
+                    try {
+                        if(SettingsSync.observe(this@AgentService,SupabaseApi(store).rpc("device_sync_state")))checkInSoon()
+                    } catch(e:Exception) { if(e is CancellationException)throw e }
                     if(tick%2==0) {
-                        scheduleSafely("periodic_check_in") { CheckInWorker.runNow(this@AgentService) }
-                        scheduleSafely("periodic_hub") { HubSync.schedule(this@AgentService) }
+                        checkInSoon()
                     }
                     scheduleSafely("periodic_outbox") {
                         if(HubTasks(this@AgentService).pending().any { it.optString("action") !in setOf("download","admin_command") }) OfflineWorker.schedule(this@AgentService)
@@ -91,17 +96,14 @@ class AgentService : Service() {
                 checkInSoon();scheduleSafely("realtime_hub") { HubSync.schedule(this) }
             }
             // Every check-in updates our own row; only a status change needs action.
-            "devices" -> if (record?.optString("status") != store.lastStatus) checkInSoon()
+            "devices" -> if (record?.optString("status") != store.lastStatus ||
+                (record?.optLong("sync_revision") ?: 0)>HubStore(this).managementSync.optLong("applied_revision")) checkInSoon()
         }
     }
 
     /** Coalesces bursts (e.g. a message sent to the whole school) into one check-in. */
     private fun checkInSoon() {
-        pendingCheckIn?.cancel()
-        pendingCheckIn = scope.launch {
-            delay(250)
-            scheduleSafely("realtime_check_in") { CheckInWorker.runNow(this@AgentService) }
-        }
+        checkIns.request()
     }
 
     private fun scheduleSafely(phase:String, block:()->Unit) {

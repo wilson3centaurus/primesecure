@@ -80,6 +80,8 @@ object DeviceInfo {
                 .put("label", app.loadLabel(pm).toString())
                 .put("version", info.versionName ?: JSONObject.NULL)
                 .put("system", system)
+                  .put("hidden",runCatching { AdminReceiver.dpm(context).isApplicationHidden(AdminReceiver.component(context),info.packageName) }.getOrDefault(false))
+                  .put("suspended",runCatching { AdminReceiver.dpm(context).isPackageSuspended(AdminReceiver.component(context),info.packageName) }.getOrDefault(false))
         }.sortedBy { it.getString("package") }
         return JSONArray(apps)
     }
