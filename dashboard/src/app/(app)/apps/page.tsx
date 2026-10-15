@@ -42,7 +42,7 @@ export default async function AppsPage({searchParams}:{searchParams:Promise<{tab
   const navigation=<SectionTabs base="/apps" current={current} tabs={tabs}/>;
   if(current==="requests")return <>{navigation}<AppRequests/></>;
   if(current==="viewers")return <>{navigation}<PageHeader title="Media viewers" description="Choose which approved app opens each file type."/><ManagementSettings section="viewers" settings={settings||global||{}} apps={available}/></>;
-  if(current==="rules")return <>{navigation}<AppRules strict={settings?.approved_apps_only??global?.approved_apps_only??true} approvedCount={available.length}/></>;
+  if(current==="rules")return <>{navigation}<AppRules strict={settings?.approved_apps_only??global?.approved_apps_only??true} approvedCount={available.length} blocked={settings?.blocked_packages??global?.blocked_packages??[]}/></>;
   if(current==="store")return <>{navigation}<HubLibrary kind="app"/></>;
 
   return (

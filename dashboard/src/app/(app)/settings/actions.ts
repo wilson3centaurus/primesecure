@@ -3,6 +3,7 @@ import { canManage,getCurrentSchool,requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import type { FormState } from "@/lib/types";
+import { BUILTIN_APP_REQUESTS } from "@/lib/school-controls";
 export async function saveManagementSettings(_prev:FormState,form:FormData):Promise<FormState> {
  const staff=await requireStaff(),school=await getCurrentSchool();if(!school||!canManage(staff,school.id))return {error:'School administrator access required.'};
  const db=await createClient();
@@ -22,7 +23,9 @@ export async function saveManagementSettings(_prev:FormState,form:FormData):Prom
  }
  const contacts=[0,1].map(n=>({name:String(form.get(`contact_name_${n}`)||'').trim(),phone:String(form.get(`contact_phone_${n}`)||'').trim()}));
  if(contacts.some(c=>!c.name||c.name.length>100||!c.phone||c.phone.length>40))return {error:'Enter each support contact’s name and phone.'};
- const {error}=await db.from('hub_settings').upsert({scope:school.id,school_id:school.id,block_usb_storage:form.get('block_usb_storage')==='on',block_usb_transfer:form.get('block_usb_transfer')==='on',keep_wifi_on:form.get('keep_wifi_on')==='on',hide_file_managers:form.get('hide_file_managers')==='on',support_contacts:contacts});
+ const interval=Number(form.get('location_interval_minutes')||30);if(![5,15,30,60,120,1440].includes(interval))return {error:'Choose a location update interval.'};
+ const controls=Object.fromEntries(['block_bluetooth_transfer','block_bluetooth','block_add_users','block_user_switch','block_factory_reset','usage_reporting'].map(key=>[key,form.get(key)==='on']));
+ const {error}=await db.from('hub_settings').upsert({scope:school.id,school_id:school.id,block_usb_storage:form.get('block_usb_storage')==='on',block_usb_transfer:form.get('block_usb_transfer')==='on',keep_wifi_on:form.get('keep_wifi_on')==='on',hide_file_managers:form.get('hide_file_managers')==='on',support_contacts:contacts,...controls,location_interval_minutes:interval});
  if(error)return {error:error.message};revalidatePath('/settings');return {ok:'Saved. A sync request is queued for connected Primebooks. Offline devices catch up after reconnecting.'};
 }
 export async function saveSchoolClass(_prev:FormState,form:FormData):Promise<FormState> {
@@ -35,6 +38,7 @@ export async function saveSchoolClass(_prev:FormState,form:FormData):Promise<For
 
 export async function saveAppRules(_prev:FormState,form:FormData):Promise<FormState> {
  const staff=await requireStaff(),school=await getCurrentSchool();if(!school||!canManage(staff,school.id))return {error:'School administrator access required.'};
- const db=await createClient();const {error}=await db.from('hub_settings').upsert({scope:school.id,school_id:school.id,approved_apps_only:form.get('approved_apps_only')==='on'});
+ const requested=form.getAll('blocked_package').map(String);if(requested.some(pkg=>!BUILTIN_APP_REQUESTS.some(a=>a.package===pkg)))return {error:'Invalid app control request.'};
+ const db=await createClient();const {error}=await db.from('hub_settings').upsert({scope:school.id,school_id:school.id,approved_apps_only:form.get('approved_apps_only')==='on',blocked_packages:requested});
  if(error)return {error:error.message};revalidatePath('/apps');return {ok:'Saved. A sync request is queued. Check School sync on each device for confirmation.'};
 }

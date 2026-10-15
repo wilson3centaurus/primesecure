@@ -54,6 +54,9 @@ object DeviceInfo {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
         }
         for (permission in permissions) {
+            // Re-granting location on each heartbeat can make OEMs repeatedly show
+            // "Your IT admin allowed location". Permissions already granted need no write.
+            if (context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) continue
             runCatching {
                 dpm.setPermissionGrantState(
                     AdminReceiver.component(context), context.packageName,
@@ -103,6 +106,7 @@ object DeviceInfo {
             put("os_version", "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) ${Build.DISPLAY}")
             put("agent_version", BuildConfig.VERSION_NAME)
             put("agent_version_code", BuildConfig.VERSION_CODE)
+            put("prime_id", WifiInventory.primeId(context) ?: JSONObject.NULL)
             if (level >= 0 && scale > 0) put("battery_level", (level * 100 / scale).coerceIn(0, 100))
             if (battery != null) put("battery_charging", plugged != 0)
         }

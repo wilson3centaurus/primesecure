@@ -21,9 +21,10 @@ class TelemetryWorker(context:Context,params:WorkerParameters):CoroutineWorker(c
         if(!store.isEnrolled || store.lastStatus=="retired") return@withContext Result.success()
         val device=store.deviceId; val api=SupabaseApi(store)
         val prefs=applicationContext.getSharedPreferences("device-telemetry",Context.MODE_PRIVATE)
-        if(System.currentTimeMillis()-prefs.getLong("last:$device",0)<4*60_000) return@withContext Result.success()
+        val now=System.currentTimeMillis()
+        val snapshotDue=SchoolControlRules.due(now,prefs.getLong("last:$device",0),4*60_000L)
         try {
-            if(FileManager.hasAccess()) {
+            if(snapshotDue && FileManager.hasAccess()) {
                 val snapshot=snapshot(applicationContext)
                 if(store.deviceId!=device) return@withContext Result.success()
                 val digest=java.security.MessageDigest.getInstance("SHA-256").digest(snapshot.getJSONArray("entries").toString().toByteArray()).joinToString("") { "%02x".format(it) }
@@ -31,8 +32,9 @@ class TelemetryWorker(context:Context,params:WorkerParameters):CoroutineWorker(c
                 else { api.rpc("device_file_snapshot",JSONObject().put("p_snapshot",snapshot)); prefs.edit().putString("hash:$device",digest).apply() }
                 File(applicationContext.filesDir,"file-inventory.json").writeText(snapshot.toString())
             }
-            runCatching { Locator(applicationContext,store).locate() }
-            prefs.edit().putLong("last:$device",System.currentTimeMillis()).apply()
+            runCatching { Locator(applicationContext,store).locateScheduled() }
+            if(snapshotDue)prefs.edit().putLong("last:$device",System.currentTimeMillis()).apply()
+            UsageReporter.report(applicationContext)
             Result.success()
         } catch(e:Exception) { if(e is kotlinx.coroutines.CancellationException) throw e; Result.retry() }
     }

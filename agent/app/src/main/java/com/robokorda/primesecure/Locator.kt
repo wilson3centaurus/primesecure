@@ -24,7 +24,18 @@ class Locator(private val context: Context, private val store: AgentStore) {
 
     private val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
 
+    /** Heartbeats remain fast; location permission/provider reads happen only on this cadence. */
+    suspend fun locateScheduled(): JSONObject? {
+        val prefs = context.getSharedPreferences("location-cadence", Context.MODE_PRIVATE)
+        val minutes = HubStore(context).catalog.optJSONObject("management")?.optInt("location_interval_minutes", 30) ?: 30
+        val now = System.currentTimeMillis()
+        if (!SchoolControlRules.due(now, prefs.getLong("attempt", 0), SchoolControlRules.locationIntervalMs(minutes, LostMode.active(context)))) return null
+        return locate()
+    }
+
     suspend fun locate(): JSONObject {
+        // Failed provider lookups must not cause a new location access every heartbeat.
+        context.getSharedPreferences("location-cadence", Context.MODE_PRIVATE).edit().putLong("attempt", System.currentTimeMillis()).apply()
         DeviceInfo.grantOwnPermissions(context)
         ensureLocationOn()
 

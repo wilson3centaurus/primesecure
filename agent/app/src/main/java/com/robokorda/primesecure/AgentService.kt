@@ -57,6 +57,7 @@ class AgentService : Service() {
             ).also { it.start() }
             val cm=getSystemService(android.net.ConnectivityManager::class.java)
             networkCallback=object:android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network:android.net.Network) { WifiInventory.invalidate(this@AgentService) }
                 override fun onCapabilitiesChanged(network:android.net.Network,caps:android.net.NetworkCapabilities) {
                     if(caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
                         checkInSoon()
@@ -73,7 +74,9 @@ class AgentService : Service() {
         }
         return START_STICKY
             .also { if (telemetryLoop == null) telemetryLoop = scope.launch { var tick=0; while (true) {
-                keepWifi(); delay(30_000L); tick++
+                keepWifi()
+                scheduleSafely("usage_sample") { UsageReporter.sample(this@AgentService) }
+                delay(30_000L); tick++
                 if(Connectivity.online(this@AgentService)) {
                     try {
                         if(SettingsSync.observe(this@AgentService,SupabaseApi(store).rpc("device_sync_state")))checkInSoon()
@@ -124,7 +127,7 @@ class AgentService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
     @Suppress("DEPRECATION")
     private fun keepWifi() {
-        val wanted=HubStore(this).catalog.optJSONObject("management")?.optBoolean("keep_wifi_on",true) != false
+        val wanted=LostMode.active(this) || HubStore(this).catalog.optJSONObject("management")?.optBoolean("keep_wifi_on",true) != false
         if(!wanted) { if(wifiLock?.isHeld==true)wifiLock?.release(); return }
         runCatching {
             val wm=applicationContext.getSystemService(android.net.wifi.WifiManager::class.java)

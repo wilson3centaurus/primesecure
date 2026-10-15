@@ -715,3 +715,179 @@ test('pre-unlock diagnostic upload requires its registered capability, is rate l
  await rejects(as(user,'select device_report_events($1,$2::jsonb)',[device,batch]));
  assert.equal((await as(ids.adminA,'select * from device_events where device_id=$1',[device])).length,1);
 });
+
+async function schoolUsageEnabled(enabled) {
+ await db.query('insert into hub_settings(scope,school_id,usage_reporting) values($1,$2,$3) on conflict(scope) do update set usage_reporting=excluded.usage_reporting',[ids.schoolA,ids.schoolA,enabled]);
+}
+async function usagePayload(overrides={}) {
+ const day=(await db.query('select current_date::text as day')).rows[0].day;
+ return {day,screen_ms:60000,online_ms:50000,uptime_ms:120000,usage_access:true,coverage:'Observed service samples; gaps excluded.',apps:[],...overrides};
+}
+
+test('school usage is opt-in and disabled reporting stores no activity',async()=>{
+ const f=await diagnosticFixture();await schoolUsageEnabled(false);
+ const result=(await as(f.user,"select device_report_usage('{}') as result"))[0].result;
+ assert.equal(result.enabled,false);
+ assert.equal((await db.query('select * from device_usage_daily where device_id=$1',[f.device])).rows.length,0);
+ assert.equal((await db.query('select * from device_app_usage_daily where device_id=$1',[f.device])).rows.length,0);
+ await rejects(as(ids.adminA,"select device_report_usage('{}')"));
+ await rejects(as(null,"select device_report_usage('{}')"));
+});
+
+test('usage retries are cumulative without double counting and cases start at 30 seconds for non-firmware unapproved apps',async()=>{
+ const f=await diagnosticFixture();await schoolUsageEnabled(true);
+ await db.query("insert into hub_items(school_id,kind,title,storage_path,size,package_name) values($1::uuid,'app','Usage approved QA',$1::text||'/usage-approved-'||gen_random_uuid()||'.apk',200,'org.test.approved')",[ids.schoolA]);
+ await db.query('update devices set installed_apps=$1::jsonb where id=$2',[JSON.stringify([{package:'org.test.firmware',system:true}]),f.device]);
+ const payload=await usagePayload({apps:[{package:'org.test.unapproved',label:'Unapproved app',foreground_ms:29999},{package:'org.test.firmware',label:'Firmware app',foreground_ms:45000},{package:'org.test.approved',label:'Approved app',foreground_ms:45000},{package:'android',label:'Android',foreground_ms:45000}]});
+ for(let n=0;n<2;n++)await as(f.user,'select device_report_usage($1::jsonb)',[JSON.stringify(payload)]);
+ let row=(await db.query('select * from device_usage_daily where device_id=$1',[f.device])).rows[0];
+ assert.equal(Number(row.screen_ms),60000);assert.equal(Number(row.online_ms),50000);
+ assert.equal((await db.query('select * from device_cases where device_id=$1',[f.device])).rows.length,0);
+ const bigger={...payload,screen_ms:90000,apps:[{package:'org.test.unapproved',label:'Unapproved app',foreground_ms:30000}]};
+ for(let n=0;n<2;n++)await as(f.user,'select device_report_usage($1::jsonb)',[JSON.stringify(bigger)]);
+ await as(f.user,'select device_report_usage($1::jsonb)',[JSON.stringify({...payload,screen_ms:1000,online_ms:1000,uptime_ms:1000,apps:[{package:'org.test.unapproved',label:'Unapproved app',foreground_ms:1000}]})]);
+ row=(await db.query('select * from device_usage_daily where device_id=$1',[f.device])).rows[0];
+ assert.equal(Number(row.screen_ms),90000);assert.equal(Number(row.online_ms),50000);assert.equal(Number(row.uptime_ms),120000);
+ const app=(await db.query("select * from device_app_usage_daily where device_id=$1 and package='org.test.unapproved'",[f.device])).rows;
+ assert.equal(app.length,1);assert.equal(Number(app[0].foreground_ms),30000);
+ const cases=(await db.query('select * from device_cases where device_id=$1',[f.device])).rows;
+ assert.equal(cases.length,1);assert.equal(cases[0].package,'org.test.unapproved');assert.equal(cases[0].evidence.foreground_ms,30000);
+ for(const foreground_ms of [90000,60000])await as(f.user,'select device_report_usage($1::jsonb)',[JSON.stringify({...payload,apps:[{package:'org.test.unapproved',label:'Unapproved app',foreground_ms}]})]);
+ assert.equal((await db.query('select evidence from device_cases where device_id=$1',[f.device])).rows[0].evidence.foreground_ms,90000,'Stale cumulative reports must not shrink case evidence');
+});
+
+test('usage rejects missing, malformed and oversized fields atomically while accepting Android package activity',async()=>{
+ const f=await diagnosticFixture();await schoolUsageEnabled(true);const valid=await usagePayload();
+ for(const value of [null,{}, {...valid,apps:null},{...valid,apps:{}},{...valid,apps:Array(201).fill({package:'org.test.app',foreground_ms:1})},{...valid,screen_ms:-1},{...valid,uptime_ms:86400001},{...valid,apps:[{package:'bad package',foreground_ms:1}]},{...valid,apps:[{package:'org.test.app',foreground_ms:86400001}]}])
+  await rejects(as(f.user,'select device_report_usage($1::jsonb)',[JSON.stringify(value)]),/invalid usage|invalid app/);
+ assert.equal((await db.query('select * from device_usage_daily where device_id=$1',[f.device])).rows.length,0);
+ await as(f.user,'select device_report_usage($1::jsonb)',[JSON.stringify({...valid,apps:[{package:'android',label:'Android',foreground_ms:60000},{package:'com.android.systemui',label:'System UI',foreground_ms:60000}]})]);
+ assert.equal((await db.query('select * from device_app_usage_daily where device_id=$1',[f.device])).rows.length,2);
+ assert.equal((await db.query('select * from device_cases where device_id=$1',[f.device])).rows.length,0);
+});
+
+test('usage, cases and control audit reads stay within school managers and reject direct writes',async()=>{
+ const f=await diagnosticFixture();await schoolUsageEnabled(true);
+ await as(f.user,'select device_report_usage($1::jsonb)',[JSON.stringify(await usagePayload({apps:[{package:'org.test.boundary',label:'Boundary QA',foreground_ms:60000}]}))]);
+ await as(ids.adminA,'select staff_set_lost($1,true,false,\'QA lost device\')',[f.device]);
+ for(const table of ['device_usage_daily','device_app_usage_daily','device_cases','device_control_audit']) {
+  assert.ok((await as(ids.adminA,`select * from ${table} where device_id=$1`,[f.device])).length>0,table);
+  assert.ok((await as(ids.super,`select * from ${table} where device_id=$1`,[f.device])).length>0,table);
+  for(const user of [ids.adminB,ids.teacherA,f.user,ids.devB,ids.stray])assert.equal((await as(user,`select * from ${table} where device_id=$1`,[f.device])).length,0,table);
+  await rejects(as(null,`select * from ${table}`));
+  await rejects(as(ids.adminA,`delete from ${table} where device_id=$1`,[f.device]));
+ }
+ await as(ids.adminA,'select staff_set_lost($1,false,false,\'\')',[f.device]);
+});
+
+test('aggregate usage reports authorize managers, preserve full school totals and exclude future reporting days',async()=>{
+ const f=await diagnosticFixture();await schoolUsageEnabled(true);
+ await as(f.user,'select device_report_usage($1::jsonb)',[JSON.stringify(await usagePayload({apps:[{package:'org.report.today',label:'Report today',foreground_ms:60000}]}))]);
+ const future=(await db.query('select (current_date+1)::text as day')).rows[0].day;
+ await as(f.user,'select device_report_usage($1::jsonb)',[JSON.stringify(await usagePayload({day:future,screen_ms:86400000,apps:[{package:'org.report.future',label:'Future excluded',foreground_ms:86400000}]}))]);
+ const result=(await as(ids.adminA,'select staff_usage_report($1,7) as result',[ids.schoolA]))[0].result;
+ const student=result.devices.find(d=>d.id===f.device);
+ assert.ok(student);assert.equal(student.screen_ms,60000);assert.equal(student.reported_days,1);assert.equal(student.usage_access_days,1);
+ assert.ok(Array.isArray(student.coverage));assert.ok(!result.apps.some(a=>a.package==='org.report.future'));
+ assert.ok(result.devices.length>=300,'The existing 300-device school fixture must be included');
+ assert.equal(result.devices.length,(await db.query('select count(*)::int as n from devices where school_id=$1',[ids.schoolA])).rows[0].n);
+ for(const user of [ids.teacherA,f.user,ids.devA,ids.stray,ids.adminB])await rejects(as(user,'select staff_usage_report($1,7)',[ids.schoolA]),/administrator/);
+ await rejects(as(ids.adminA,'select staff_usage_report($1,7)',[ids.schoolB]),/administrator/);
+ await rejects(as(null,'select staff_usage_report($1,7)',[ids.schoolA]));
+ await rejects(as(ids.adminA,'select staff_usage_report($1,31)',[ids.schoolA]),/invalid report/);
+ assert.ok((await as(ids.super,'select staff_usage_report($1,30) as result',[ids.schoolA]))[0].result.devices.some(d=>d.id===f.device));
+});
+
+test('staff cases can be created more than once per day and update only within the managing school',async()=>{
+ const f=await diagnosticFixture();
+ const created=[];
+ for(const title of ['First staff case','Second staff case'])created.push((await as(ids.adminA,'select staff_create_case($1,$2,$3) as result',[f.device,title,'Known facts']))[0].result.id);
+ assert.notEqual(created[0],created[1]);
+ for(const user of [ids.adminB,ids.teacherA,f.user,ids.stray]) {
+  await rejects(as(user,'select staff_create_case($1,\'Forged\',\'\')',[f.device]),/administrator/);
+  await rejects(as(user,'select staff_update_case($1,\'resolved\',\'Forged\')',[created[0]]),/administrator/);
+ }
+ await rejects(as(ids.adminA,'select staff_create_case($1,\'\',\'\')',[f.device]),/invalid case/);
+ await rejects(as(ids.adminA,'select staff_update_case($1,\'invalid\',\'\')',[created[0]]),/invalid case/);
+ await as(ids.adminA,'select staff_update_case($1,\'observing\',\'Reviewing app approval\')',[created[0]]);
+ const row=(await as(ids.adminA,'select * from device_cases where id=$1',[created[0]]))[0];
+ assert.equal(row.state,'observing');assert.equal(row.staff_note,'Reviewing app approval');
+});
+
+test('lost-device controls lock immediately, preserve prior state and require the latest recovery code',async()=>{
+ const f=await diagnosticFixture();
+ for(const user of [ids.adminB,ids.teacherA,f.user,ids.stray])await rejects(as(user,'select staff_set_lost($1,true,true,\'Return to school\')',[f.device]),/administrator/);
+ await as(ids.adminA,"update devices set status='suspended' where id=$1",[f.device]);
+ const first=(await as(ids.adminA,'select staff_set_lost($1,true,true,\'Return to school\') as result',[f.device]))[0].result;
+ assert.match(first.recovery_code,/^[A-F0-9]{16}$/);
+ let row=(await db.query('select status,lost_mode,lost_alarm,lost_previous_status,lost_recovery_hash from devices where id=$1',[f.device])).rows[0];
+ assert.equal(row.status,'locked');assert.equal(row.lost_mode,true);assert.equal(row.lost_alarm,true);assert.equal(row.lost_previous_status,'suspended');assert.notEqual(row.lost_recovery_hash,first.recovery_code);
+ await as(ids.adminA,"update devices set status='active' where id=$1",[f.device]);
+ assert.equal((await db.query('select status from devices where id=$1',[f.device])).rows[0].status,'locked');
+ await rejects(as(f.user,"select device_recover_lost('0000000000000000')"),/invalid recovery/);
+ const second=(await as(ids.adminA,'select staff_set_lost($1,true,false,\'Still lost\') as result',[f.device]))[0].result;
+ assert.notEqual(second.recovery_code,first.recovery_code);
+ await rejects(as(f.user,'select device_recover_lost($1)',[first.recovery_code]),/invalid recovery/);
+ await rejects(as(ids.adminA,'select device_recover_lost($1)',[second.recovery_code]));
+ await as(f.user,'select device_recover_lost($1)',[second.recovery_code.toLowerCase()]);
+ row=(await db.query('select status,lost_mode,lost_alarm,lost_recovery_hash from devices where id=$1',[f.device])).rows[0];
+ assert.equal(row.status,'suspended');assert.equal(row.lost_mode,false);assert.equal(row.lost_alarm,false);assert.equal(row.lost_recovery_hash,null);
+ await as(ids.adminA,'select staff_set_lost($1,true,false,\'Lost again\')',[f.device]);
+ await rejects(as(f.user,'select device_recover_lost($1)',[second.recovery_code]),/invalid recovery/);
+ await as(ids.adminA,'select staff_set_lost($1,false,false,\'\')',[f.device]);
+ assert.equal((await db.query('select status from devices where id=$1',[f.device])).rows[0].status,'suspended');
+});
+
+test('retiring a lost device clears its lost lock and retired accounts cannot recover or upload activity',async()=>{
+ const f=await diagnosticFixture();
+ const code=(await as(ids.adminA,'select staff_set_lost($1,true,true,\'QA\') as result',[f.device]))[0].result.recovery_code;
+ await as(ids.adminA,"update devices set status='retired' where id=$1",[f.device]);
+ const row=(await db.query('select status,lost_mode,lost_alarm,lost_recovery_hash from devices where id=$1',[f.device])).rows[0];
+ assert.equal(row.status,'retired');assert.equal(row.lost_mode,false);assert.equal(row.lost_alarm,false);assert.equal(row.lost_recovery_hash,null);
+ await rejects(as(f.user,'select device_recover_lost($1)',[code]));
+ await rejects(as(f.user,'select device_report_usage($1::jsonb)',[JSON.stringify(await usagePayload())]));
+ await rejects(as(ids.adminA,'select staff_set_lost($1,true,false,\'\')',[f.device]),/administrator/);
+});
+
+test('verified Prime IDs reject UUIDs, placeholders and duplicates and are not overwritten by device runtime',async()=>{
+ const f=await diagnosticFixture(),other=await diagnosticFixture(),mac='78:C8:24:B5:8E:12';
+ for(const invalid of [null,f.device,'02:00:00:00:00:00','00:00:00:00:00:00','FF:FF:FF:FF:FF:FF','not-a-mac'])await rejects(as(ids.adminA,'select staff_set_prime_id($1,$2)',[f.device,invalid]),/verified Prime ID/);
+ for(const user of [ids.adminB,ids.teacherA,f.user,ids.stray])await rejects(as(user,'select staff_set_prime_id($1,$2)',[f.device,mac]),/administrator/);
+ await as(ids.adminA,'select staff_set_prime_id($1,$2)',[f.device,mac.toLowerCase()]);
+ await rejects(as(ids.adminA,'select staff_set_prime_id($1,$2)',[other.device,mac]),/duplicate|unique/);
+ await as(f.user,'select device_runtime_report($1::jsonb)',[JSON.stringify({prime_id:'78:C8:24:B5:8E:13'})]);
+ let row=(await db.query('select prime_id,prime_id_source from devices where id=$1',[f.device])).rows[0];
+ assert.equal(row.prime_id,mac);assert.equal(row.prime_id_source,'admin_verified');
+ await as(other.user,'select device_runtime_report($1::jsonb)',[JSON.stringify({prime_id:mac})]);
+ assert.equal((await db.query('select prime_id from devices where id=$1',[other.device])).rows[0].prime_id,null);
+ await as(other.user,'select device_runtime_report($1::jsonb)',[JSON.stringify({prime_id:'02:00:00:00:00:00'})]);
+ assert.equal((await db.query('select prime_id from devices where id=$1',[other.device])).rows[0].prime_id,null);
+ await as(other.user,'select device_runtime_report($1::jsonb)',[JSON.stringify({prime_id:'78:C8:24:B5:8E:14'})]);
+ row=(await db.query('select prime_id,prime_id_source from devices where id=$1',[other.device])).rows[0];
+ assert.equal(row.prime_id,'78:C8:24:B5:8E:14');assert.equal(row.prime_id_source,'device_hardware');
+});
+
+test('student support photos validate JPEG and caption, are device-scoped and retry without duplicates',async()=>{
+ const f=await diagnosticFixture(),image='data:image/jpeg;base64,/9j/2Q==';
+ const request=(await db.query('select gen_random_uuid() as id')).rows[0].id;
+ for(const invalid of [null,'https://evil.test/photo.jpg','data:image/svg+xml;base64,YQ==','data:image/jpeg;base64,'+'A'.repeat(100000)])await rejects(as(f.user,'select device_support_photo($1,\'caption\',gen_random_uuid())',[invalid]),/invalid support photo/);
+ await rejects(as(f.user,'select device_support_photo($1,$2,gen_random_uuid())',[image,'A'.repeat(4001)]),/invalid support photo/);
+ for(const user of [ids.adminA,ids.teacherA,ids.stray])await rejects(as(user,'select device_support_photo($1,\'forged\',gen_random_uuid())',[image]));
+ await rejects(as(null,'select device_support_photo($1,\'forged\',gen_random_uuid())',[image]));
+ await as(f.user,'select device_support_photo($1,\'Approved caption\',$2)',[image,request]);
+ const replay=(await as(f.user,'select device_support_photo($1,\'Changed caption\',$2) as result',[image,request]))[0].result;
+ assert.equal(replay.duplicate,true);
+ const rows=await as(ids.adminA,'select * from support_messages where device_id=$1',[f.device]);
+ assert.equal(rows.length,1);assert.equal(rows[0].body,'Approved caption');assert.equal(rows[0].attachment_data,image);
+ for(const user of [ids.adminB,ids.teacherA,ids.stray])assert.equal((await as(user,'select * from support_messages where device_id=$1',[f.device])).length,0);
+ assert.ok((await as(f.user,'select device_hub() as result'))[0].result.support_messages.some(m=>m.attachment_data===image));
+});
+
+test('support photo daily cap is enforced while a previously accepted request can still be retried',async()=>{
+ const f=await diagnosticFixture(),image='data:image/jpeg;base64,/9j/2Q==',request=(await db.query('select gen_random_uuid() as id')).rows[0].id;
+ await as(f.user,'select device_support_photo($1,\'First photo\',$2)',[image,request]);
+ await db.query("insert into support_messages(device_id,school_id,sender,body) select $1,$2,'student','Existing support message '||n from generate_series(1,49)n",[f.device,ids.schoolA]);
+ await rejects(as(f.user,'select device_support_photo($1,\'Over daily limit\',gen_random_uuid())',[image]),/Daily support message limit/);
+ assert.equal((await as(f.user,'select device_support_photo($1,\'Retry\',$2) as result',[image,request]))[0].result.duplicate,true);
+ assert.equal((await db.query('select count(*)::int as n from support_messages where device_id=$1',[f.device])).rows[0].n,50);
+});

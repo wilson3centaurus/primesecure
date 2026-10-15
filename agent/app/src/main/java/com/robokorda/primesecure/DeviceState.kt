@@ -11,6 +11,7 @@ object DeviceState {
 
     suspend fun apply(context: Context, status: String) {
         if (!AdminReceiver.isDeviceOwner(context)) return
+        LostMode.applyAlarm(context)
         when (status) {
             "locked" -> lock(context)
             "retired" -> retire(context)
@@ -43,6 +44,7 @@ object DeviceState {
      * enrollment and give up Device Owner. Irreversible without re-provisioning.
      */
     private suspend fun retire(context: Context) {
+        LostMode.clear(context)
         unlock(context)
         val store = AgentStore(context)
         PolicyApplier(context, store).undoAll()

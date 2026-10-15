@@ -90,10 +90,14 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 val status = response.optString("status")
                 store.lastStatus = status
                 store.lastStatusMessage = response.stringOrNull("status_message")
+                LostMode.observe(context,response)
                 if (status == "retired") {
                     DeviceState.apply(context, status) // forgets the enrollment; nothing more to do
                     return response
                 }
+                // A pending library download or a later network failure must not delay
+                // the school's lost-device lock after the server has already requested it.
+                if(status=="locked") DeviceState.apply(context,status)
                 val sync=SupabaseApi(store).rpc("device_sync_state")
                 val syncRevision=sync.optLong("revision")
                 val changesPending=syncRevision>sync.optLong("applied_revision")
@@ -142,6 +146,7 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 store.lastCheckInAt = System.currentTimeMillis()
                 runCatching { PasswordRecovery.registerBoot(context) }
                 runCatching { SupabaseApi(store).rpc("device_runtime_report", JSONObject().put("p_readings", DeviceRuntime.collect(context))) }
+                if(LostMode.active(context)) runCatching { Locator(context,store).locateScheduled() }
                 if(store.lastError!=null)DeviceLog.event(context,"info","check_in","connection_recovered")
                 store.lastError = null
                 DiagnosticsWorker.schedule(context)

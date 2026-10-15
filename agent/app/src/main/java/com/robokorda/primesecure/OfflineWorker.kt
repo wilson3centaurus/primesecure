@@ -24,13 +24,41 @@ class OfflineWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                     val revision=api.rpc("device_sync_state").optLong("revision")
                     val catalog = api.rpc("device_hub").put("_sync_revision",revision); hub.catalog = catalog
                     check(catalog.optString("status",store.lastStatus) == "active") { "App installs are available only on active school devices." }
-                    val item = hub.items().find { it.optString("id") == payload.optString("item_id") && it.optString("kind") == "app" }
+                    val freshItems=catalog.optJSONArray("items") ?: org.json.JSONArray()
+                    val item = (0 until freshItems.length()).map { freshItems.getJSONObject(it) }.find { it.optString("id") == payload.optString("item_id") && it.optString("kind") == "app" }
                         ?: error("This app is no longer approved for your school.")
                     if (!runCatching { applicationContext.packageManager.getPackageInfo(item.getString("package_name"), 0) }.isSuccess) {
                         AppInstaller(applicationContext, store).install(id, JSONObject().put("bucket", "primesecure-hub").put("storage_path", item.getString("storage_path"))
                             .put("hub_item_id", item.getString("id")).put("package", item.getString("package_name")).put("sha256", item.optString("sha256")), id)
                     }
                     tasks.update(id, "installed")
+                } else if(action == "uninstall") {
+                    val revision=api.rpc("device_sync_state").optLong("revision")
+                    val catalog=api.rpc("device_hub").put("_sync_revision",revision);hub.catalog=catalog
+                    check(catalog.optString("status",store.lastStatus)=="active") { "App removal is available only on active school devices." }
+                    val freshItems=catalog.optJSONArray("items") ?: org.json.JSONArray()
+                    val items=(0 until freshItems.length()).map { freshItems.getJSONObject(it) }
+                    val item=items.find { it.optString("id")==payload.optString("item_id") && it.optString("kind")=="app" }
+                        ?: error("This app is no longer in your school's approved library.")
+                    val pkg=item.getString("package_name")
+                    val required=InitialSetup.requiredApps(catalog,items).any { it.optString("package_name")==pkg }
+                    val app=runCatching { applicationContext.packageManager.getApplicationInfo(pkg,0) }.getOrNull()
+                    val system=app?.flags?.and(android.content.pm.ApplicationInfo.FLAG_SYSTEM or android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0 && app!=null
+                    require(SchoolControlRules.studentMayRemove(pkg==applicationContext.packageName,required,system) && pkg !in AppSafety.protectedPackages(applicationContext)) {
+                        "School defaults and essential device apps cannot be removed."
+                    }
+                    tasks.update(id,"removing")
+                    // The fresh school catalogue is authoritative if an app ceased to be a default.
+                    val blocked=applicationContext.getSharedPreferences("required-app-protection",Context.MODE_PRIVATE)
+                    if(pkg in (blocked.getStringSet("packages",emptySet()) ?: emptySet())) {
+                        AdminReceiver.dpm(applicationContext).setUninstallBlocked(AdminReceiver.component(applicationContext),pkg,false)
+                        blocked.edit().putStringSet("packages",blocked.getStringSet("packages",emptySet())!!.toSet()-pkg).commit()
+                    }
+                    AppInstaller(applicationContext,store).uninstall(JSONObject().put("package",pkg))
+                    tasks.update(id,"removed")
+                } else if(action == "support_photo") {
+                    api.rpc("device_support_photo",JSONObject().put("p_image",payload.getString("image")).put("p_request_id",id))
+                    tasks.update(id,"done")
                 } else {
                     api.rpc("device_offline_action", JSONObject().put("p_request_id", id).put("p_action", action).put("p_payload", payload))
                     tasks.update(id, "done")

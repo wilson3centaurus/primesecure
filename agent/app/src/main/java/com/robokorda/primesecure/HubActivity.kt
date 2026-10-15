@@ -26,6 +26,7 @@ class HubActivity : Activity() {
     private var cachedRuntime: JSONObject?=null
     private var cachedDevice: JSONObject?=null
     private var cachedAppCount=0
+    private var cachedProtectedApps=emptySet<String>()
     private var runtimeAt=0L
     private var uiDirectory: File? = null
     private var uiConfirmed = false
@@ -81,27 +82,37 @@ class HubActivity : Activity() {
             val data = withContext(Dispatchers.IO) {
                 if(cachedRuntime==null || System.currentTimeMillis()-runtimeAt>60_000L) {
                     cachedRuntime=DeviceRuntime.collect(this@HubActivity);cachedDevice=DeviceInfo.collect(this@HubActivity)
+                    cachedProtectedApps=runCatching { AppSafety.protectedPackages(this@HubActivity) }.getOrDefault(setOf(packageName))
                     cachedAppCount=DeviceInfo.installedApps(this@HubActivity).length();runtimeAt=System.currentTimeMillis()
                 }
                 val catalog = hub.catalog
+                val requiredPackages=InitialSetup.requiredApps(catalog,hub.items()).map { it.optString("package_name") }.toSet()
                 val items = hub.items().map { item -> JSONObject(item.toString()).apply {
                     put("hidden", hub.hidden("item:${item.getString("id")}"))
                     put("available", item.optString("kind") in setOf("resource","wallpaper") && hub.resourceFile(item).exists())
-                    if (item.optString("kind") == "app") put("installed", runCatching { packageManager.getPackageInfo(item.getString("package_name"),0) }.isSuccess)
+                    if (item.optString("kind") == "app") {
+                        val pkg=item.optString("package_name")
+                        val installed=runCatching { packageManager.getPackageInfo(pkg,0) }.getOrNull()
+                        val firmware=installed?.applicationInfo?.flags?.let { it and (android.content.pm.ApplicationInfo.FLAG_SYSTEM or android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0 } ?: false
+                        put("installed",installed!=null)
+                        put("required",pkg in requiredPackages || pkg in cachedProtectedApps || firmware)
+                        put("can_uninstall",installed!=null && pkg !in requiredPackages && pkg !in cachedProtectedApps && !firmware)
+                    }
                     val image = File(filesDir,"hub-preview-${item.getString("id")}.jpg")
                     if (image.exists()) put("preview", "data:image/jpeg;base64," + android.util.Base64.encodeToString(image.readBytes(),android.util.Base64.NO_WRAP))
                 } }
                 catalog.put("items",JSONArray(items)).put("messages",JSONArray(hub.messages()))
                     .put("tasks",HubTasks(this@HubActivity).publicList()).put("online",Connectivity.online(this@HubActivity))
                     .put("runtime",cachedRuntime).put("agent_version",BuildConfig.VERSION_NAME).put("ui_version",uiDirectory?.name?.drop(1)?.toIntOrNull() ?: StudentUiUpdates.BUNDLED_VERSION)
+                    .put("capabilities",JSONObject().put("uninstall_optional_apps",true).put("usage_access_setup",true).put("support_photo",true))
                     .put("hidden_keys",JSONArray(hub.hiddenKeys())).put("sync_error",hub.syncError ?: JSONObject.NULL)
                     .put("last_sync",AgentStore(this@HubActivity).lastCheckInAt)
                     .put("school_sync",SettingsSync.snapshot(this@HubActivity))
                     .put("device",cachedDevice).put("battery",DeviceInfo.batteryDiagnostics(this@HubActivity))
                     .put("installed_apps_count",cachedAppCount)
                 hub.profileDraft?.let { catalog.put("student_profile",it).put("profile_pending",true) }
-                catalog.put("pending_support",JSONArray(HubTasks(this@HubActivity).all().filter { it.optString("action") in setOf("support","name_appeal") && it.optString("status") !in setOf("done","superseded") }.map {
-                    JSONObject().put("body",it.getJSONObject("payload").optString("body")).put("status",it.optString("status"))
+                catalog.put("pending_support",JSONArray(HubTasks(this@HubActivity).all().filter { it.optString("action") in setOf("support","name_appeal","support_photo") && it.optString("status") !in setOf("done","superseded") }.map {
+                    JSONObject().put("body",if(it.optString("action")=="support_photo")"Photo for support" else it.getJSONObject("payload").optString("body")).put("status",it.optString("status"))
                 }))
             }
             if (ready) web.evaluateJavascript("window.receiveState(${JSONObject.quote(data.toString())})",null)
@@ -142,6 +153,8 @@ class HubActivity : Activity() {
                             }
                         }
                         "recovery" -> { PasswordRecovery.activate(this@HubActivity); toast("Confirm your device password if Android asks. Recovery readiness is shown in About Device.");refresh() }
+                        "usage_access" -> UsageReporter.openAccessSettings(this@HubActivity)
+                        "support_photo" -> SupportCaptureActivity.start(this@HubActivity)
                         "device_password" -> {
                             PasswordRecovery.activate(this@HubActivity)
                             if(PasswordRecovery.status(this@HubActivity)=="ready") {
@@ -163,6 +176,13 @@ class HubActivity : Activity() {
                         "install" -> {
                             val item=hub.items().find { it.optString("id")==a.getString("id") && it.optString("kind")=="app" } ?: error("This app is unavailable.")
                             enqueue("install",JSONObject().put("item_id",item.getString("id")),item.getString("title"),"install:${item.getString("id")}")
+                        }
+                        "uninstall" -> {
+                            val item=hub.items().find { it.optString("id")==a.getString("id") && it.optString("kind")=="app" } ?: error("This app is unavailable.")
+                            val pkg=item.optString("package_name")
+                            check(pkg!=packageName && InitialSetup.requiredApps(hub.catalog,hub.items()).none { it.optString("package_name")==pkg }) { "Your school requires this app. It cannot be removed." }
+                            // The worker checks a fresh authenticated catalogue before making any change.
+                            enqueue("uninstall",JSONObject().put("item_id",item.getString("id")),"Remove ${item.getString("title")}","uninstall:${item.getString("id")}")
                         }
                         "wallpaper" -> {
                             check(hub.catalog.optBoolean("allow_wallpaper_choice")) { "Your school has set a fixed wallpaper." }

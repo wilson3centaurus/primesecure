@@ -3,7 +3,7 @@ import { NavLink } from "@/components/nav-link";
 import { SchoolSwitcher } from "@/components/school-switcher";
 import { getCurrentSchool, getVisibleSchools, requireStaff, ROLE_LABEL } from "@/lib/auth";
 import Image from "next/image";
-import { LayoutDashboard, Laptop, Mail, FolderOpen, AppWindow, MessageCircle, Users, School, Download, Settings } from "lucide-react";
+import { LayoutDashboard, Laptop, Mail, FolderOpen, AppWindow, MessageCircle, Users, School, Download, Settings, BarChart3, ClipboardList } from "lucide-react";
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const staff = await requireStaff();
@@ -30,6 +30,8 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
           <NavLink href="/library"><FolderOpen size={18}/>Content & files</NavLink>
           <NavLink href="/apps"><AppWindow size={18}/>Apps</NavLink>
           {staff.role!=="teacher"&&<NavLink href="/support"><MessageCircle size={18}/>Student support</NavLink>}
+          {staff.role!=="teacher"&&<NavLink href="/reports"><BarChart3 size={18}/>Usage reports</NavLink>}
+          {staff.role!=="teacher"&&<NavLink href="/cases"><ClipboardList size={18}/>Issues & cases</NavLink>}
           {staff.role !== "teacher" && <NavLink href="/settings"><Settings size={18}/>Settings</NavLink>}
           <NavLink href="/staff"><Users size={18}/>Staff</NavLink>
           {staff.role === "super_admin" && <NavLink href="/schools"><School size={18}/>Schools</NavLink>}

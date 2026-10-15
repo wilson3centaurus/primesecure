@@ -72,8 +72,16 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
 
         attempt("lock wallpaper") { restrict(UserManager.DISALLOW_SET_WALLPAPER, lockWallpaper) }
         val management=policy.optJSONObject("hub_management") ?: JSONObject()
-        attempt("USB storage") { restrict(UserManager.DISALLOW_MOUNT_PHYSICAL_MEDIA,management.optBoolean("block_usb_storage")) }
+        attempt("USB and SD storage") { restrict(UserManager.DISALLOW_MOUNT_PHYSICAL_MEDIA,management.optBoolean("block_usb_storage")) }
         attempt("USB file transfer") { restrict(UserManager.DISALLOW_USB_FILE_TRANSFER,management.optBoolean("block_usb_transfer")) }
+        attempt("Bluetooth file sharing") { restrict(UserManager.DISALLOW_BLUETOOTH_SHARING, management.optBoolean("block_bluetooth_transfer")) }
+        attempt("Bluetooth") { restrict(UserManager.DISALLOW_BLUETOOTH, management.optBoolean("block_bluetooth")) }
+        attempt("Bluetooth configuration") { restrict(UserManager.DISALLOW_CONFIG_BLUETOOTH, management.optBoolean("block_bluetooth")) }
+        attempt("new users and guests") { restrict(UserManager.DISALLOW_ADD_USER, management.optBoolean("block_add_users")) }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            attempt("user switching") { restrict(UserManager.DISALLOW_USER_SWITCH, management.optBoolean("block_user_switch")) }
+        }
+        attempt("Settings factory reset") { restrict(UserManager.DISALLOW_FACTORY_RESET, management.optBoolean("block_factory_reset")) }
         attempt("block installs") {
             restrict(UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES, blockInstalls)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -84,7 +92,8 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
         var hiddenCount = 0
         attempt("app visibility") {
             hiddenCount = applyAppVisibility(
-                hidden = policy.stringSet("hidden_apps") + if(management.optBoolean("hide_file_managers")) fileManagerPackages() else emptySet(),
+                hidden = policy.stringSet("hidden_apps") + management.stringSet("blocked_packages") +
+                    if(management.optBoolean("hide_file_managers")) fileManagerPackages() else emptySet(),
                 allowed = policy.stringSet("allowed_apps"),
                 hideSettings = hideSettings || suspended,
                 allowListOnly = suspended || management.optBoolean("approved_apps_only"),
@@ -92,6 +101,7 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
         }
 
         hiddenCount=store.hiddenByUs.size+store.suspendedByUs.size
+        attempt("required app protection") { applyRequiredApps() }
         attempt("preferred viewers") { PreferredViewers.apply(context,management) }
         var webSummary = ""
         attempt("web filter") { webSummary = WebFilter.apply(context, store, WebFilter.fromPolicy(policy)) }
@@ -115,6 +125,26 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
 
     private fun restrict(key: String, on: Boolean) {
         if (on) dpm.addUserRestriction(admin, key) else dpm.clearUserRestriction(admin, key)
+    }
+
+    private fun applyRequiredApps() {
+        val hub=HubStore(context)
+        val wanted=InitialSetup.requiredApps(hub.catalog,hub.items()).map { it.optString("package_name") }.filter { it.isNotBlank() }.toSet() + context.packageName
+        val prefs=context.getSharedPreferences("required-app-protection",Context.MODE_PRIVATE)
+        val previous=prefs.getStringSet("packages",emptySet())!!.toSet()
+        val remaining=mutableSetOf<String>()
+        // Journal before applying, so a terminated process can still undo an old default.
+        check(prefs.edit().putStringSet("packages",previous+wanted).commit())
+        for(pkg in previous-wanted) {
+            if(runCatching { dpm.setUninstallBlocked(admin,pkg,false) }.isFailure)remaining+=pkg
+        }
+        for(pkg in wanted) {
+            if(runCatching { pm.getApplicationInfo(pkg,0) }.isSuccess) {
+                dpm.setUninstallBlocked(admin,pkg,true)
+                remaining+=pkg
+            }
+        }
+        check(prefs.edit().putStringSet("packages",remaining).commit())
     }
 
     suspend fun setWallpaper(url: String): Unit = wallpaperLock.withLock { withContext(Dispatchers.IO) {
@@ -239,13 +269,24 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
     /** Called from the debug "release" button and, later, the retire command. */
     fun undoAll() {
         runCatching { PreferredViewers.clear(context) }
+        val requiredPrefs=context.getSharedPreferences("required-app-protection",Context.MODE_PRIVATE)
+        requiredPrefs.getStringSet("packages",emptySet())!!.toSet().forEach { pkg -> runCatching { dpm.setUninstallBlocked(admin,pkg,false) } }
+        requiredPrefs.edit().clear().commit()
         runCatching { dpm.setUninstallBlocked(admin, context.packageName, false) }
         listOf(
             UserManager.DISALLOW_SET_WALLPAPER,
             UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES,
             UserManager.DISALLOW_USB_FILE_TRANSFER,
             UserManager.DISALLOW_MOUNT_PHYSICAL_MEDIA,
+            UserManager.DISALLOW_BLUETOOTH_SHARING,
+            UserManager.DISALLOW_BLUETOOTH,
+            UserManager.DISALLOW_CONFIG_BLUETOOTH,
+            UserManager.DISALLOW_ADD_USER,
+            UserManager.DISALLOW_FACTORY_RESET,
         ).forEach { runCatching { dpm.clearUserRestriction(admin, it) } }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            runCatching { dpm.clearUserRestriction(admin, UserManager.DISALLOW_USER_SWITCH) }
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             runCatching { dpm.clearUserRestriction(admin, UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES_GLOBALLY) }
         }

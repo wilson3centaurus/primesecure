@@ -126,9 +126,10 @@ export async function setDeviceStatus(_prev: FormState, formData: FormData): Pro
   const ctx = await deviceForManager(id);
   if (!ctx) return { error: "Only school admins can change this." };
 
-  const { data: current } = await ctx.supabase.from("devices").select("status").eq("id", id).single();
+  const { data: current } = await ctx.supabase.from("devices").select("status,lost_mode").eq("id", id).single();
   if (current?.status === "retired") return { error: "This device is retired. Re-provision it to use it again." };
   if (current?.status === "pending") return { error: "Enroll the device first." };
+  if(current?.lost_mode && status==='active')return {error:'Use Mark found in Lost-device recovery to clear the lost lock and stop its alarm.'};
 
   const message = String(formData.get("status_message") ?? "").trim().slice(0, 500) || null;
   const { error } = await ctx.supabase

@@ -17,6 +17,10 @@ import { RecoveryControls } from "@/components/recovery-controls";
 import { StateControls } from "./state-controls";
 import { DeviceDiagnostics, type DeviceEvent } from "@/components/device-diagnostics";
 import { DeviceSync } from "@/components/device-sync";
+import { StudentAvatar } from "@/components/student-avatar";
+import { DeviceNetwork } from "@/components/device-network";
+import { LostDeviceControls } from "@/components/lost-device-controls";
+import { PrimeIdForm } from "@/components/prime-id-form";
 
 export const metadata: Metadata = { title: "Device" };
 
@@ -37,22 +41,21 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
   if (!data) notFound();
   const d = data as Device;
   const manager = canManage(staff, d.school_id);
-  const [ownPolicy, commands, { data: library }, { data: locationRows }] = await Promise.all([
+  const [ownPolicy, commands, { data: library }, { data: locationRows }, {data:groups}, {data:runtime}, {data:studentRecord}, diagnostics] = await Promise.all([
     getPolicy(d.school_id, d.id),
     recentCommands(d.id),
     supabase.from("apps").select("*").eq("school_id", d.school_id).order("name"),
     supabase.from("locations").select("*").eq("device_id", d.id).order("created_at", { ascending: false }).limit(10),
+    supabase.from('school_classes').select('id,form_level,class_name').eq('school_id',d.school_id),
+    manager ? supabase.from('device_runtime').select('readings,reported_at').eq('device_id',d.id).maybeSingle() : Promise.resolve({data:null}),
+    manager ? supabase.from('student_records').select('*').eq('device_id',d.id).maybeSingle() : Promise.resolve({data:null}),
+    manager ? supabase.from("device_events").select("id,occurred_at,received_at,severity,category,code,version,details")
+      .eq("device_id",d.id).order("received_at",{ascending:false}).order("id",{ascending:false}).limit(100) : Promise.resolve({data:[],error:null}),
   ]);
   const locations = (locationRows ?? []) as DeviceLocation[];
   const installed = [...(d.installed_apps ?? [])].sort((a, b) => Number(a.system) - Number(b.system) || a.label.localeCompare(b.label));
   const enrolled = d.status !== "pending" && d.status !== "retired";
   const tokenValid = d.enroll_token && d.enroll_token_expires_at && new Date(d.enroll_token_expires_at) > new Date();
-  const {data:groups}=await supabase.from('school_classes').select('id,form_level,class_name').eq('school_id',d.school_id);
-  const {data:runtime}=manager?await supabase.from('device_runtime').select('*').eq('device_id',d.id).maybeSingle():{data:null};
-  const {data:studentRecord}=manager?await supabase.from('student_records').select('*').eq('device_id',d.id).maybeSingle():{data:null};
-  const diagnostics = manager ? await supabase.from("device_events")
-    .select("id,occurred_at,received_at,severity,category,code,version,details")
-    .eq("device_id",d.id).order("received_at",{ascending:false}).order("id",{ascending:false}).limit(100) : {data:[],error:null};
   const diagnosticEvents = (diagnostics.data ?? []).map((event) => ({...event,
     occurredLabel:dateTime(event.occurred_at),receivedLabel:dateTime(event.received_at)})) as DeviceEvent[];
 
@@ -61,11 +64,18 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
       <RealtimeRefresh table="devices" filter={`id=eq.${d.id}`} />
       <RealtimeRefresh table="commands" filter={`device_id=eq.${d.id}`} />
       <Link href="/devices" className="text-sm text-slate-500 hover:underline">← Devices</Link>
-      <div className="mt-2 mb-6 flex flex-wrap items-center gap-3">
-        <h1 className="text-2xl font-semibold">{deviceLabel(d)}</h1>
-        <StatusBadge status={d.status} />
-        {d.status !== "pending" && <OnlineDot device={d} />}
-      </div>
+      <section className="card mt-3 mb-6 flex flex-wrap items-center justify-between gap-6 bg-gradient-to-r from-white to-indigo-50 p-6" aria-label="Student and device identity">
+        <div className="flex min-w-0 items-center gap-5">
+          <StudentAvatar src={studentRecord?.profile_photo} name={deviceLabel(d)} large />
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-3"><h1 className="text-2xl font-semibold text-slate-900">{deviceLabel(d)}</h1><StatusBadge status={d.status} />{d.lost_mode && <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700">Reported lost</span>}</div>
+            <p className="mt-2 text-sm text-slate-600">{[d.form_level,d.class_name,d.gender].filter(Boolean).join(" · ") || "Class not assigned"}</p>
+            <p className="mt-2 font-mono text-sm text-slate-800">Prime ID: {d.prime_id || "Not reported"}</p>
+            <p className="mt-1 text-xs text-slate-500">Student number: {d.student_id || "Not assigned"}</p>
+          </div>
+        </div>
+        <div className="space-y-3 text-right">{d.status !== "pending" && <OnlineDot device={d} />}{manager && <details className="text-left"><summary className="cursor-pointer text-sm font-medium text-brand-700">Verify / correct Prime ID</summary><div className="mt-3 max-w-sm"><PrimeIdForm deviceId={d.id} value={d.prime_id ?? ""} /></div></details>}</div>
+      </section>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="card p-4">
@@ -73,7 +83,8 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
           <dl className="divide-y divide-slate-100">
             <Row label="Model">{[d.manufacturer, d.model].filter(Boolean).join(" ") || null}</Row>
             <Row label="Form / class">{[d.form_level,d.class_name].filter(Boolean).join(' / ')||'Not assigned'}</Row>
-            <Row label="Prime ID">{d.id}</Row>
+            <Row label="Prime ID (hardware Wi-Fi MAC)">{d.prime_id || "Not reported"}</Row>
+            <Row label="Student number">{d.student_id}</Row>
             <Row label="Serial">{d.serial}</Row>
             <Row label="Android ID">{d.android_id}</Row>
             <Row label="OS">{d.os_version}</Row>
@@ -83,6 +94,7 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
             <Row label="Last check-in">{dateTime(d.last_seen_at)}</Row>
             <Row label="Enrolled">{dateTime(d.enrolled_at)}</Row>
           </dl>
+          <details className="mt-3 text-xs text-slate-400"><summary className="cursor-pointer">Internal record reference</summary><p className="mt-2 break-all font-mono">Internal record ID: {d.id}</p><p className="mt-1">This database reference is separate from the Prime ID printed on the Primebook.</p></details>
 
           <h2 className="mt-6 mb-2 font-semibold">Apps</h2>
           {manager && enrolled && <div className="mb-3"><InstallOnDeviceForm deviceId={d.id} apps={(library ?? []) as App[]} /></div>}
@@ -109,6 +121,8 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
         </section>
 
         <div className="space-y-6">
+          {manager && enrolled && <LostDeviceControls deviceId={d.id} lost={d.lost_mode??false} alarm={d.lost_alarm??false} message={d.lost_message??""} />}
+          {manager && <DeviceNetwork runtime={runtime} primeId={d.prime_id ?? null} lastIp={d.last_ip} />}
           {manager && <DeviceSync deviceId={d.id} requested={d.sync_revision??0} applied={d.sync_applied_revision??0} requestedLabel={dateTime(d.sync_requested_at)} appliedLabel={dateTime(d.sync_applied_at)} topics={d.sync_topics??[]}/>}
           {manager && <DeviceDiagnostics events={diagnosticEvents} unavailable={Boolean(diagnostics.error)} currentVersion={d.agent_version}/>}
           <section className="card p-5">

@@ -16,9 +16,9 @@ class HubTasks(private val context: Context) {
         prefs.all.keys.filter { it.startsWith("task:") }.mapNotNull { prefs.getString(it, null)?.let(::JSONObject) }.sortedByDescending { it.optLong("created") }
     }
     fun publicList(): JSONArray = JSONArray(all().take(150).map { JSONObject(it.toString()).apply { remove("payload") } })
-    fun pending() = all().filter { it.optString("status") !in setOf("done", "installed", "failed", "superseded") }.sortedBy { it.optLong("created") }
+    fun pending() = all().filter { it.optString("status") !in setOf("done", "installed", "removed", "failed", "superseded") }.sortedBy { it.optLong("created") }
     fun enqueue(action: String, payload: JSONObject, title: String, key: String? = null): String = synchronized(lock) {
-        if (key != null) all().firstOrNull { it.optString("key") == key && it.optString("status") !in setOf("done", "installed", "failed", "superseded") }?.let { return@synchronized it.getString("id") }
+        if (key != null) all().firstOrNull { it.optString("key") == key && it.optString("status") !in setOf("done", "installed", "removed", "failed", "superseded") }?.let { return@synchronized it.getString("id") }
         // Save a newer profile or wallpaper choice without allowing an older one to overwrite it later.
         if (action in setOf("profile", "wallpaper")) pending().filter { it.optString("action") == action }.forEach { update(it.getString("id"), "superseded") }
         val id = UUID.randomUUID().toString()
@@ -26,7 +26,7 @@ class HubTasks(private val context: Context) {
             .put("item_id",payload.optString("item_id",payload.optString("hub_item_id")))
             .put("key", key ?: "").put("created", System.currentTimeMillis()).put("status", "queued").put("bytes", 0).put("total", 0).put("speed", 0))
         // Completed progress history is bounded; never trim unsent work.
-        all().filter { it.optString("status") in setOf("done", "installed", "superseded") }.drop(100).forEach { prefs.edit().remove("task:${it.getString("id")}").commit() }
+        all().filter { it.optString("status") in setOf("done", "installed", "removed", "superseded") }.drop(100).forEach { prefs.edit().remove("task:${it.getString("id")}").commit() }
         id
     }
     fun download(id: String, title: String, total: Long): String = synchronized(lock) {
