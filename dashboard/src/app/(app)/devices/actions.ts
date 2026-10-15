@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { canManage, getCurrentSchool, requireStaff } from "@/lib/auth";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { createAdminClient, hasAdminConfig } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import type { FormState } from "@/lib/types";
 
@@ -97,11 +97,20 @@ export async function deleteDevice(_prev: FormState, formData: FormData): Promis
   const id = String(formData.get("id") ?? "");
   const ctx = await deviceForManager(id);
   if (!ctx) return { error: "You can't delete this device." };
+  if (ctx.device.auth_user_id && !hasAdminConfig()) return { error: "Device login removal is unavailable in this environment. Please contact RoboKorda. The device has not been deleted." };
+  // Resolve required server configuration before deleting any enrollment data.
+  const admin = ctx.device.auth_user_id ? createAdminClient() : null;
 
   const { error } = await ctx.supabase.from("devices").delete().eq("id", id);
   if (error) return { error: error.message };
   // The device's own login would otherwise outlive it.
-  if (ctx.device.auth_user_id) await createAdminClient().auth.admin.deleteUser(ctx.device.auth_user_id);
+  if (ctx.device.auth_user_id && admin) {
+    const { error: loginError } = await admin.auth.admin.deleteUser(ctx.device.auth_user_id);
+    if (loginError) {
+      revalidatePath("/devices");
+      return { error: "The device record was deleted, but its login could not be removed. Please contact RoboKorda to finish removing the login." };
+    }
+  }
   revalidatePath("/devices");
   redirect("/devices");
 }

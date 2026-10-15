@@ -2,11 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { canManage, getCurrentSchool, requireStaff, type Staff } from "@/lib/auth";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { createAdminClient, hasAdminConfig } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import type { AppRole, FormState } from "@/lib/types";
 
 const ASSIGNABLE: AppRole[] = ["school_admin", "teacher"];
+const LOGIN_UNAVAILABLE = "Staff login management is unavailable in this environment. Please contact RoboKorda.";
 
 // Loads a staff member the caller is allowed to manage: same school (or
 // super_admin), never a super_admin, never themselves. Mirrors profiles RLS so
@@ -37,6 +38,7 @@ export async function addStaff(_prev: FormState, formData: FormData): Promise<Fo
   if (password.length < 8) return { error: "Temporary password must be at least 8 characters." };
   if (!ASSIGNABLE.includes(role)) return { error: "Pick a role." };
 
+  if (!hasAdminConfig()) return { error: LOGIN_UNAVAILABLE };
   const admin = createAdminClient();
   const { data: created, error } = await admin.auth.admin.createUser({
     email,
@@ -80,6 +82,7 @@ export async function resetPassword(_prev: FormState, formData: FormData): Promi
   const password = String(formData.get("password") ?? "");
   if (password.length < 8) return { error: "At least 8 characters." };
   if (!(await manageableProfile(staff, id))) return { error: "You can't reset this password." };
+  if (!hasAdminConfig()) return { error: LOGIN_UNAVAILABLE };
 
   const { error } = await createAdminClient().auth.admin.updateUserById(id, { password });
   if (error) return { error: error.message };
@@ -90,12 +93,18 @@ export async function removeStaff(_prev: FormState, formData: FormData): Promise
   const staff = await requireStaff();
   const id = String(formData.get("id") ?? "");
   if (!(await manageableProfile(staff, id))) return { error: "You can't remove this person." };
+  if (!hasAdminConfig()) return { error: LOGIN_UNAVAILABLE };
+  const admin = createAdminClient();
 
   // Delete through RLS first; only drop the login once that succeeded.
   const supabase = await createClient();
   const { data, error } = await supabase.from("profiles").delete().eq("id", id).select("id");
   if (error || !data?.length) return { error: error?.message ?? "Not allowed." };
-  await createAdminClient().auth.admin.deleteUser(id);
+  const { error: loginError } = await admin.auth.admin.deleteUser(id);
+  if (loginError) {
+    revalidatePath("/staff");
+    return { error: "The staff record was removed, but their login could not be deleted. Please contact RoboKorda to finish removing the login." };
+  }
 
   revalidatePath("/staff");
   return { ok: "Removed." };

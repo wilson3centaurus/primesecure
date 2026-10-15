@@ -35,7 +35,7 @@ export function AddStaffForm() {
   );
 }
 
-export function StaffActions({ id, role }: { id: string; role: AppRole }) {
+export function StaffActions({ id, role, loginManagement }: { id: string; role: AppRole; loginManagement: boolean }) {
   const [roleState, roleAction] = useActionState(changeRole, undefined);
   const [pwState, pwAction] = useActionState(resetPassword, undefined);
   const [rmState, rmAction] = useActionState(removeStaff, undefined);
@@ -52,15 +52,15 @@ export function StaffActions({ id, role }: { id: string; role: AppRole }) {
             <option value="school_admin">School admin</option>
           </select>
         </form>
-        <button type="button" className="btn-secondary py-1.5" onClick={() => setShowPw((v) => !v)}>Reset password</button>
-        <form action={rmAction}>
+        {loginManagement && <button type="button" className="btn-secondary py-1.5" onClick={() => setShowPw((v) => !v)}>Reset password</button>}
+        {loginManagement && <form action={rmAction}>
           <input type="hidden" name="id" value={id} />
           <SubmitButton className="btn-secondary py-1.5 text-red-600" pending="Removing…" confirm="Remove this person and delete their login?">
             Remove
           </SubmitButton>
-        </form>
+        </form>}
       </div>
-      {showPw && (
+      {loginManagement && showPw && (
         <form action={pwAction} className="flex items-center gap-2">
           <input type="hidden" name="id" value={id} />
           <input name="password" type="text" minLength={8} required placeholder="New password" aria-label="New password" className="input w-48 py-1.5" autoComplete="off" />
