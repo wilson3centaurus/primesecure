@@ -1,6 +1,7 @@
 package com.robokorda.primesecure
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
 import android.text.InputType
@@ -32,13 +33,14 @@ class MainActivity : Activity() {
     private lateinit var tokenInput: EditText
     private lateinit var enrollButton: Button
     private lateinit var checkInButton: Button
+    private lateinit var provisionButton: Button
     private var busy = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         store = AgentStore(this)
         if (store.isEnrolled) {
-            startActivity(Intent(this, HubActivity::class.java))
+            startActivity(InitialSetup(this).destination())
             finish()
             return
         }
@@ -63,8 +65,33 @@ class MainActivity : Activity() {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
         }
         root.addView(tokenInput)
+        provisionButton = Button(this).apply {
+            text = "Set up device management"
+            setOnClickListener {
+                val token = tokenInput.text.toString().trim()
+                if (AdminReceiver.isDeviceOwner(this@MainActivity)) {
+                    refresh()
+                    if (token.isNotBlank()) enroll(token)
+                    return@setOnClickListener
+                }
+                if (token.isBlank()) toast("Enter the enrollment key first")
+                else {
+                    val reason = runCatching { Provisioning.unavailableReason(this@MainActivity) }
+                        .getOrElse { Connectivity.message(it) }
+                    if (reason != null) AlertDialog.Builder(this@MainActivity).setTitle("Device management setup")
+                        .setMessage(reason).setPositiveButton("OK", null).show()
+                    else AlertDialog.Builder(this@MainActivity).setTitle("Start Android management setup?")
+                        .setMessage("Use this only on a new or reset device with no student files. Android may factory-reset the device if provisioning fails. This flow requires Android's authorization; it cannot bypass PrimeOS setup restrictions.")
+                        .setNegativeButton("Cancel", null).setPositiveButton("Continue to Android setup") { _, _ ->
+                            runCatching { Provisioning.request(this@MainActivity, token) }
+                                .onFailure { toast(Connectivity.message(it)); refresh() }
+                        }.show()
+                }
+            }
+        }
+        root.addView(provisionButton)
         enrollButton = Button(this).apply {
-            text = "Enroll"
+            text = "Enroll and prepare Primebook"
             setOnClickListener { enroll(tokenInput.text.toString()) }
         }
         root.addView(enrollButton)
@@ -93,12 +120,33 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        if (::status.isInitialized) refresh()
+        if (::status.isInitialized) {
+            refresh()
+            if (!busy && AdminReceiver.isDeviceOwner(this) && !store.isEnrolled) {
+                Provisioning.pendingToken(this)?.takeIf { it.isNotBlank() }?.let { enroll(it) }
+            }
+        }
+    }
+
+    @Deprecated("Android provisioning result")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == Provisioning.REQUEST && !AdminReceiver.isDeviceOwner(this)) {
+            Provisioning.clear(this)
+            toast("Device management setup was not completed. Enrollment has not been started.")
+            refresh()
+        }
     }
 
     override fun onDestroy() {
         scope.cancel()
         super.onDestroy()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // PrimeOS can keep both terminal and enrollment windows resumed.
+        if (hasFocus && ::status.isInitialized && !busy) refresh()
     }
 
     private fun handleIntent(intent: Intent?) {
@@ -107,7 +155,7 @@ class MainActivity : Activity() {
         intent.getStringExtra("anon_key")?.takeIf { it.isNotBlank() }?.let { store.anonKey = it }
         intent.getStringExtra("token")?.takeIf { it.isNotBlank() }?.let { token ->
             tokenInput.setText(token)
-            if (!store.isEnrolled) enroll(token)
+            if (!store.isEnrolled && AdminReceiver.isDeviceOwner(this)) enroll(token)
         }
     }
 
@@ -136,6 +184,9 @@ class MainActivity : Activity() {
             } finally {
                 busy = false
                 refresh()
+                if (store.isEnrolled && InitialSetup(this@MainActivity).pending) {
+                    startActivity(InitialSetup(this@MainActivity).destination()); finish()
+                }
             }
         }
     }
@@ -171,15 +222,19 @@ class MainActivity : Activity() {
                 appendLine("Not enrolled")
                 if (!owner) {
                     appendLine()
-                    appendLine("adb shell dpm set-device-owner $packageName/.AdminReceiver")
+                    appendLine(runCatching { Provisioning.unavailableReason(this@MainActivity) }.getOrNull()
+                        ?: "Enter your key, then select Set up device management to ask Android to authorize school management.")
+                    appendLine("Your school's enrollment key does not by itself grant Device Owner permission.")
                 }
             }
             store.updateError?.let { appendLine().append("Agent update: ").append(it) }
             store.lastError?.let { appendLine().append("Last error: ").append(it) }
         }
-        tokenInput.isEnabled = !store.isEnrolled
-        enrollButton.isEnabled = !store.isEnrolled && owner
-        checkInButton.isEnabled = store.isEnrolled
+        tokenInput.isEnabled = !store.isEnrolled && !busy
+        provisionButton.visibility = if (owner) android.view.View.GONE else android.view.View.VISIBLE
+        provisionButton.isEnabled = !busy && !owner
+        enrollButton.isEnabled = !store.isEnrolled && owner && !busy
+        checkInButton.isEnabled = store.isEnrolled && !busy
     }
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()

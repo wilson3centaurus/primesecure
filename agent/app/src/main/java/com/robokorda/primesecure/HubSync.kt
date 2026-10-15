@@ -46,16 +46,19 @@ class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(cont
                     } catch(e:Exception) { tasks.update(task,"waiting",error=Connectivity.message(e));throw e }
                 }
             }.onFailure { if(it is kotlinx.coroutines.CancellationException) throw it }
-            val viewers = hub.catalog.optJSONObject("management")?.optJSONObject("viewer_packages")
-            val viewerPackages = viewers?.keys()?.asSequence()?.map { viewers.optString(it) }?.toSet() ?: emptySet()
-            if (store.lastStatus == "active") for (item in hub.items().filter { it.optString("kind") == "app" && (it.optBoolean("preinstall") || it.optString("package_name") in viewerPackages) }) {
+            if (store.lastStatus == "active") for (item in InitialSetup.requiredApps(hub.catalog, hub.items())) {
                 if (!runCatching { applicationContext.packageManager.getPackageInfo(item.getString("package_name"), 0) }.isSuccess) {
                     tasks.enqueue("install", JSONObject().put("item_id", item.getString("id")), item.getString("title"), "install:${item.getString("id")}")
                 }
             }
+            InitialSetup(applicationContext).catalogReceived()
             if (tasks.pending().any { it.optString("action") != "download" }) OfflineWorker.schedule(applicationContext)
             var failed = false
-            for (item in hub.items().filter { it.optString("kind") in setOf("resource", "wallpaper") }) {
+            val starter = InitialSetup.starterIds(hub.items())
+            val defaultWallpaper = hub.catalog.optJSONObject("wallpaper")?.optString("id")
+            val downloads = hub.items().filter { it.optString("kind") in setOf("resource", "wallpaper") }
+                .sortedBy { when { it.optString("id") == defaultWallpaper -> 0; it.optString("id") in starter -> 1; else -> 2 } }
+            for (item in downloads) {
                 if (store.deviceId != device) return Result.success()
                 val target = hub.resourceFile(item)
                 if (target.exists() && target.length() == item.getLong("size")) { if (item.optString("kind") == "wallpaper") preview(item, target); continue }

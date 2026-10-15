@@ -24,6 +24,8 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
     private val dpm = AdminReceiver.dpm(context)
     private val admin = AdminReceiver.component(context)
     private val pm = context.packageManager
+    var lastProblems: List<String> = listOf("Device management has not been applied yet.")
+        private set
 
     /**
      * Returns a short human-readable summary of the resulting state. While
@@ -103,6 +105,7 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
             if (webSummary.isNotEmpty()) append(" · ").append(webSummary)
             problems.forEach { append("\n⚠ ").append(it) }
         }
+        lastProblems = problems.toList()
         return summary
     }
 

@@ -120,7 +120,9 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                     SupabaseApi(store).rpc("device_battery_report", JSONObject().put("p_readings", DeviceInfo.batteryDiagnostics(context)))
                 }.onFailure { HubStore(context).syncError = Connectivity.message(it) }
                 context.getSharedPreferences("agent-policy", Context.MODE_PRIVATE).edit().putString("policy", policy.toString()).putString("device",store.deviceId).commit()
-                store.lastPolicySummary = PolicyApplier(context, store).apply(policy, suspended = status == "suspended")
+                val applier = PolicyApplier(context, store)
+                store.lastPolicySummary = applier.apply(policy, suspended = status == "suspended")
+                InitialSetup(context).policyResult(applier.lastProblems)
                 DeviceState.apply(context, status)
                 store.lastCheckInAt = System.currentTimeMillis()
                 runCatching { PasswordRecovery.registerBoot(context) }
@@ -151,10 +153,12 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 email = result.getString("email"),
                 password = result.getString("password"),
             )
+            InitialSetup(context).begin()
+            Provisioning.clear(context)
             schedule(context)
             AgentService.start(context)
             val response = checkIn(context)
-            context.startActivity(android.content.Intent(context, HubActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            context.startActivity(InitialSetup(context).destination().addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
             return response
         }
     }

@@ -33,6 +33,7 @@ class HubActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (!AgentStore(this).isEnrolled) { startActivity(Intent(this, MainActivity::class.java)); finish(); return }
+        if (InitialSetup(this).pending) { startActivity(Intent(this, SetupActivity::class.java)); finish(); return }
         hub = HubStore(this); uiDirectory=StudentUiUpdates.begin(this); web = WebView(this)
         web.settings.apply {
             javaScriptEnabled = true; domStorageEnabled = false; allowFileAccess = false; allowContentAccess = false
