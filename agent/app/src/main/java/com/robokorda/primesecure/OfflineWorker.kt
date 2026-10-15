@@ -21,7 +21,8 @@ class OfflineWorker(context: Context, params: WorkerParameters) : CoroutineWorke
             try {
                 tasks.update(id, "syncing")
                 if (action == "install") {
-                    val catalog = api.rpc("device_hub"); hub.catalog = catalog
+                    val revision=api.rpc("device_sync_state").optLong("revision")
+                    val catalog = api.rpc("device_hub").put("_sync_revision",revision); hub.catalog = catalog
                     check(catalog.optString("status",store.lastStatus) == "active") { "App installs are available only on active school devices." }
                     val item = hub.items().find { it.optString("id") == payload.optString("item_id") && it.optString("kind") == "app" }
                         ?: error("This app is no longer approved for your school.")
