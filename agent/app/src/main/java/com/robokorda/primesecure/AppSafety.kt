@@ -20,12 +20,16 @@ internal object AppSafety {
         addAll(KNOWN_CORE.split(','))
         val flags = PackageManager.MATCH_UNINSTALLED_PACKAGES or PackageManager.MATCH_DISABLED_COMPONENTS or
             PackageManager.MATCH_DIRECT_BOOT_AWARE or PackageManager.MATCH_DIRECT_BOOT_UNAWARE
-        pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), flags)
-            .forEach { add(it.activityInfo.packageName) }
-        pm.queryIntentServices(Intent("android.view.InputMethod"), flags)
-            .forEach { add(it.serviceInfo.packageName) }
-        Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
-            ?.substringBefore('/')?.takeIf { it.isNotBlank() }?.let(::add)
+        // Search apps can advertise an optional HOME activity without providing
+        // this device's desktop. Protect the selected home, not every candidate.
+        val homes=pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), flags)
+            .map { it.activityInfo.packageName }.toSet()
+        val selected=pm.resolveActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo?.packageName
+        addAll(ActiveRoleSafety.protectedPackages(selected,homes))
+        val keyboards=pm.queryIntentServices(Intent("android.view.InputMethod"), flags).map {it.serviceInfo.packageName}.toSet()
+        val selectedKeyboard=Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)?.substringBefore('/')?.takeIf {it.isNotBlank()}
+        addAll(ActiveRoleSafety.protectedPackages(selectedKeyboard,keyboards))
+        selectedKeyboard?.let(::add)
         runCatching { WebView.getCurrentWebViewPackage()?.packageName }.getOrNull()?.let(::add)
         AdminReceiver.dpm(context).activeAdmins?.forEach { add(it.packageName) }
     }
@@ -35,6 +39,15 @@ internal object AppSafety {
         .getInstalledApplications(PackageManager.MATCH_UNINSTALLED_PACKAGES).filter {
             it.flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)!=0
         }.map { it.packageName }
+
+    fun protectionReason(context:Context,pkg:String):String = when {
+        pkg=="com.android.settings" -> "PrimeOS Settings and login safety"
+        pkg==context.packageName -> "PrimeSecure device owner"
+        pkg==context.packageManager.resolveActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME),PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo?.packageName -> "Selected home-screen launcher"
+        pkg==Settings.Secure.getString(context.contentResolver,Settings.Secure.DEFAULT_INPUT_METHOD)?.substringBefore('/') -> "Selected keyboard / input method"
+        pkg==runCatching {WebView.getCurrentWebViewPackage()?.packageName}.getOrNull() -> "Active Android WebView"
+        else -> "Core Android, active administrator, or unresolved home / keyboard role"
+    }
 
     /** Uses no credential-encrypted agent files: safe before the first unlock. */
     @Synchronized

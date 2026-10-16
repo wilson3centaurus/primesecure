@@ -98,6 +98,8 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 // A pending library download or a later network failure must not delay
                 // the school's lost-device lock after the server has already requested it.
                 if(status=="locked") DeviceState.apply(context,status)
+                DeviceSafety.bind(context,store.deviceId!!)
+                DeviceSafety.observe(context,response.optJSONObject("recovery_control"))
                 val sync=SupabaseApi(store).rpc("device_sync_state")
                 val syncRevision=sync.optLong("revision")
                 val changesPending=syncRevision>sync.optLong("applied_revision")
@@ -144,6 +146,7 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 } else SettingsSync.phase(context,"attention")
                 DeviceState.apply(context, status)
                 store.lastCheckInAt = System.currentTimeMillis()
+                runCatching { BootRecovery.ensureChannel(context) }
                 runCatching { PasswordRecovery.registerBoot(context) }
                 runCatching { SupabaseApi(store).rpc("device_runtime_report", JSONObject().put("p_readings", DeviceRuntime.collect(context))) }
                 if(LostMode.active(context)) runCatching { Locator(context,store).locateScheduled() }

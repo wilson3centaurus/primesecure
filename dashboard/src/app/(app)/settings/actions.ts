@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import type { FormState } from "@/lib/types";
 import { BUILTIN_APP_REQUESTS } from "@/lib/school-controls";
+import { parseBlockedPackages } from "@/lib/package-rules";
 export async function saveManagementSettings(_prev:FormState,form:FormData):Promise<FormState> {
  const staff=await requireStaff(),school=await getCurrentSchool();if(!school||!canManage(staff,school.id))return {error:'School administrator access required.'};
  const db=await createClient();
@@ -50,7 +51,9 @@ export async function deleteSchoolGroup(_prev:FormState,form:FormData):Promise<F
 
 export async function saveAppRules(_prev:FormState,form:FormData):Promise<FormState> {
  const staff=await requireStaff(),school=await getCurrentSchool();if(!school||!canManage(staff,school.id))return {error:'School administrator access required.'};
- const requested=form.getAll('blocked_package').map(String);if(requested.some(pkg=>!BUILTIN_APP_REQUESTS.some(a=>a.package===pkg)))return {error:'Invalid app control request.'};
+ const selected=form.getAll('blocked_package').map(String);if(selected.some(pkg=>!BUILTIN_APP_REQUESTS.some(a=>a.package===pkg)))return {error:'Invalid app control request.'};
+ let requested:string[];
+ try {requested=parseBlockedPackages(String(form.get('custom_blocked_packages')||''),selected);}catch(error){return {error:error instanceof Error?error.message:'Invalid package list.'};}
  const db=await createClient();const {error}=await db.from('hub_settings').upsert({scope:school.id,school_id:school.id,approved_apps_only:form.get('approved_apps_only')==='on',blocked_packages:requested});
  if(error)return {error:error.message};revalidatePath('/apps');return {ok:'Saved. A sync request is queued. Check School sync on each device for confirmation.'};
 }

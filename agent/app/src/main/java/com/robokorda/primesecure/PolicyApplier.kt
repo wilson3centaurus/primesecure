@@ -217,19 +217,20 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
         val userUnlocked=context.getSystemService(UserManager::class.java).isUserUnlocked
         val screenUnlocked=!context.getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked
         val uptime=android.os.SystemClock.elapsedRealtime()
-        val explicit=ManualAppHides.expanded(hidden)
+        val paused=DeviceSafety.paused(context)
+        val explicit=if(paused) emptySet() else ManualAppHides.expanded(hidden)
         val essential=AppSafety.essentialPackages(context)
-        val exceptions=ManualAppHides.firmwareExceptions(hidden,essential,userUnlocked,screenUnlocked,uptime)
+        val exceptions=ManualAppHides.firmwareExceptions(if(paused) emptySet() else hidden,essential,userUnlocked,screenUnlocked,uptime)
         val allProtected=AppSafety.protectedPackages(context)
         val protected = allProtected-exceptions
         @Suppress("DEPRECATION")
         val installed=pm.getInstalledApplications(android.content.pm.PackageManager.MATCH_UNINSTALLED_PACKAGES).map { it.packageName }.toSet()
 
         val want = AppVisibilityRules.hiddenPackages(
-            requested = (explicit + if (hideSettings) SETTINGS_PACKAGES else emptySet()).intersect(installed),
-            allowed = allowed, launchable = launchablePackages(),
+            requested = (explicit + if (hideSettings && !paused) SETTINGS_PACKAGES else emptySet()).intersect(installed),
+            allowed = if(paused) emptySet() else allowed, launchable = launchablePackages(),
             previouslyRestricted = previouslyHidden + previouslySuspended,
-            protected = protected, allowListOnly = allowListOnly,
+            protected = protected, allowListOnly = allowListOnly && !paused,
         )
 
         val nowHidden = mutableSetOf<String>()
@@ -263,7 +264,7 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
         }
         store.saveAppRestrictions(nowHidden, nowSuspended)
         val outcomes=JSONArray((explicit + if(hideSettings) SETTINGS_PACKAGES else emptySet()).sorted().map { pkg ->
-            JSONObject().put("package",pkg).put("status",when {
+            JSONObject().put("package",pkg).put("protection_reason",if(pkg in essential) AppSafety.protectionReason(context,pkg) else JSONObject.NULL).put("status",when {
                 pkg !in installed -> "not_installed"
                 pkg in nowHidden -> "hidden"
                 pkg in nowSuspended -> "suspended"

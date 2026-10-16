@@ -957,3 +957,42 @@ test('form deletion preserves students and resources and cannot bypass guarded R
  assert.equal((await as(ids.adminA,"select * from school_classes where school_id=$1 and form_level='Delete QA'",[ids.schoolA])).length,0);
  assert.equal((await as(ids.adminA,'select id from devices where id=$1',[communication.device])).length,1);
 });
+
+test('device recovery controls are manager-scoped and cannot be forged by clients',async()=>{
+ for(const user of [null,ids.stray,ids.teacherA,ids.adminB,communication.user])await rejects(as(user,"select staff_device_safety($1,'safe_on')",[communication.device]),/permission denied|Administrator/);
+ await rejects(as(ids.adminA,"select staff_device_safety($1,'invalid')",[communication.device]),/Invalid/);
+ await rejects(as(ids.adminA,"insert into device_safety_controls(device_id,safe_mode) values($1,true)",[communication.device]));
+ const c=(await as(ids.adminA,"select staff_device_safety($1,'safe_on') value",[communication.device]))[0].value;
+ assert.equal(c.safe_mode,true);assert.equal(c.updates_paused,true);assert.equal(Number(c.revision),1);
+ assert.equal((await as(ids.adminB,'select * from device_safety_controls where device_id=$1',[communication.device])).length,0);
+ assert.equal((await as(communication.user,'select * from device_safety_controls where device_id=$1',[communication.device])).length,0);
+ await rejects(as(communication.user,'select device_safety_payload($1)',[communication.device]));
+});
+test('recovery pauses updates, tracks interface rollback and resumes controls separately',async()=>{
+ const poll=async()=>(await as(communication.user,"select device_check_in('{\"agent_version_code\":18}') value"))[0].value;
+ assert.equal((await poll()).agent_update,null);assert.equal((await poll()).recovery_control.safe_mode,true);
+ const c=(await as(ids.adminA,"select staff_device_safety($1,'rollback_ui') value",[communication.device]))[0].value;
+ assert.equal(Number(c.ui_rollback_revision),2);
+ await as(ids.adminA,"select staff_device_safety($1,'safe_off')",[communication.device]);
+ const off=(await poll()).recovery_control;assert.equal(off.safe_mode,false);assert.equal(off.updates_paused,true);
+ await as(ids.adminA,"select staff_device_safety($1,'resume_updates')",[communication.device]);assert.equal((await poll()).recovery_control.updates_paused,false);
+});
+test('direct boot capability delivers only its own recovery settings without a password escrow token',async()=>{
+ const secret='d'.repeat(64);
+ await as(communication.user,'select device_register_recovery($1)',[secret]);
+ await as(ids.adminA,"select staff_device_safety($1,'safe_on')",[communication.device]);
+ for(const [device,key] of [[ids.deviceB,secret],[communication.device,'e'.repeat(64)]])await rejects(as(null,'select device_recovery_poll($1,$2)',[device,key]),/invalid recovery/);
+ const r=(await as(null,'select device_recovery_poll($1,$2) value',[communication.device,secret]))[0].value;
+ assert.equal(r.recovery_control.safe_mode,true);assert.equal(r.student_name,undefined);assert.equal(r.policy,undefined);
+});
+test('prepared recovery APK must be newer and selected by super admin only',async()=>{
+ const old=(await as(ids.super,"insert into agent_releases(version_code,version_name,storage_path,active,sha256) values(17,'old','releases/old.apk',false,$1) returning id",['a'.repeat(64)]))[0].id;
+ const newer=(await as(ids.super,"insert into agent_releases(version_code,version_name,storage_path,active,sha256) values(999,'recovery','releases/recovery.apk',false,$1) returning id",['b'.repeat(64)]))[0].id;
+ await rejects(as(ids.adminA,"select staff_device_safety($1,'install_recovery',$2)",[communication.device,newer]),/Only RoboKorda/);
+ await rejects(as(ids.super,"select staff_device_safety($1,'install_recovery',$2)",[communication.device,old]),/higher/);
+ await as(ids.super,"select staff_device_safety($1,'install_recovery',$2)",[communication.device,newer]);
+ const r=(await as(communication.user,"select device_check_in('{\"agent_version_code\":18}') value"))[0].value;
+ assert.equal(r.agent_update.version_code,999);assert.equal(r.recovery_control.updates_paused,true);
+ // No other device receives the paused recovery release.
+ assert.notEqual((await as(ids.devB,"select device_check_in('{\"agent_version_code\":18}') value"))[0].value.agent_update?.version_code,999);
+});

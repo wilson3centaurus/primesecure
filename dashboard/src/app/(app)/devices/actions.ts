@@ -9,6 +9,17 @@ import type { FormState } from "@/lib/types";
 
 export type AddDevicesState = (NonNullable<FormState> & { created?: { id: string; name: string; token: string }[] }) | undefined;
 
+export async function setDeviceSafety(_previous:FormState,form:FormData):Promise<FormState> {
+ await requireStaff();
+ const device=String(form.get('device_id')||''),action=String(form.get('action')||''),release=String(form.get('release_id')||'');
+ if(!/^[0-9a-f-]{36}$/i.test(device))return {error:'Choose a device.'};
+ const db=await createClient();
+ const {error}=await db.rpc('staff_device_safety',{p_device_id:device,p_action:action,p_release_id:release||null});
+ if(error)return {error:error.message};
+ revalidatePath(`/devices/${device}`);
+ return {ok:'Recovery request saved. Waiting for agent 0.8.2 or newer to confirm.'};
+}
+
 export async function requestDeviceSync(_previous:FormState,form:FormData):Promise<FormState> {
   await requireStaff();
   const device=String(form.get('device_id')||'');

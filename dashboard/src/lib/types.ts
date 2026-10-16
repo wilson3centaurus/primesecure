@@ -23,6 +23,7 @@ export type Device = {
   android_id: string | null;
   os_version: string | null;
   agent_version: string | null;
+  agent_version_code: number | null;
   prime_id: string | null;
   prime_id_source: string | null;
   lost_mode: boolean;

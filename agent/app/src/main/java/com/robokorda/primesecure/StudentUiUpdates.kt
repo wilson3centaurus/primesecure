@@ -20,6 +20,7 @@ object StudentUiUpdates {
         .followRedirects(false).build()
 
     fun check(context: Context) {
+        if(DeviceSafety.updatesPaused(context))return
         val prefs = context.getSharedPreferences("student-ui",Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
         if (now - prefs.getLong("last_attempt",0) < 60*60_000L) return
@@ -40,7 +41,7 @@ object StudentUiUpdates {
                 for (name in names) File(directory,name).writeBytes(Base64.decode(release.getJSONObject("files").getString(name),Base64.NO_WRAP))
                 File(directory,"signed-release.json").writeBytes(bytes)
                 // Publish the pointer only after every verified file is written.
-                prefs.edit().putInt("highest",version).putInt("active",version).remove("error").commit()
+                if(!DeviceSafety.updatesPaused(context))prefs.edit().putInt("highest",version).putInt("active",version).remove("error").commit()
             }
         }.onFailure { prefs.edit().putString("error","Interface update postponed; your saved interface is still available.").apply() }
     }
@@ -59,6 +60,7 @@ object StudentUiUpdates {
     }
 
     @Synchronized fun begin(context: Context): File? {
+        DeviceSafety.finishRollback(context)
         val prefs = context.getSharedPreferences("student-ui",Context.MODE_PRIVATE)
         val active = prefs.getInt("active",0)
         // A prior process died before the JS readiness handshake. Fall back on next opening.
@@ -75,7 +77,7 @@ object StudentUiUpdates {
     fun accept(context: Context) {
         val prefs = context.getSharedPreferences("student-ui",Context.MODE_PRIVATE)
         val tested = prefs.getInt("probation",0)
-        if (tested > BUNDLED_VERSION) prefs.edit().putInt("previous",prefs.getInt("good",0)).putInt("good",tested).remove("probation").commit()
+        if (tested > BUNDLED_VERSION && tested!=prefs.getInt("good",0)) prefs.edit().putInt("previous",prefs.getInt("good",0)).putInt("good",tested).remove("probation").commit()
         else prefs.edit().remove("probation").commit()
         // Retain the current and prior working UI only. No student resources live here.
         val keep = setOf(prefs.getInt("active",0),prefs.getInt("good",0),prefs.getInt("previous",0))
@@ -87,7 +89,9 @@ object StudentUiUpdates {
     fun reject(context: Context) {
         val prefs = context.getSharedPreferences("student-ui",Context.MODE_PRIVATE)
         val good = prefs.getInt("good",0)
-        val fallback = if (good != prefs.getInt("active",0)) good else prefs.getInt("previous",0)
+        val active=prefs.getInt("active",0)
+        val candidate = if (good != active) good else prefs.getInt("previous",0)
+        val fallback=if(candidate!=active)candidate else 0
         prefs.edit().putInt("active",fallback).remove("probation").commit()
         // Prevent a corrupt prior release from being selected repeatedly.
         if (fallback == good) prefs.edit().putInt("good",0).commit()

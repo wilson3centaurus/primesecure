@@ -26,6 +26,12 @@ function load(relative, imports, environment = {}) {
   return targetModule.exports;
 }
 const school = { id: 'school-a', name: 'QA School' };
+test('package blocking accepts unique IDs and rejects wildcards, labels and oversized lists',()=>{
+ const {parseBlockedPackages}=load('src/lib/package-rules.ts',{});
+ assert.deepEqual(parseBlockedPackages('com.example.app\norg.school.quiz,com.example.app',['com.floydwiz.browser']),['com.floydwiz.browser','com.example.app','org.school.quiz']);
+ for(const text of ['Google Chrome','com.*','https://example.test','com.foo;rm -rf','com..app'])assert.throws(()=>parseBlockedPackages(text,[]));
+ assert.throws(()=>parseBlockedPackages(Array.from({length:101},(_,n)=>'com.app'+n).join('\n'),[]));
+});
 const owner = { id: 'owner', email: 'verified@example.test', role: 'school_admin', schoolId: school.id, fullName: 'QA Admin' };
 const teacher = { id: 'other', role: 'teacher', school_id: school.id, full_name: 'QA Teacher' };
 const form = fields => { const result = new FormData(); for (const [key, value] of Object.entries(fields)) result.set(key, value); return result; };

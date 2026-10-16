@@ -59,8 +59,20 @@ object BootRecovery {
         SupabaseApi(store).rpc("device_register_recovery",JSONObject().put("p_secret",data.getString("secret")))
         save(context,data.put("registered",true))
     }
-    fun registered(context:Context)=runCatching { load(context)?.let { it.optBoolean("registered") && it.optString("device_id")==AgentStore(context).deviceId }==true }.getOrDefault(false)
-    fun clear(context:Context) { prefs(context).edit().clear().commit();runCatching { KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(ALIAS) } }
+    /** App-policy recovery does not require enabling password reset escrow. */
+    suspend fun ensureChannel(context:Context) = registration.withLock {
+        val store=AgentStore(context)
+        if(!store.isEnrolled)return@withLock
+        val current=runCatching {load(context)}.getOrNull()?.takeIf {it.optString("device_id")==store.deviceId}
+        if(current?.optBoolean("registered")==true)return@withLock
+        val data=current ?: JSONObject().put("secret",ByteArray(32).also {SecureRandom().nextBytes(it)}.joinToString("") {"%02x".format(it)})
+        data.put("device_id",store.deviceId).put("server_url",store.serverUrl).put("anon_key",store.anonKey).put("registered",false)
+        save(context,data)
+        SupabaseApi(store).rpc("device_register_recovery",JSONObject().put("p_secret",data.getString("secret")))
+        save(context,data.put("registered",true))
+    }
+    fun registered(context:Context)=runCatching { load(context)?.let { it.optBoolean("registered") && it.has("token") && it.optString("device_id")==AgentStore(context).deviceId }==true }.getOrDefault(false)
+    fun clear(context:Context) { DeviceSafety.clear(context);prefs(context).edit().clear().commit();runCatching { KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(ALIAS) } }
     fun start(context:Context) {
         if(context.getSystemService(UserManager::class.java).isUserUnlocked)return
         runCatching { context.startForegroundService(Intent(context,BootRecoveryService::class.java)) }
@@ -76,6 +88,7 @@ class BootRecoveryReceiver:BroadcastReceiver() {
                 DeviceLog.record(context,"info","boot","boot_safety_started",details=JSONObject().put("user_unlocked",context.getSystemService(UserManager::class.java).isUserUnlocked))
                 // Recover visibility locally, without Wi-Fi, account tokens or first unlock.
                 runCatching { AppSafety.restoreEssentialApps(context) }
+                runCatching { DeviceSafety.restoreJournal(context) }
                 BootRecovery.start(context)
             } finally { pending.finish() }
         }
@@ -89,15 +102,23 @@ class BootRecoveryService:Service() {
         super.onCreate()
         val manager=getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel("school-recovery","School password recovery",NotificationManager.IMPORTANCE_LOW))
-        val notification=Notification.Builder(this,"school-recovery").setContentTitle("PrimeSecure recovery connection").setContentText("Waiting for authorized school recovery requests").setSmallIcon(android.R.drawable.ic_lock_lock).setOngoing(true).build()
+        val notification=Notification.Builder(this,"school-recovery").setContentTitle("PrimeSecure startup protection").setContentText("Login protection works offline; remote recovery needs a connection").setSmallIcon(android.R.drawable.ic_lock_lock).setOngoing(true).build()
         if(android.os.Build.VERSION.SDK_INT>=34)startForeground(904,notification,android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE) else startForeground(904,notification)
     }
     override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int {
         if(loop==null)loop=scope.launch {
+            // A slow DNS/TLS request must never delay local login repair.
+            val repair=launch {
+                while(isActive&&!getSystemService(UserManager::class.java).isUserUnlocked) {
+                    runCatching {DeviceSafety.restoreJournal(this@BootRecoveryService)}
+                    runCatching {AppSafety.restoreEssentialApps(this@BootRecoveryService)}
+                    delay(5_000)
+                }
+            }
             while(isActive&&!getSystemService(UserManager::class.java).isUserUnlocked) {
                 try {
-                    val data=BootRecovery.load(this@BootRecoveryService) ?: break
-                    if(!data.optBoolean("registered")||!AdminReceiver.isDeviceOwner(this@BootRecoveryService))break
+                    val data=BootRecovery.load(this@BootRecoveryService)
+                    if(data==null||!data.optBoolean("registered")||!AdminReceiver.isDeviceOwner(this@BootRecoveryService)) {delay(30_000);continue}
                     @Suppress("DEPRECATION")
                     val wifi=applicationContext.getSystemService(android.net.wifi.WifiManager::class.java)
                     @Suppress("DEPRECATION")
@@ -111,7 +132,9 @@ class BootRecoveryService:Service() {
                                 DeviceLog.acknowledge(this@BootRecoveryService,result.stringSet("accepted_ids"))
                             }
                         }
-                        val commands=rpc(data,"device_recovery_poll",args).optJSONArray("commands")
+                        val response=rpc(data,"device_recovery_poll",args)
+                        DeviceSafety.observe(this@BootRecoveryService,response.optJSONObject("recovery_control"))
+                        val commands=response.optJSONArray("commands")
                         if(commands!=null) for(i in 0 until commands.length()) {
                             val command=commands.getJSONObject(i);val payload=command.getJSONObject("payload")
                             var failure:String?=null
@@ -127,6 +150,7 @@ class BootRecoveryService:Service() {
                 } catch(e:Exception) { if(e is CancellationException)throw e }
                 delay(30_000)
             }
+            repair.cancel()
             stopSelf()
         }
         return START_STICKY

@@ -17,6 +17,7 @@ class AgentApp : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         DeviceLog.install(this)
+        if(getSystemService(android.os.UserManager::class.java).isUserUnlocked)DeviceSafety.finishRollback(this)
         if(!getSystemService(android.os.UserManager::class.java).isUserUnlocked)return
         CoroutineScope(SupervisorJob()+Dispatchers.IO).launch {
             if(AgentStore(this@AgentApp).isEnrolled) {

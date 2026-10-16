@@ -166,3 +166,31 @@ Each release:
   (`com.android.vending`). `install_apk` lifts the unknown-sources restriction for its own session.
 - Self-hosted Supabase storage limits uploads to 50 MB by default. For bigger APKs raise
   `FILE_SIZE_LIMIT` in the storage service's environment (`docker/.env` / compose) and restart it.
+
+### Recovery and rollback (agent 0.8.2+)
+
+On a student's device page, **Recovery & rollback** offers:
+
+- **Pause app restrictions** restores PrimeSecure-hidden/suspended apps, retains enrollment and files,
+  and pauses automatic APK/interface updates on that device. Lost-mode locks are not bypassed.
+  **Resume app restrictions** reapplies the current school policy; updates remain paused until explicitly resumed.
+- **Roll back interface** uses the previous saved working signed interface, or the APK's bundled interface,
+  on the next opening. It pauses automatic updates so the faulty interface is not immediately downloaded again.
+  This changes presentation only, not Android controls or native viewers.
+- **Install a prepared recovery APK** is for RoboKorda super administrators. Rebuild the known working source
+  with the same signing key and a version code higher than the installed APK, upload it under Agent updates,
+  and pause that release's fleet rollout. Select it on the affected device. Only that device receives this offer.
+  Merely selecting an old lower-code APK does not downgrade Android. Existing enrollment/files are retained;
+  do not uninstall the device owner. Recovery builds must remain compatible with stored app data.
+
+The small app-visibility recovery journal is saved in device-protected storage before package changes.
+At locked boot, local restoration retries independently of network requests, until first unlock. It needs
+neither internet nor password-recovery activation. The restricted encrypted boot channel can also fetch
+administrator-requested recovery controls before unlock, even without a password escrow token; password
+reset still requires prior escrow activation. No automatic login, saved Wi-Fi passwords, or student records
+are added to this channel. PrimeOS must dispatch the boot receiver and allow reconnection; these controls
+cannot recover an OS/firmware crash or a device whose management app never starts.
+
+Pilot on one Primebook: verify the selected desktop and keyboard, Google hiding, offline reboot/login,
+online pause/confirmation, interface rollback/reopening and explicit resume. **Settings stays protected.**
+The package-name list under Apps > App rules accepts up to 100 Android package IDs; safety exclusions still apply.

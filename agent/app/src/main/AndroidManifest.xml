@@ -129,7 +129,7 @@
                 android:value="Device management: keeps the school's MDM connection open to receive commands" />
         </service>
         <service android:name=".BootRecoveryService" android:exported="false" android:directBootAware="true" android:foregroundServiceType="specialUse">
-            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Authorized school password recovery before first device unlock" />
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Offline app visibility repair and authorized school recovery before first device unlock" />
         </service>
         <receiver android:name=".BootRecoveryReceiver" android:exported="false" android:directBootAware="true">
             <intent-filter>

@@ -38,6 +38,7 @@ object DeviceRuntime {
             .put("wifi",WifiInventory.collect(context))
             .put("usage",UsageReporter.status(context))
             .put("app_visibility",appVisibility(context))
+            .put("safety",DeviceSafety.status(context))
             .put("controls",JSONObject()
                 .put("bluetooth_sharing",restrictions?.getBoolean(UserManager.DISALLOW_BLUETOOTH_SHARING)==true)
                 .put("bluetooth_disabled",restrictions?.getBoolean(UserManager.DISALLOW_BLUETOOTH)==true)

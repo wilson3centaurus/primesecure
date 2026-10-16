@@ -3,7 +3,7 @@ package com.robokorda.primesecure
 import android.content.Context
 
 /** Everything the agent persists. Lives in app-private storage, which only we (and root) can read. */
-class AgentStore(context: Context) {
+class AgentStore(private val context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("agent", Context.MODE_PRIVATE)
 
     var serverUrl: String
@@ -99,6 +99,7 @@ class AgentStore(context: Context) {
 
     /** Commit both sets together, before and after changing Android package state. */
     fun saveAppRestrictions(hidden: Set<String>, suspended: Set<String>) {
+        DeviceSafety.journal(context,hidden,suspended)
         check(prefs.edit().putStringSet("hidden_by_us", hidden.toSet())
             .putStringSet("suspended_by_us", suspended.toSet()).commit()) {
             "Could not save app restriction recovery state; no further app changes will be made."

@@ -13,6 +13,7 @@ import { getPolicy } from "@/lib/policy";
 import { createClient } from "@/lib/supabase/server";
 import type { App, Command, Device, DeviceLocation } from "@/lib/types";
 import { DeleteDeviceForm, IssueTokenForm, StudentForm } from "./forms";
+import { DeviceSafetyControls, type SafetyControl } from "@/components/device-safety-controls";
 import { RecoveryControls } from "@/components/recovery-controls";
 import { StateControls } from "./state-controls";
 import { DeviceDiagnostics, type DeviceEvent } from "@/components/device-diagnostics";
@@ -52,6 +53,7 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
     manager ? supabase.from("device_events").select("id,occurred_at,received_at,severity,category,code,version,details")
       .eq("device_id",d.id).order("received_at",{ascending:false}).order("id",{ascending:false}).limit(100) : Promise.resolve({data:[],error:null}),
   ]);
+  const [{data:safety},{data:recoveryReleases}]=await Promise.all([manager?supabase.from('device_safety_controls').select('*').eq('device_id',d.id).maybeSingle():Promise.resolve({data:null}),staff.role==='super_admin'?supabase.from('agent_releases').select('id,version_code,version_name').not('sha256','is',null).order('version_code',{ascending:false}):Promise.resolve({data:[]})]);
   const locations = (locationRows ?? []) as DeviceLocation[];
   const installed = [...(d.installed_apps ?? [])].sort((a, b) => Number(a.system) - Number(b.system) || a.label.localeCompare(b.label));
   const enrolled = d.status !== "pending" && d.status !== "retired";
@@ -153,7 +155,7 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
           {manager && (
             <section className="card p-4">
               <h2 className="mb-3 font-semibold">Lock, suspend, retire</h2>
-              <RecoveryControls deviceId={d.id} runtime={runtime}/><StateControls id={d.id} status={d.status} message={d.status_message} />
+              <DeviceSafetyControls deviceId={d.id} desired={safety as SafetyControl|null} reported={runtime?.readings?.safety} releases={recoveryReleases??[]} installedCode={d.agent_version_code??null}/><RecoveryControls deviceId={d.id} runtime={runtime}/><StateControls id={d.id} status={d.status} message={d.status_message} />
               {d.status_changed_at && <p className="mt-3 text-xs text-slate-400">State last changed {dateTime(d.status_changed_at)}</p>}
             </section>
           )}
