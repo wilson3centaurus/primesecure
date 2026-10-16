@@ -21,7 +21,10 @@ if (automatic && process.env.VERCEL_ENV !== 'production') {
   console.log('Keeping the checked-in student UI for local and preview builds.');
   process.exit(0);
 }
-const version = automatic ? Math.floor((Date.now() - Date.UTC(2026,0,1))/1000) : Number(process.argv.find(a => /^\d+$/.test(a)));
+const output = join(root, 'dashboard/public/student-ui/release.json');
+const previousVersion = existsSync(output) ? JSON.parse(Buffer.from(JSON.parse(readFileSync(output, 'utf8')).payload, 'base64')).version : 0;
+// A manually signed release or a clock adjustment must not stall production builds.
+const version = automatic ? Math.max(Math.floor((Date.now() - Date.UTC(2026,0,1))/1000), previousVersion + 1) : Number(process.argv.find(a => /^\d+$/.test(a)));
 if (!Number.isSafeInteger(version) || version < 1) throw Error('Usage: node scripts/publish-student-ui.mjs VERSION [--verify-only]');
 const privateKey = process.env.PRIMESECURE_UI_SIGNING_PEM || readFileSync(keyPath);
 const publicKey = createPublicKey({ key: Buffer.from(readFileSync(publicPath, 'utf8').trim(), 'base64'), format: 'der', type: 'spki' });
@@ -33,7 +36,6 @@ const files = Object.fromEntries(['index.html','workspace.js','workspace.css','p
 const payload = Buffer.from(JSON.stringify({ version, bridge: 1, files }));
 const signature = sign('sha256', payload, privateKey);
 if (!verify('sha256', payload, publicKey, signature)) throw Error('Private key does not match the APK trust key.');
-const output = join(root, 'dashboard/public/student-ui/release.json');
 if (existsSync(output)) {
   const previous = JSON.parse(Buffer.from(JSON.parse(readFileSync(output, 'utf8')).payload, 'base64'));
   if (version <= previous.version && !process.argv.includes('--verify-only')) throw Error('UI versions must increase. Publish a new version to roll back.');

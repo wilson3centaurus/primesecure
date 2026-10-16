@@ -104,3 +104,10 @@ Run the transaction checks from the repository root with
 `node tools/library/test-import.cjs`. The reviewed staged inventory is recorded in
 `catalog-2026-10.csv` and `review-2026-10.json`; these are preparation reports,
 not proof of live publication. Use the server's `import-report.json` for that.
+
+`create-explore-guides.py OUTPUT_DIRECTORY` creates ten original illustrated PNG
+guides under Explore & grow, grouped into How does it really work?, DIY, Life
+lessons, Motivational statements, and Key to passing and success. Text and diagrams
+are RoboKorda originals licensed CC BY 4.0; no Pinterest artwork is scraped. Pass
+that output directory to the same importer to validate the budget, back up the
+catalog and publish without overwriting existing resources.

@@ -1,0 +1,14 @@
+artifacts/**
+**/node_modules/**
+**/.env
+**/.env.*
+**/.gradle/**
+**/.kotlin/**
+**/.idea/**
+**/build/**
+**/.next/**
+**/__pycache__/**
+**/*.keystore
+**/*.jks
+agent/local.properties
+.git/**
