@@ -128,7 +128,8 @@ class HubActivity : Activity() {
                 catalog.put("items",JSONArray(items)).put("messages",JSONArray(hub.messages()))
                     .put("tasks",HubTasks(this@HubActivity).publicList()).put("online",Connectivity.online(this@HubActivity))
                     .put("runtime",cachedRuntime).put("agent_version",BuildConfig.VERSION_NAME).put("ui_version",uiDirectory?.name?.drop(1)?.toIntOrNull() ?: StudentUiUpdates.BUNDLED_VERSION)
-                    .put("capabilities",JSONObject().put("resource_requests",true).put("open_approved_apps",true).put("uninstall_optional_apps",true).put("usage_access_setup",true).put("support_photo",true).put("theme_preferences",true).put("communication_inbox",true))
+                    .put("capabilities",JSONObject().put("resource_requests",true).put("open_approved_apps",true).put("uninstall_optional_apps",true).put("usage_access_setup",true).put("support_photo",true).put("theme_preferences",true).put("communication_inbox",true).put("controlled_downloads",true))
+                    .put("download_sites",JSONArray(SchoolWebTools.all.map { tool -> JSONObject().put("id",tool.id).put("title",tool.title).put("url",tool.startUrl).put("allowed",ApprovedWebApps.rules(this@HubActivity).allows(tool.startUrl)) }))
                     .put("ui_theme",StudentTheme.preference(this@HubActivity))
                     .put("hidden_keys",JSONArray(hub.hiddenKeys())).put("sync_error",hub.syncError ?: JSONObject.NULL)
                     .put("last_sync",AgentStore(this@HubActivity).lastCheckInAt)
@@ -186,7 +187,7 @@ class HubActivity : Activity() {
                             StudentTheme.save(this@HubActivity,a.getString("value"))
                             StudentTheme.applyWindow(this@HubActivity);web.setBackgroundColor(StudentTheme.background(this@HubActivity));refresh()
                         }
-                        "retry_task" -> { withContext(Dispatchers.IO) { HubTasks(this@HubActivity).retry(a.getString("id")) }; OfflineWorker.schedule(this@HubActivity);HubSync.schedule(this@HubActivity);refresh() }
+                        "retry_task" -> { withContext(Dispatchers.IO) { val tasks=HubTasks(this@HubActivity);tasks.retry(a.getString("id"));if(tasks.all().any { it.optString("id")==a.getString("id")&&it.optString("action")=="web_download" })WebMediaWorker.schedule(this@HubActivity,a.getString("id")) }; OfflineWorker.schedule(this@HubActivity);HubSync.schedule(this@HubActivity);refresh() }
                         "photo" -> {
                             pickingPhoto=true
                             try { startActivityForResult(Intent(Intent.ACTION_GET_CONTENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE),804) }
@@ -237,6 +238,12 @@ class HubActivity : Activity() {
                             val item=withContext(Dispatchers.IO) { hub.items().find { it.optString("id")==a.getString("id") && it.optString("kind")=="app" } } ?: error("This app is no longer approved by your school.")
                             check(AgentStore(this@HubActivity).lastStatus=="active") { "Your school has restricted this device." }
                             ApprovedWebApps.open(this@HubActivity,item)
+                        }
+                        "open_school_site" -> {
+                            val tool=SchoolWebTools.find(a.getString("id")) ?: error("This website is unavailable.")
+                            check(AgentStore(this@HubActivity).lastStatus=="active"&&ApprovedWebApps.rules(this@HubActivity).allows(tool.startUrl)) { "Your school needs to approve this website in Settings > Web filtering." }
+                            check(Connectivity.online(this@HubActivity)) { "Connect to the internet to search this website. Your saved files are still available in Media." }
+                            startActivity(Intent(this@HubActivity,WebAppActivity::class.java).setData(android.net.Uri.parse(tool.startUrl)).putExtra("school_web_tool",tool.id))
                         }
                         "install" -> {
                             val item=hub.items().find { it.optString("id")==a.getString("id") && it.optString("kind")=="app" } ?: error("This app is unavailable.")

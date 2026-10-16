@@ -45,6 +45,11 @@ export function PolicyEditor({
     setAllowedSites(previous=>[...new Set([...previous.split(/[\s,]+/).filter(Boolean),'tinkercad.com','accounts.autodesk.com','signin.autodesk.com','auth.autodesk.com','native.auth.autodesk.com','cdn.accounts.autodesk.com','profile.autodesk.com','developer.api.autodesk.com','www.recaptcha.net','www.gstatic.com','app.launchdarkly.com'])].join('\n'));
   }
 
+  function addDownloadSite(domain: string) {
+    setWebMode("allowlist");
+    setAllowedSites(previous => [...new Set([...previous.split(/[\s,]+/).filter(Boolean), domain])].join("\n"));
+  }
+
   async function upload(file: File) {
     setUploadError("");
     if (!file.type.startsWith("image/")) return setUploadError("Pick an image file.");
@@ -123,7 +128,16 @@ export function PolicyEditor({
             <h2 className="font-semibold">Web filtering</h2>
 <p className="text-xs text-slate-500">Agent 0.8.4 adds school web apps inside PrimeSecure, with no address bar or browser icon in allowlist mode. Keep the PrimeOS browser and Chrome blocked in Apps.</p>
           </div>
-          <div className="rounded-lg border border-line bg-panel p-3 text-xs leading-5"><p>Open installed web-wrapper apps using <b>Open</b> in the student App Store. PrimeSecure reads the declared start website from supported wrappers. For ordinary web links, choose School web app if Android asks. Apps that insist on Chrome Custom Tabs may need a different version. This does not restrict a embedded browsers inside other apps.</p><button type="button" disabled={!canEdit} className="btn-secondary mt-3" onClick={addTinkercad}>Add Tinkercad starter sites</button><p className="mt-2 text-muted">Adds Tinkercad and Autodesk sign-in domains to this form. Save to apply. Pilot sign-in, the editor and cloud saving on one Primebook; add a missing service domain only after reviewing it. File uploads, downloads and separate popup windows are disabled in this first viewer.</p></div>
+          <div className="rounded-lg border border-line bg-panel p-3 text-xs leading-5"><p>Open installed web-wrapper apps using <b>Open</b> in the student App Store. PrimeSecure reads the declared start website from supported wrappers. For ordinary web links, choose School web app if Android asks. Apps that insist on Chrome Custom Tabs may need a different version. This does not restrict embedded browsers inside other apps.</p><button type="button" disabled={!canEdit} className="btn-secondary mt-3" onClick={addTinkercad}>Add Tinkercad starter sites</button><p className="mt-2 text-muted">Adds Tinkercad and Autodesk sign-in domains to this form. Save to apply. Pilot sign-in, the editor and cloud saving on one Primebook; add a missing service domain only after reviewing it. Ordinary web apps keep file uploads, downloads and separate popup windows disabled.</p></div>
+          <div className="rounded-xl border border-line bg-panel p-4">
+            <h3 className="text-xs font-semibold">Student media downloads</h3>
+            <p className="mt-1 text-xs leading-5 text-muted">PrimeSecure 0.8.6 adds MP3Juices and Unsplash under Downloads, with no browser address bar. Approving an entry also permits its restricted service resources. Supported media files are saved to Media; APKs, HTML files, advertising links and outside navigation are blocked.</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" disabled={!canEdit} className="btn-secondary" onClick={() => addDownloadSite("v4.mp3juices.africa.com")}>Add music &amp; video website</button>
+              <button type="button" disabled={!canEdit} className="btn-secondary" onClick={() => addDownloadSite("unsplash.com")}>Add Unsplash images</button>
+            </div>
+            <p className="mt-2 text-[11px] leading-5 text-muted">Save policy to apply. Remove the entry from Allowed websites to withdraw approval. Keep general browsers blocked in Apps. Public search results are provided by the site and are not individually reviewed by your school.</p>
+          </div>
           <div className="flex flex-wrap gap-4 text-sm">
             {([["off", "No filtering"], ["blocklist", "Block listed sites"], ["allowlist", "Only allow listed sites"]] as const).map(([v, l]) => (
               <label key={v} className="flex items-center gap-2">

@@ -8,14 +8,14 @@ import android.os.Bundle
 import org.json.JSONObject
 
 internal object ApprovedWebApps {
-    fun restrictWorkers(context: Context) {
+    fun restrictWorkers(context: Context,tool:SchoolWebTool?=null) {
         val app=context.applicationContext
         android.webkit.ServiceWorkerController.getInstance().apply {
             serviceWorkerWebSettings.allowFileAccess=false
             serviceWorkerWebSettings.allowContentAccess=false
             setServiceWorkerClient(object:android.webkit.ServiceWorkerClient() {
                 override fun shouldInterceptRequest(request:android.webkit.WebResourceRequest):android.webkit.WebResourceResponse? =
-                    if(rules(app).allows(request.url.toString())) null else android.webkit.WebResourceResponse("text/plain","UTF-8",403,"Not approved",mapOf("Cache-Control" to "no-store"),java.io.ByteArrayInputStream(ByteArray(0)))
+                    if(if(tool==null) rules(app).allows(request.url.toString()) else rules(app).allows(tool.startUrl)&&tool.allowsResource(request.url.toString(),rules(app))) null else android.webkit.WebResourceResponse("text/plain","UTF-8",403,"Not approved",mapOf("Cache-Control" to "no-store"),java.io.ByteArrayInputStream(ByteArray(0)))
             })
         }
     }

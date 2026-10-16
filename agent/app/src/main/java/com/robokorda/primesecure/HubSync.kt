@@ -54,7 +54,7 @@ class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(cont
                 }
             }
             InitialSetup(applicationContext).catalogReceived()
-            if (tasks.pending().any { it.optString("action") != "download" }) OfflineWorker.schedule(applicationContext)
+            if (tasks.pending().any { it.optString("action") !in setOf("download","web_download") }) OfflineWorker.schedule(applicationContext)
             var failed = false
             val starter = InitialSetup.starterIds(hub.items())
             val defaultWallpaper = hub.catalog.optJSONObject("wallpaper")?.optString("id")
