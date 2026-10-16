@@ -111,3 +111,10 @@ lessons, Motivational statements, and Key to passing and success. Text and diagr
 are RoboKorda originals licensed CC BY 4.0; no Pinterest artwork is scraped. Pass
 that output directory to the same importer to validate the budget, back up the
 catalog and publish without overwriting existing resources.
+
+Large OpenStax originals are staged unchanged, then `split-openstax-volumes.py`
+creates labelled volumes below the existing Storage per-file limit. Every source
+page is retained; publisher licence/credit pages repeat in later volumes. The
+splitter checks text on every page and representative rendered pages. It does
+not raise the server's global upload limit. Final published counts include these
+volumes, so they differ from the prepared single-file inventory.

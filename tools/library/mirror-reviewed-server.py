@@ -88,7 +88,12 @@ def main():
     manifest=json.loads((STAGE/'bundle/manifest.json').read_text());assert len(manifest['resources'])==361,'Prepared resource count differs from reviewed batch'
     progress('publishing_catalog')
     extra=TRANSFER/'openstax-manifest.json';snapshot=TRANSFER/'openstax-import-snapshot.json';snapshot.write_text(json.dumps(json.loads(extra.read_text())))
-    command=['python3',str(Path(__file__).parent/'import-expansion.py'),str(STAGE/'bundle'),'--openstax',str(snapshot)]
+    storage_env=dict(v.split('=',1) for v in json.loads(subprocess.check_output(['docker','inspect','supabase-storage']))[0]['Config']['Env'] if '=' in v)
+    limit=min(45000000,int(storage_env['FILE_SIZE_LIMIT'])-1024)
+    progress('splitting_large_textbooks')
+    subprocess.run(['python3',str(Path(__file__).parent/'split-openstax-volumes.py'),str(snapshot),'--limit',str(limit)],check=True)
+    progress('publishing_catalog')
+    command=['python3',str(Path(__file__).parent/'import-expansion.py'),str(STAGE/'bundle'),'--openstax',str(TRANSFER/'openstax-volumes.json')]
     subprocess.run(command,check=True);subprocess.run(command+['--apply'],check=True)
     report=json.loads((STAGE/'bundle/import-report.json').read_text());progress('published',report=report)
     deadline=time.time()+900
