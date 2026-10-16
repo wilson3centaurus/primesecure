@@ -1,45 +1,30 @@
 "use client";
 import { useActionState, useState } from "react";
-import { publishItem, changeLibraryItem, saveHubSettings, reviewAppRequest } from "@/app/(app)/library/actions";
-import { createClient } from "@/lib/supabase/browser";
+import { changeLibraryItem, saveHubSettings, reviewAppRequest } from "@/app/(app)/library/actions";
+import { useUploads } from "./upload-queue";
 import { FormMessage } from "./form-message";
 import { SubmitButton } from "./submit-button";
 import type { FormState } from "@/lib/types";
 
 export function HubUpload({ kind, schoolId, superAdmin, folder=[],forms=[] }: { kind: string; schoolId: string; superAdmin: boolean; folder?:string[];forms?:string[] }) {
-  const [state, setState] = useState<FormState>(); const [busy, setBusy] = useState(false);
-  const [selected,setSelected]=useState<string[]>([]),[progress,setProgress]=useState('');
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const form = event.currentTarget; const data = new FormData(form); const files = (data.getAll("file") as File[]).filter(f=>f.size);
-    if (!files.length) return setState({ error: "Choose a file." });
-    if(files.length>50)return setState({error:'Upload at most 50 resources at a time.'});
-    if (kind === "wallpaper" && files.some(file=>file.size > 8_000_000)) return setState({ error: "Wallpapers must be smaller than 8 MB." });
-    const shared = data.get("shared") === "on";
-    setBusy(true); setState(undefined);
-    try {
-      const supabase = createClient();
-      let completed=0;
-      for(const file of files) {
-      const path = `${shared ? "shared" : schoolId}/${crypto.randomUUID()}/${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-      setProgress(`Uploading ${completed+1} of ${files.length}: ${file.name}`);
-      const { error } = await supabase.storage.from("primesecure-hub").upload(path, file, { contentType: file.type || "application/octet-stream" });
-      if (error) throw error;
-      const result = await publishItem({ kind, path, shared, title: kind==='app'?String(data.get('title')||''):(files.length>1?file.name:String(data.get("title")||file.name)).slice(0,160), description: String(data.get("description") || ""), form: String(data.get("form") || ""), subject: String(data.get("subject") || ""), category: String(data.get("category") || "Notes"), size: file.size, mime: file.type || "application/octet-stream", preinstall: data.get("preinstall") === "on" });
-      if (result?.error) await supabase.storage.from("primesecure-hub").remove([path]);
-      if(result?.error)throw new Error(`${completed} files published. ${result.error}`);
-      completed++;
-      }
-      setState({ok:`${completed} ${completed===1?'file':'files'} published to the library.`});form.reset();setSelected([]);
-    } catch (e) { setState({ error: e instanceof Error ? e.message : "Upload failed." }); } finally { setBusy(false);setProgress(''); }
+  const uploads=useUploads();
+  const [state,setState]=useState<FormState>(),[busy,setBusy]=useState(false),[selected,setSelected]=useState<string[]>([]);
+  async function submit(event:React.FormEvent<HTMLFormElement>){
+    event.preventDefault();const form=event.currentTarget,data=new FormData(form),files=(data.getAll('file') as File[]).filter(file=>file.size);
+    setBusy(true);setState(undefined);
+    try{
+      await uploads.enqueue(files,schoolId,{kind,shared:data.get('shared')==='on',title:String(data.get('title')||''),description:String(data.get('description')||''),form:String(data.get('form')||''),subject:String(data.get('subject')||''),category:String(data.get('category')||'Notes'),preinstall:data.get('preinstall')==='on'});
+      setState({ok:`${files.length} ${files.length===1?'file added':'files added'} to Background uploads. You can continue using the dashboard.`});form.reset();setSelected([]);
+    }catch(error){setState({error:error instanceof Error?error.message:'Could not queue the selected files.'});}finally{setBusy(false);}
   }
   return <form onSubmit={submit} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();const input=e.currentTarget.querySelector<HTMLInputElement>('input[type=file]');if(input&&e.dataTransfer.files.length){input.files=e.dataTransfer.files;setSelected(Array.from(input.files).map(f=>f.name));}}} className="grid gap-4 md:grid-cols-2">
     <label className="label">{kind==="app"?"Display name (optional)":"Title (optional)"}<input name="title" maxLength={160} className="input mt-1" placeholder={kind === "resource" ? "Use the filename, or enter a title" : kind==="app"?"Automatically detected from your APK":"Name students will see"} /></label>
-    <label className="label rounded-xl border border-dashed border-brand-100 bg-brand-50/50 p-4">{kind==='resource'?'Drop files here or choose multiple resources':kind==='app'?'Drop an APK here or choose your APK':'Choose your file'}<input name="file" type="file" multiple={kind==='resource'} required onChange={e=>setSelected(Array.from(e.target.files||[]).map(f=>f.name))} accept={kind === "app" ? ".apk" : kind === "wallpaper" ? "image/png,image/jpeg,image/webp" : undefined} className="input mt-2" />{selected.length>0&&<span className="mt-2 block text-xs text-brand-600">{selected.length} selected: {selected.slice(0,3).join(', ')}{selected.length>3?'…':''}</span>}</label>
+    <label className="label rounded-xl border border-dashed border-brand-100 bg-brand-50/50 p-4">{kind==='resource'?'Drop files here or choose multiple resources':kind==='app'?'Drop APKs here or choose multiple APKs':'Drop wallpapers here or choose multiple images'}<input name="file" type="file" multiple required onChange={e=>setSelected(Array.from(e.target.files||[]).map(f=>f.name))} accept={kind === "app" ? ".apk" : kind === "wallpaper" ? "image/png,image/jpeg,image/webp" : undefined} className="input mt-2" />{selected.length>0&&<span className="mt-2 block text-xs text-brand-600">{selected.length} selected: {selected.slice(0,3).join(', ')}{selected.length>3?'...':''}</span>}</label>
     <label className="label md:col-span-2">Description<textarea name="description" maxLength={2000} className="input mt-1" rows={2} /></label>
     {kind === "resource" && <><label className="label">Form<select name="form" defaultValue={folder[0]||forms[0]||'All levels'} className="input mt-1">{[...new Set([...forms,...(folder[0]?[folder[0]]:[])])].map(f => <option key={f}>{f}</option>)}<option>All levels</option></select></label><label className="label">Subject<input name="subject" defaultValue={folder[1]||''} required placeholder="Mathematics" maxLength={100} className="input mt-1" /></label><label className="label">Resource folder<select name="category" defaultValue={folder[2]||'Notes'} className="input mt-1">{["Notes", "Past exam papers", "Textbooks", "Images", "Videos", "Other resources"].map(c => <option key={c}>{c}</option>)}</select></label></>}
     {kind === "app" && <><div className="rounded-xl bg-brand-50 p-4 text-sm text-brand-700">Just choose the APK. PrimeSecure reads its name, version, icon and application identifier automatically.</div><label className="flex items-center gap-2 text-sm"><input type="checkbox" name="preinstall" /> Automatically install on enrolled devices</label></>}
     {superAdmin && <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="shared" /> Shared RoboKorda library (schools opt in)</label>}
-    <div className="flex flex-wrap items-center gap-4 md:col-span-2"><button className="btn-primary" disabled={busy}>{busy ? "Uploading…" : "Publish to library"}</button>{progress&&<span className="text-xs text-slate-400" role="status">{progress}</span>}<FormMessage state={state} /></div>
+    <div className="flex flex-wrap items-center gap-4 md:col-span-2"><button className="btn-primary" disabled={busy||!uploads.ready}>{busy ? "Saving files..." : "Upload files"}</button><button type="button" className="text-xs text-brand-700" onClick={()=>uploads.setOpen(true)}>View background uploads</button><FormMessage state={state} /></div>
   </form>;
 }
 

@@ -46,3 +46,11 @@ Then in Vercel:
    - `SUPABASE_SERVICE_ROLE_KEY` = the service-role key, type **Sensitive**. Type it straight into Vercel and don't paste it anywhere else.
 3. Deploy. Production deploys come from `main`, so merge the work branch first.
 4. In Supabase, set **Auth → URL configuration → Site URL** (`SITE_URL` in `docker/.env`) to the Vercel domain.
+
+## Background library uploads
+
+Select up to 50 APKs, notes or wallpapers in one batch. The header's Uploads panel shows each file's byte progress, percentage, transfer speed and publication status, with pause, resume and retry controls. Two files transfer concurrently while you navigate the dashboard. Each job retains its original school and library settings.
+
+Files and queue state are saved in this browser under the signed-in account. Keep a dashboard tab open for active transfers; closing the browser stops the connection, and saved jobs restart when you return. An interrupted transfer may restart from the beginning. Publication retries reuse the same item ID to avoid duplicate library entries. Removing queue history does not delete published library items. Background queues do not follow you to another computer or browser.
+
+Run `npm run test:uploads` for queue, retry, authorization and publication regression checks.

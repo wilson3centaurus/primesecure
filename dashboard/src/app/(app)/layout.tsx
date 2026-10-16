@@ -2,6 +2,7 @@ import { signOut } from "@/app/login/actions";
 import { NavLink } from "@/components/nav-link";
 import { SchoolSwitcher } from "@/components/school-switcher";
 import { WorkspaceShell } from "@/components/workspace-shell";
+import { UploadQueueProvider } from "@/components/upload-queue";
 import { getCurrentSchool, getVisibleSchools, requireStaff, ROLE_LABEL } from "@/lib/auth";
 import Image from "next/image";
 import { LayoutDashboard, Laptop, Mail, FolderOpen, AppWindow, MessageCircle, Users, School, Download, Settings, BarChart3, ClipboardList, LogOut } from "lucide-react";
@@ -30,5 +31,5 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
     </nav></div>
     <div className="mt-auto border-t border-line pt-4"><div className="mb-4 flex items-center gap-2.5 px-1"><Image unoptimized src="/brand/robokorda.jpg" alt="RoboKorda" width={34} height={34} className="size-9 shrink-0 rounded-lg border border-line bg-white object-contain"/><span className="sidebar-detail text-[10px] leading-4 text-muted">School technology,<br/><strong className="font-semibold text-ink">managed by RoboKorda</strong></span></div><div className="sidebar-detail flex items-center justify-between gap-2 rounded-lg bg-panel px-3 py-2.5"><div className="min-w-0"><p className="truncate text-xs font-semibold text-ink" title={staff.email}>{staff.fullName||staff.email}</p><p className="mt-0.5 text-[10px] text-muted">{ROLE_LABEL[staff.role]}</p></div><form action={signOut}><button className="icon-button" aria-label="Sign out" title="Sign out"><LogOut size={14}/></button></form></div></div>
   </>;
-  return <WorkspaceShell school={school?.name||"RoboKorda"} sidebar={sidebar}>{children}</WorkspaceShell>;
+  return <UploadQueueProvider key={staff.id} userId={staff.id} schools={schools}><WorkspaceShell school={school?.name||"RoboKorda"} sidebar={sidebar}>{children}</WorkspaceShell></UploadQueueProvider>;
 }

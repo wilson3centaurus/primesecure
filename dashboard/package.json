@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:admin-config": "node --test scripts/admin-config.test.mjs"
+    "test:admin-config": "node --test scripts/admin-config.test.mjs",
+    "test:uploads": "node --test scripts/upload-queue.test.mjs"
   },
   "dependencies": {
     "@devicefarmer/adbkit-apkreader": "3.2.4",

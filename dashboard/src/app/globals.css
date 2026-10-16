@@ -118,3 +118,9 @@ a.stat-card:hover { border-color:#a89ce6;transform:translateY(-2px); }
 [data-theme="dark"] :is(.from-white,.to-indigo-50,.from-indigo-100,.to-violet-100) { --tw-gradient-from:var(--ps-surface);--tw-gradient-to:var(--ps-panel); }
 [data-theme="dark"] dialog { background:var(--ps-surface);color:var(--ps-ink); }
 [data-theme="dark"] :is([class~="hover:bg-slate-50"],[class~="hover:bg-white"]):hover { background-color:var(--ps-hover); }
+.upload-progress { display:block; width:100%; height:6px; appearance:none; border:0; border-radius:99px; overflow:hidden; background:var(--ps-border); }
+.upload-progress::-webkit-progress-bar { background:var(--ps-border); border-radius:99px; }
+.upload-progress::-webkit-progress-value { background:#7863e8; border-radius:99px; transition:width .2s; }
+.upload-progress::-moz-progress-bar { background:#7863e8; border-radius:99px; }
+.upload-progress[data-state="done"]::-webkit-progress-value { background:#10b981; }
+.upload-progress[data-state="done"]::-moz-progress-bar { background:#10b981; }

@@ -6,15 +6,23 @@ import { createClient } from "@/lib/supabase/server";
 import type { FormState } from "@/lib/types";
 import { inspectApk } from "@/lib/apk";
 
-export async function publishItem(input: { kind: string; title: string; description: string; form: string; subject: string; category: string; path: string; mime: string; size: number; packageName?: string; shared: boolean; preinstall: boolean }): Promise<FormState> {
+export async function publishItem(input: { kind: string; title: string; description: string; form: string; subject: string; category: string; path: string; mime: string; size: number; packageName?: string; shared: boolean; preinstall: boolean; schoolId?:string;uploadId?:string }): Promise<FormState> {
   const staff = await requireStaff();
-  const school = await getCurrentSchool();
+  // Background uploads keep their original school even after the workspace changes.
+  const school = input.schoolId ? {id:input.schoolId} : await getCurrentSchool();
   if (!school || !canManage(staff, school.id) || (input.shared && staff.role !== "super_admin")) return { error: "Administrator access required." };
   const prefix = input.shared ? "shared" : school.id;
   if (!input.path.startsWith(`${prefix}/`) || input.path.includes("..") || !["resource", "wallpaper", "app"].includes(input.kind)) return { error: "Invalid upload." };
   if ((!input.title.trim() && input.kind!=="app") || input.title.length > 160 || input.description.length > 2000) return { error: "Enter a title of up to 160 characters and description of up to 2,000." };
   if (input.kind === "wallpaper" && !["image/jpeg", "image/png", "image/webp"].includes(input.mime)) return { error: "Wallpapers must be JPG, PNG or WebP." };
   const supabase = await createClient();
+  const matches=(row:{storage_path:string;school_id:string|null;kind:string})=>row.storage_path===input.path&&row.school_id===(input.shared?null:school.id)&&row.kind===input.kind;
+  if(input.uploadId){
+    if(!/^[0-9a-f-]{36}$/i.test(input.uploadId)||!input.path.startsWith(`${prefix}/${input.uploadId}/`))return {error:'Invalid upload identity.'};
+    const {data:existing,error}=await supabase.from('hub_items').select('storage_path,school_id,kind').eq('id',input.uploadId).maybeSingle();
+    if(error)return {error:error.message};
+    if(existing)return matches(existing)?{ok:'Already published to the library.'}:{error:'Upload identity is already in use.'};
+  }
   const slash = input.path.lastIndexOf("/");
   const { data: files, error: fileError } = await supabase.storage.from("primesecure-hub").list(input.path.slice(0, slash), { search: input.path.slice(slash + 1) });
   const uploaded = files?.find(f => f.name === input.path.slice(slash + 1));
@@ -28,13 +36,20 @@ export async function publishItem(input: { kind: string; title: string; descript
     catch(e){return {error:e instanceof Error?e.message:"Could not inspect APK."};}
   }
   const { error } = await supabase.from("hub_items").insert({
+    ...(input.uploadId?{id:input.uploadId}:{}),
     school_id: input.shared ? null : school.id, kind: input.kind, title: (input.title.trim()||apk?.title||"App").slice(0,160), description: input.description,
     form_level: input.form.slice(0, 80), subject: input.subject.slice(0, 100), category: input.category.slice(0, 80),
     storage_path: input.path, mime_type: input.mime, size: input.size,
     package_name: apk?.packageName || null, preinstall: input.kind === "app" && input.preinstall,
     version_name:apk?.version,icon_data:apk?.icon,sha256:apk?.sha256,
   });
-  if (error) return { error: error.message };
+  if (error) {
+    if(error.code==='23505'&&input.uploadId){
+      const {data:existing}=await supabase.from('hub_items').select('storage_path,school_id,kind').eq('id',input.uploadId).maybeSingle();
+      if(existing&&matches(existing))return {ok:'Already published to the library.'};
+    }
+    return { error: error.message };
+  }
   revalidatePath("/library"); revalidatePath("/wallpapers"); revalidatePath("/apps");
   return { ok: input.shared ? "Published to RoboKorda library. Enable it for the schools that should receive it." : "Published. Devices download content on their next online sync." };
 }
