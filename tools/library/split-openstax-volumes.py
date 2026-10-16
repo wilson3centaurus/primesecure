@@ -36,7 +36,7 @@ for row in rows:
         assert sum(end-start for start,end,path in parts)==len(original)
         for n,(start,end,path) in enumerate(parts,1):
             data=path.read_bytes();extra=dict(row)
-            extra.update(title=row['title']+' - volume '+str(n)+' of '+str(len(parts)),filename=path.name,size=len(data),sha256=hashlib.sha256(data).hexdigest(),pages=len(first)+end-start)
+            extra.update(title=row['title']+' - volume '+str(n)+' of '+str(len(parts)),filename=path.name,size=len(data),sha256=hashlib.sha256(data).hexdigest(),pages=len([i for i in first if i<start])+end-start)
             extra['description']='Supplementary textbook; teacher review required for ZIMSEC alignment. Split from the publisher original without changing page content. Original PDF pages '+str(start+1)+'-'+str(end)+' of '+str(len(original))+'. Publisher licence and credit pages retained/repeated. '+row['attribution']+' Source: '+row['source_url']+' Licence: '+row['license']
             output.append(extra)
 target=args.manifest.parent/'openstax-volumes.json';target.write_text(json.dumps(output,indent=2))
