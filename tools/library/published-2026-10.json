@@ -1,0 +1,34 @@
+{
+  "school_id": "14eea188-73b1-40bc-8f8d-15afbea27ffa",
+  "published_at_utc": "2026-10-16T22:55:00Z",
+  "total_resources": 435,
+  "total_bytes": 832745321,
+  "budget_bytes": 1000000000,
+  "new_resources": 382,
+  "categories": {
+    "A-Level syllabuses": 23,
+    "Archived syllabuses": 4,
+    "Diagrams": 6,
+    "Examiner reports": 124,
+    "Illustrated guides": 10,
+    "Images": 7,
+    "Marking guides": 11,
+    "Notes": 20,
+    "Novels": 16,
+    "O-Level syllabuses": 13,
+    "Past exam papers": 12,
+    "Plays": 4,
+    "Practical handouts": 3,
+    "Practical inserts & instructions": 10,
+    "Practice papers": 5,
+    "Readers & stories": 18,
+    "Specimen papers": 115,
+    "Textbooks": 34
+  },
+  "verification": "Every newly uploaded object was downloaded and checksum-verified before catalog publication; the catalog transaction checked the total budget again. Physical-device download completion is not verified.",
+  "notes": [
+    "Large OpenStax textbooks are 21 labelled volumes with every source page retained and publisher credits repeated.",
+    "English novels and plays are public-domain editions; Shona material is attributed readers and stories, not modern prescribed novels.",
+    "Foreign textbooks are supplements requiring teacher review for ZIMSEC alignment."
+  ]
+}
