@@ -13,3 +13,7 @@ Students may delete their own sent support messages; school administrators may d
 **Settings → Forms & classes** includes class and whole-form deletion with confirmation. Assigned students must first be moved to another group. Deletion retains learning resources and student records. The Rusununguko seed contains the 26 named classes requested from RoboCore; existing additional entries are preserved.
 
 Validation distinguishes local database authorization/retry tests, desktop browser tests with a native bridge stub, live dashboard/database checks, and APK build/signature checks. Android image-picker behaviour, notification appearance and offline delivery need a physical Primebook pilot before fleet rollout.
+
+## Targeted built-in app hiding
+
+The broad strict-app rule still protects firmware by default. In agent 0.8.1, explicit hide requests can hide a narrow set of student-facing packages: Google search, known browser variants, Primebook App Store, Help, Contacts and Primebook file managers. Essential roles (including the active WebView), Settings, login components and unknown firmware stay protected. Hiding waits for successful user unlock, an unlocked screen and two minutes since boot. Existing direct-boot safety restores firmware before the first unlock. This is a targeted change, not a guarantee of complete browser lockdown or physical PrimeOS boot stability. Check **Students & devices ? Network & device controls ? App visibility results** for per-package outcomes, and test one device/reboot before fleet deployment.

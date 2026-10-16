@@ -214,10 +214,19 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
     ): Int {
         val previouslyHidden = store.hiddenByUs
         val previouslySuspended = store.suspendedByUs
-        val protected = AppSafety.protectedPackages(context)
+        val userUnlocked=context.getSystemService(UserManager::class.java).isUserUnlocked
+        val screenUnlocked=!context.getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked
+        val uptime=android.os.SystemClock.elapsedRealtime()
+        val explicit=ManualAppHides.expanded(hidden)
+        val essential=AppSafety.essentialPackages(context)
+        val exceptions=ManualAppHides.firmwareExceptions(hidden,essential,userUnlocked,screenUnlocked,uptime)
+        val allProtected=AppSafety.protectedPackages(context)
+        val protected = allProtected-exceptions
+        @Suppress("DEPRECATION")
+        val installed=pm.getInstalledApplications(android.content.pm.PackageManager.MATCH_UNINSTALLED_PACKAGES).map { it.packageName }.toSet()
 
         val want = AppVisibilityRules.hiddenPackages(
-            requested = hidden + if (hideSettings) SETTINGS_PACKAGES else emptySet(),
+            requested = (explicit + if (hideSettings) SETTINGS_PACKAGES else emptySet()).intersect(installed),
             allowed = allowed, launchable = launchablePackages(),
             previouslyRestricted = previouslyHidden + previouslySuspended,
             protected = protected, allowListOnly = allowListOnly,
@@ -253,6 +262,18 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
             }
         }
         store.saveAppRestrictions(nowHidden, nowSuspended)
+        val outcomes=JSONArray((explicit + if(hideSettings) SETTINGS_PACKAGES else emptySet()).sorted().map { pkg ->
+            JSONObject().put("package",pkg).put("status",when {
+                pkg !in installed -> "not_installed"
+                pkg in nowHidden -> "hidden"
+                pkg in nowSuspended -> "suspended"
+                pkg in essential -> "protected"
+                pkg in allProtected && pkg in ManualAppHides.groups.values.flatten() && (!userUnlocked||!screenUnlocked||uptime<120_000) -> "waiting_for_unlock"
+                pkg in protected -> "protected"
+                else -> "rejected"
+            })
+        })
+        context.getSharedPreferences("app-visibility-report",Context.MODE_PRIVATE).edit().putString("device",store.deviceId).putString("outcomes",outcomes.toString()).putLong("updated",System.currentTimeMillis()).commit()
         check(failures.isEmpty()) { "Android app restriction failures: ${failures.joinToString()}" }
         return nowHidden.size + nowSuspended.size
     }

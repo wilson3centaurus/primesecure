@@ -14,15 +14,10 @@ internal object AppSafety {
     private const val KNOWN_CORE = "android,com.android.systemui,com.android.settings,com.android.providers.settings,com.android.webview,com.google.android.webview,com.android.permissioncontroller,com.google.android.permissioncontroller"
 
     @Suppress("DEPRECATION")
-    fun protectedPackages(context: Context): Set<String> = buildSet {
+    fun essentialPackages(context: Context): Set<String> = buildSet {
         val pm = context.packageManager
         add(context.packageName)
         addAll(KNOWN_CORE.split(','))
-        // MATCH_UNINSTALLED_PACKAGES includes apps hidden by earlier agent versions.
-        // Protect every firmware/updated-firmware app, including OEM login components.
-        pm.getInstalledApplications(PackageManager.MATCH_UNINSTALLED_PACKAGES).filter {
-            it.flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
-        }.forEach { add(it.packageName) }
         val flags = PackageManager.MATCH_UNINSTALLED_PACKAGES or PackageManager.MATCH_DISABLED_COMPONENTS or
             PackageManager.MATCH_DIRECT_BOOT_AWARE or PackageManager.MATCH_DIRECT_BOOT_UNAWARE
         pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), flags)
@@ -34,6 +29,12 @@ internal object AppSafety {
         runCatching { WebView.getCurrentWebViewPackage()?.packageName }.getOrNull()?.let(::add)
         AdminReceiver.dpm(context).activeAdmins?.forEach { add(it.packageName) }
     }
+
+    @Suppress("DEPRECATION")
+    fun protectedPackages(context:Context):Set<String> = essentialPackages(context) + context.packageManager
+        .getInstalledApplications(PackageManager.MATCH_UNINSTALLED_PACKAGES).filter {
+            it.flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)!=0
+        }.map { it.packageName }
 
     /** Uses no credential-encrypted agent files: safe before the first unlock. */
     @Synchronized

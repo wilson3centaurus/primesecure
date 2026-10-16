@@ -37,6 +37,7 @@ object DeviceRuntime {
             .put("prime_id",WifiInventory.primeId(context) ?: JSONObject.NULL)
             .put("wifi",WifiInventory.collect(context))
             .put("usage",UsageReporter.status(context))
+            .put("app_visibility",appVisibility(context))
             .put("controls",JSONObject()
                 .put("bluetooth_sharing",restrictions?.getBoolean(UserManager.DISALLOW_BLUETOOTH_SHARING)==true)
                 .put("bluetooth_disabled",restrictions?.getBoolean(UserManager.DISALLOW_BLUETOOTH)==true)
@@ -49,6 +50,19 @@ object DeviceRuntime {
             .put("usb", JSONObject().put("storage_requested", usbRequested).put("storage_restriction_set", restrictions?.getBoolean(UserManager.DISALLOW_MOUNT_PHYSICAL_MEDIA) == true)
                 .put("transfer_restriction_set", restrictions?.getBoolean(UserManager.DISALLOW_USB_FILE_TRANSFER) == true).put("mounted_drives", mountedUsb)
                 .put("verification", if (usbRequested && mountedUsb > 0) "USB/SD media is still mounted. PrimeOS may not enforce this Android restriction, or the drive was mounted before it was applied." else "USB and SD enforcement requires separate physical-device tests."))
+    }
+    private fun appVisibility(context:Context):JSONObject {
+        val prefs=context.getSharedPreferences("app-visibility-report",Context.MODE_PRIVATE)
+        if(prefs.getString("device",null)!=AgentStore(context).deviceId)return JSONObject()
+        val results=runCatching { org.json.JSONArray(prefs.getString("outcomes","[]")) }.getOrElse { org.json.JSONArray() }
+        for(i in 0 until results.length()) {
+            val row=results.getJSONObject(i);val pkg=row.optString("package")
+            if(row.optString("status") in setOf("hidden","suspended"))runCatching {
+                val dpm=AdminReceiver.dpm(context);val admin=AdminReceiver.component(context)
+                row.put("status",if(dpm.isApplicationHidden(admin,pkg))"hidden" else if(dpm.isPackageSuspended(admin,pkg))"suspended" else "visible")
+            }.onFailure {row.put("status","unverified")}
+        }
+        return JSONObject().put("outcomes",results).put("policy_applied_at",prefs.getLong("updated",0))
     }
     @Suppress("MissingPermission","DEPRECATION")
     private fun locationDiagnostics(context:Context):JSONObject {
