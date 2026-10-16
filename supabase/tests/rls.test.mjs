@@ -44,6 +44,8 @@ const SUPABASE_STUB = `
 const db = new PGlite();
 const ids = {};
 
+
+
 // Run SQL as a signed-in user (or anon when uid is null), like PostgREST does.
 async function as(uid, sql, params = []) {
   return db.transaction(async (tx) => {
@@ -1036,4 +1038,17 @@ test('notes folder create rename delete preserve files and reject other schools 
  await as(ids.adminA,"select staff_library_folder($1,false,'delete',$2)",[ids.schoolA,['Folder QA','Science']]);
  assert.equal((await as(ids.adminA,'select id from hub_items where id=$1',[item])).length,1);
  for(const path of [[],['Bad/path'],['ok','ok','ok','too deep']])await rejects(as(ids.adminA,"select staff_library_folder($1,false,'create',$2)",[ids.schoolA,path]),/valid folder/);
+});
+
+test('settings lockdown stays school-scoped and cannot be changed by a device',async()=>{
+ await as(ids.adminA,"insert into hub_settings(scope,school_id,lock_device_settings,block_debugging_features,lock_network_settings) values($1::uuid::text,$1,true,true,false) on conflict(scope) do update set lock_device_settings=true,block_debugging_features=true,lock_network_settings=false",[ids.schoolA]);
+ const a=(await as(communication.user,'select device_hub() value'))[0].value;
+ assert.equal(a.management.lock_device_settings,true);assert.equal(a.management.block_debugging_features,true);assert.equal(a.management.lock_network_settings,false);
+ const b=(await as(ids.devB,'select device_hub() value'))[0].value;
+ assert.equal(b.management.lock_device_settings,false);assert.equal(b.management.block_debugging_features,false);
+ const changed=await as(communication.user,"update hub_settings set lock_device_settings=false where school_id=$1 returning *",[ids.schoolA]);
+ assert.equal(changed.length,0);
+ assert.equal((await as(communication.user,'select device_hub() value'))[0].value.management.lock_device_settings,true);
+ await rejects(as(communication.user,'select device_hub_settings_lockdown_base()'),/permission/);
+ await rejects(as(null,'select device_hub()'),/permission/);
 });

@@ -25,7 +25,7 @@ export async function saveManagementSettings(_prev:FormState,form:FormData):Prom
  const contacts=[0,1].map(n=>({name:String(form.get(`contact_name_${n}`)||'').trim(),phone:String(form.get(`contact_phone_${n}`)||'').trim()}));
  if(contacts.some(c=>!c.name||c.name.length>100||!c.phone||c.phone.length>40))return {error:'Enter each support contact’s name and phone.'};
  const interval=Number(form.get('location_interval_minutes')||30);if(![5,15,30,60,120,1440].includes(interval))return {error:'Choose a location update interval.'};
- const controls=Object.fromEntries(['block_bluetooth_transfer','block_bluetooth','block_add_users','block_user_switch','block_factory_reset','usage_reporting'].map(key=>[key,form.get(key)==='on']));
+ const controls=Object.fromEntries(['block_bluetooth_transfer','block_bluetooth','block_add_users','block_user_switch','block_factory_reset','usage_reporting','lock_device_settings','block_debugging_features','lock_network_settings'].map(key=>[key,form.get(key)==='on']));
  const {error}=await db.from('hub_settings').upsert({scope:school.id,school_id:school.id,block_usb_storage:form.get('block_usb_storage')==='on',block_usb_transfer:form.get('block_usb_transfer')==='on',keep_wifi_on:form.get('keep_wifi_on')==='on',hide_file_managers:form.get('hide_file_managers')==='on',support_contacts:contacts,...controls,location_interval_minutes:interval});
  if(error)return {error:error.message};revalidatePath('/settings');return {ok:'Saved. A sync request is queued for connected Primebooks. Offline devices catch up after reconnecting.'};
 }

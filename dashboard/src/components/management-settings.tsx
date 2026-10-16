@@ -3,12 +3,15 @@ import { useActionState } from "react";
 import { saveManagementSettings } from "@/app/(app)/settings/actions";
 import { FormMessage } from "./form-message";
 import { SubmitButton } from "./submit-button";
-type Settings={keep_wifi_on?:boolean;block_usb_storage?:boolean;block_usb_transfer?:boolean;hide_file_managers?:boolean;block_bluetooth_transfer?:boolean;block_bluetooth?:boolean;block_add_users?:boolean;block_user_switch?:boolean;block_factory_reset?:boolean;usage_reporting?:boolean;location_interval_minutes?:number;viewer_packages?:Record<string,string>;support_contacts?:{name:string;phone:string}[]};
+type Settings={lock_device_settings?:boolean;block_debugging_features?:boolean;lock_network_settings?:boolean;keep_wifi_on?:boolean;block_usb_storage?:boolean;block_usb_transfer?:boolean;hide_file_managers?:boolean;block_bluetooth_transfer?:boolean;block_bluetooth?:boolean;block_add_users?:boolean;block_user_switch?:boolean;block_factory_reset?:boolean;usage_reporting?:boolean;location_interval_minutes?:number;viewer_packages?:Record<string,string>;support_contacts?:{name:string;phone:string}[]};
 export function ManagementSettings({settings,apps,section="device"}:{settings:Settings;apps:{title:string;package_name:string}[];section?:"device"|"viewers"}) {
  const [state,action]=useActionState(saveManagementSettings,undefined);
  return <form action={action} className="max-w-4xl space-y-5"><input type="hidden" name="section" value={section}/>
  {section==="device"?<><section className="card p-5"><h2 className="mb-4 text-sm font-semibold">Device controls</h2><div className="grid gap-3 md:grid-cols-2">{[
  {name:"keep_wifi_on",title:"Keep Wi-Fi enabled",description:"Restore Wi-Fi and request a connection lock while the device is on."},
+ {name:"lock_device_settings",title:"Lock security and account settings",description:"Agent 0.8.7+: restrict account changes, extra users, app controls, certificate-store changes, safe boot, Settings reset, unknown installers, VPN, private DNS, date/time, location settings, airplane mode, tethering and network reset. Settings stays available for login safety; this is not a complete settings or firmware lock."},
+ {name:"block_debugging_features",title:"Disable developer and ADB debugging",description:"Agent 0.8.7+: turn on after provisioning and password recovery are verified. USB/wireless ADB and the PC setup connection will stop. Admin Emergency safe mode can release this restriction when the device is reachable."},
+ {name:"lock_network_settings",title:"Lock Wi-Fi and mobile-network configuration",description:"Agent 0.8.7+: configure school Wi-Fi first. Students may be unable to add a new network or hotspot while this is on. Keep off during the first connectivity/recovery pilot."},
  {name:"block_usb_storage",title:"Block USB drives and SD cards",description:"Request Android to prevent physical-media mounting. Test both a USB flash drive and an SD card on PrimeOS."},
  {name:"block_usb_transfer",title:"Block USB file transfer",description:"Prevent file transfers between the Primebook and a computer."},
  {name:"hide_file_managers",title:"Use PrimeSecure for student media",description:"Hide known user-installed file managers. Firmware safety exclusions remain."},

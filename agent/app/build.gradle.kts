@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Base64
 
 plugins {
     id("com.android.application")
@@ -9,6 +10,18 @@ fun setting(property: String, env: String): String =
     System.getenv(env)?.takeIf { it.isNotBlank() }
         ?: providers.gradleProperty(property).orNull.orEmpty()
 
+// A manually published interface can be ahead of the clock. Never let its old
+// cached assets replace the newer interface bundled with this APK.
+val signedUiRelease = rootProject.file("../dashboard/public/student-ui/release.json")
+val signedUiVersion = if (signedUiRelease.exists()) {
+    val envelope = signedUiRelease.readText()
+    val payload = Regex("\"payload\"\\s*:\\s*\"([A-Za-z0-9+/=]+)\"").find(envelope)?.groupValues?.get(1)
+        ?: error("Invalid signed student interface envelope")
+    val decoded = String(Base64.getDecoder().decode(payload), Charsets.UTF_8)
+    Regex("\"version\"\\s*:\\s*(\\d+)").find(decoded)?.groupValues?.get(1)?.toLong()
+        ?: error("Missing student interface version")
+} else 0L
+
 android {
     namespace = "com.robokorda.primesecure"
     compileSdk = 35
@@ -18,14 +31,14 @@ android {
         minSdk = 26
         targetSdk = 34
         // New native releases must exceed the installed recovery and production codes.
-        versionCode = System.getenv("AGENT_VERSION_CODE")?.toIntOrNull() ?: 23
-        versionName = System.getenv("AGENT_VERSION_NAME") ?: "0.8.6"
+        versionCode = System.getenv("AGENT_VERSION_CODE")?.toIntOrNull() ?: 24
+        versionName = System.getenv("AGENT_VERSION_NAME") ?: "0.8.7"
 
         buildConfigField("String", "SUPABASE_URL", "\"${setting("primesecure.url", "PRIMESECURE_URL")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${setting("primesecure.anonKey", "PRIMESECURE_ANON_KEY")}\"")
         // Same monotonically increasing epoch used by the UI publisher. A newer
         // APK must never load an older cached web interface over its bundled UI.
-        buildConfigField("int", "UI_BUNDLED_VERSION", ((System.currentTimeMillis() - 1767225600000L) / 1000).toString())
+        buildConfigField("int", "UI_BUNDLED_VERSION", maxOf((System.currentTimeMillis() - 1767225600000L) / 1000, signedUiVersion + 1).toString())
     }
 
     // Release signing comes from the agent-release workflow (secrets) or a local keystore.

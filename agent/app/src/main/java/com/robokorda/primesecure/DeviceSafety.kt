@@ -13,6 +13,7 @@ object DeviceSafety {
         val p=prefs(context)
         if(p.getString("device",null)==deviceId)return
         restoreJournal(context)
+        DeviceSettingsLockdown.clear(context)
         check(p.edit().clear().putString("device",deviceId).commit())
     }
     @Synchronized fun observe(context:Context,control:JSONObject?) {
@@ -22,7 +23,7 @@ object DeviceSafety {
         check(p.edit().putLong("revision",revision).putBoolean("safe_mode",control.optBoolean("safe_mode"))
             .putBoolean("updates_paused",control.optBoolean("updates_paused"))
             .putLong("rollback_requested",control.optLong("ui_rollback_revision")).commit())
-        if(paused(context))restoreJournal(context)
+        if(paused(context)) { restoreJournal(context);DeviceSettingsLockdown.clear(context) }
         finishRollback(context)
     }
     @Synchronized fun finishRollback(context:Context) {

@@ -72,20 +72,22 @@ class PolicyApplier(private val context: Context, private val store: AgentStore)
 
         attempt("lock wallpaper") { restrict(UserManager.DISALLOW_SET_WALLPAPER, lockWallpaper) }
         val management=policy.optJSONObject("hub_management") ?: JSONObject()
+        val settingsLock=management.optBoolean("lock_device_settings")&&!DeviceSafety.paused(context)
+        attempt("settings lockdown") { problems+=DeviceSettingsLockdown.apply(context,management) }
         attempt("USB and SD storage") { restrict(UserManager.DISALLOW_MOUNT_PHYSICAL_MEDIA,management.optBoolean("block_usb_storage")) }
         attempt("USB file transfer") { restrict(UserManager.DISALLOW_USB_FILE_TRANSFER,management.optBoolean("block_usb_transfer")) }
         attempt("Bluetooth file sharing") { restrict(UserManager.DISALLOW_BLUETOOTH_SHARING, management.optBoolean("block_bluetooth_transfer")) }
         attempt("Bluetooth") { restrict(UserManager.DISALLOW_BLUETOOTH, management.optBoolean("block_bluetooth")) }
         attempt("Bluetooth configuration") { restrict(UserManager.DISALLOW_CONFIG_BLUETOOTH, management.optBoolean("block_bluetooth")) }
-        attempt("new users and guests") { restrict(UserManager.DISALLOW_ADD_USER, management.optBoolean("block_add_users")) }
+        attempt("new users and guests") { restrict(UserManager.DISALLOW_ADD_USER, settingsLock||management.optBoolean("block_add_users")) }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            attempt("user switching") { restrict(UserManager.DISALLOW_USER_SWITCH, management.optBoolean("block_user_switch")) }
+            attempt("user switching") { restrict(UserManager.DISALLOW_USER_SWITCH, settingsLock||management.optBoolean("block_user_switch")) }
         }
-        attempt("Settings factory reset") { restrict(UserManager.DISALLOW_FACTORY_RESET, management.optBoolean("block_factory_reset")) }
+        attempt("Settings factory reset") { restrict(UserManager.DISALLOW_FACTORY_RESET, settingsLock||management.optBoolean("block_factory_reset")) }
         attempt("block installs") {
-            restrict(UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES, blockInstalls)
+            restrict(UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES, blockInstalls||settingsLock)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                restrict(UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES_GLOBALLY, blockInstalls)
+                restrict(UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES_GLOBALLY, blockInstalls||settingsLock)
             }
         }
 
