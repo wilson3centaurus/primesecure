@@ -42,7 +42,7 @@ export function PolicyEditor({
 
   function addTinkercad(){
     setWebMode('allowlist');setHomeUrl('https://www.tinkercad.com/');
-    setAllowedSites(previous=>[...new Set([...previous.split(/[\s,]+/).filter(Boolean),'tinkercad.com','accounts.autodesk.com','signin.autodesk.com','auth.autodesk.com','native.auth.autodesk.com','cdn.accounts.autodesk.com','profile.autodesk.com','developer.api.autodesk.com'])].join('\n'));
+    setAllowedSites(previous=>[...new Set([...previous.split(/[\s,]+/).filter(Boolean),'tinkercad.com','accounts.autodesk.com','signin.autodesk.com','auth.autodesk.com','native.auth.autodesk.com','cdn.accounts.autodesk.com','profile.autodesk.com','developer.api.autodesk.com','www.recaptcha.net','www.gstatic.com','app.launchdarkly.com'])].join('\n'));
   }
 
   async function upload(file: File) {
