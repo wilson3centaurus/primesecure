@@ -18,6 +18,7 @@ class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(cont
             val revision=api.rpc("device_sync_state").optLong("revision")
             hub.catalog = api.rpc("device_hub").put("_sync_revision",revision)
             if (store.deviceId != device) return Result.success()
+            Notifications.supportReplies(applicationContext,hub.catalog)
             val draft=hub.profileDraft;val saved=hub.catalog.optJSONObject("student_profile")
             if(draft!=null && saved!=null && tasks.pending().none { it.optString("action")=="profile" } && draft.keys().asSequence().all { draft.optString(it,"")==saved.optString(it,"").let { value->if(value=="null") "" else value } }) hub.profileDraft=null
             val history = api.rpc("device_message_history")

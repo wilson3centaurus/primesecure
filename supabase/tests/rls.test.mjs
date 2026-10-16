@@ -891,3 +891,69 @@ test('support photo daily cap is enforced while a previously accepted request ca
  assert.equal((await as(f.user,'select device_support_photo($1,\'Retry\',$2) as result',[image,request]))[0].result.duplicate,true);
  assert.equal((await db.query('select count(*)::int as n from support_messages where device_id=$1',[f.device])).rows[0].n,50);
 });
+
+// Communication receipts are private to each reader; attachments remain school-scoped.
+const communication = {};
+const communicationImage = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAACAAIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD3+iiigD//2Q==';
+test('communication setup creates isolated active device',async()=>{
+ communication.user=(await db.query("insert into auth.users(email) values('communications-device@t') returning id")).rows[0].id;
+ communication.device=(await db.query("insert into devices(school_id,student_name,auth_user_id,status) values($1,'Communication learner',$2,'active') returning id",[ids.schoolA,communication.user])).rows[0].id;
+});
+test('student report validates category and image and deduplicates offline retries',async()=>{
+ const req=(await db.query('select gen_random_uuid() id')).rows[0].id;
+ const report={body:'PDF viewer keyboard bug',image:communicationImage,details:{category:'media',steps:'Open a PDF then press the right arrow.',expected:'Move down',actual:'No movement',agent_version:'0.8.1',ui_version:'123',ignored:'not stored'}};
+ const call=()=>as(communication.user,"select device_offline_action($1,'bug_report',$2::jsonb) value",[req,JSON.stringify(report)]);
+ communication.report=(await call())[0].value.id;assert.equal((await call())[0].value.id,communication.report);
+ const rows=await as(ids.adminA,'select * from support_messages where id=$1',[communication.report]);assert.equal(rows.length,1);assert.equal(rows[0].category,'bug_report');assert.equal(rows[0].report_details.ignored,undefined);assert.equal(rows[0].attachment_data,communicationImage);
+ for(const user of [ids.adminB,ids.teacherA,ids.devB])assert.equal((await as(user,'select id from support_messages where id=$1',[communication.report])).length,0);
+ for(const payload of [{...report,image:'data:image/jpeg;base64,YQ=='},{...report,image:'data:image/svg+xml;base64,YQ=='},{...report,details:{category:'invalid',steps:'x'}},{...report,details:{category:'media',steps:''}},{...report,image:'x'.repeat(115001)}])await rejects(as(communication.user,"select device_offline_action(gen_random_uuid(),'bug_report',$1::jsonb)",[JSON.stringify(payload)]),/Invalid|Choose|invalid/);
+});
+test('notification authorization handles null helpers and keeps read status per administrator',async()=>{
+ const poll=async user=>(await as(user,'select staff_notifications($1) value',[ids.schoolA]))[0].value;
+ assert((await poll(ids.adminA)).items.some(i=>i.id===communication.report));
+ for(const user of [ids.devA,ids.devB,ids.stray,ids.adminB])await rejects(poll(user),/School access/);
+ assert(!(await poll(ids.teacherA)).items.some(i=>i.id===communication.report));
+ await as(ids.adminA,"select communication_mark_read('support',array[$1::uuid])",[communication.report]);
+ assert(!(await poll(ids.adminA)).items.some(i=>i.id===communication.report));
+ assert((await poll(ids.super)).items.some(i=>i.id===communication.report));
+ assert.equal((await as(ids.super,'select * from communication_receipts where user_id=$1',[ids.adminA])).length,0);
+ await rejects(as(ids.adminA,"insert into communication_receipts(user_id,kind,message_id) values($1,'support',$2)",[ids.super,communication.report]));
+});
+test('support image reply requires actual school administrator and student reads only own incoming messages',async()=>{
+ for(const user of [ids.devA,ids.devB,ids.stray,ids.teacherA,ids.adminB])await rejects(as(user,'select staff_support_post($1,$2,$3)',[communication.device,'Forged support',communicationImage]),/Administrator/);
+ communication.reply=(await as(ids.adminA,'select staff_support_post($1,$2,$3) value',[communication.device,'Please share the exact error.',communicationImage]))[0].value.id;
+ const hub=async()=>(await as(communication.user,'select device_hub() value'))[0].value;
+ assert.equal((await hub()).support_messages.find(m=>m.id===communication.reply).read,false);
+ await as(ids.devB,"select communication_mark_read('support',array[$1::uuid])",[communication.reply]);
+ assert.equal((await hub()).support_messages.find(m=>m.id===communication.reply).read,false);
+ await as(communication.user,"select device_offline_action(gen_random_uuid(),'support_read',jsonb_build_object('ids',jsonb_build_array($1::text)))",[communication.reply]);
+ assert.equal((await hub()).support_messages.find(m=>m.id===communication.reply).read,true);
+});
+test('bug status is manager-only and rejects unknown states',async()=>{
+ for(const user of [communication.user,ids.adminB,ids.teacherA,ids.stray])await rejects(as(user,"select staff_bug_status($1,'resolved')",[communication.report]),/Report unavailable/);
+ await rejects(as(ids.adminA,"select staff_bug_status($1,'hidden')",[communication.report]),/Invalid/);
+ await as(ids.adminA,"select staff_bug_status($1,'reviewing')",[communication.report]);
+ assert.equal((await as(communication.user,'select report_status from support_messages where id=$1',[communication.report]))[0].report_status,'reviewing');
+});
+test('support deletion is scoped to own sent message or school administrator and clears image/details',async()=>{
+ for(const user of [ids.devB,ids.stray,ids.teacherA,ids.adminB])await rejects(as(user,'select support_delete_message($1)',[communication.report]),/Message unavailable/);
+ await rejects(as(communication.user,'select support_delete_message($1)',[communication.reply]),/Message unavailable/);
+ const req=(await db.query('select gen_random_uuid() id')).rows[0].id;
+ for(let n=0;n<2;n++)await as(communication.user,"select device_offline_action($1,'support_delete',jsonb_build_object('id',$2::text))",[req,communication.report]);
+ const row=(await as(ids.adminA,'select * from support_messages where id=$1',[communication.report]))[0];assert(row.deleted_at);assert.equal(row.body,'Message deleted');assert.equal(row.attachment_data,null);assert.deepEqual(row.report_details,{});
+ await as(ids.adminA,'select support_delete_message($1)',[communication.reply]);
+ assert.equal((await as(communication.user,'select attachment_data from support_messages where id=$1',[communication.reply]))[0].attachment_data,null);
+});
+test('form deletion preserves students and resources and cannot bypass guarded RPC',async()=>{
+ await as(ids.adminA,"insert into school_classes(school_id,form_level,class_name) values($1,'Delete QA','A'),($1,'Delete QA','B')",[ids.schoolA]);
+ await db.query("update devices set form_level='Delete QA',class_name='A' where id=$1",[communication.device]);
+ await rejects(as(ids.adminA,"select staff_delete_school_group($1,'Delete QA',null)",[ids.schoolA]),/Move assigned students/);
+ for(const user of [ids.teacherA,ids.adminB,communication.user,ids.stray])await rejects(as(user,"select staff_delete_school_group($1,'Delete QA','B')",[ids.schoolA]),/Administrator/);
+ await rejects(as(ids.adminA,"delete from school_classes where school_id=$1 and form_level='Delete QA'",[ids.schoolA]));
+ await as(ids.adminA,"select staff_delete_school_group($1,'Delete QA','B')",[ids.schoolA]);
+ assert.equal((await as(ids.adminA,"select class_name from school_classes where school_id=$1 and form_level='Delete QA'",[ids.schoolA]))[0].class_name,'A');
+ await db.query("update devices set form_level='',class_name='' where id=$1",[communication.device]);
+ await as(ids.adminA,"select staff_delete_school_group($1,'Delete QA',null)",[ids.schoolA]);
+ assert.equal((await as(ids.adminA,"select * from school_classes where school_id=$1 and form_level='Delete QA'",[ids.schoolA])).length,0);
+ assert.equal((await as(ids.adminA,'select id from devices where id=$1',[communication.device])).length,1);
+});

@@ -36,6 +36,18 @@ export async function saveSchoolClass(_prev:FormState,form:FormData):Promise<For
  if(error)return {error:error.message};revalidatePath('/settings');revalidatePath('/devices','layout');revalidatePath('/library');return {ok:'Added. This form and class are available in dropdown menus.'};
 }
 
+export async function deleteSchoolGroup(_prev:FormState,form:FormData):Promise<FormState> {
+ const staff=await requireStaff(),school=await getCurrentSchool();
+ if(!school||!canManage(staff,school.id))return {error:'School administrator access required.'};
+ const level=String(form.get('form_level')||'').trim();
+ const klass=form.has('class_name')?String(form.get('class_name')||''):null;
+ if(!level||level.length>80||(klass!==null&&klass.length>80))return {error:'Choose a valid form or class.'};
+ const db=await createClient();const {error}=await db.rpc('staff_delete_school_group',{p_school_id:school.id,p_form:level,p_class:klass});
+ if(error)return {error:error.message};
+ for(const path of ['/settings','/devices','/library','/messages'])revalidatePath(path);
+ return {ok:klass===null?'Form deleted. Existing learning resources were kept.':'Class deleted.'};
+}
+
 export async function saveAppRules(_prev:FormState,form:FormData):Promise<FormState> {
  const staff=await requireStaff(),school=await getCurrentSchool();if(!school||!canManage(staff,school.id))return {error:'School administrator access required.'};
  const requested=form.getAll('blocked_package').map(String);if(requested.some(pkg=>!BUILTIN_APP_REQUESTS.some(a=>a.package===pkg)))return {error:'Invalid app control request.'};

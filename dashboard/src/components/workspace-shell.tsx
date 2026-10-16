@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Menu, PanelLeftClose, PanelLeftOpen, X, ShieldCheck, ChevronRight } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { ThemeToggle } from "./theme-toggle";
+import { NotificationBell } from "./notification-bell";
 
 const labels:Record<string,string>={overview:"Overview",devices:"Students & devices",messages:"Messages",library:"Content & files",apps:"Apps",support:"Student support",reports:"Usage reports",cases:"Issues & cases",settings:"Settings",staff:"Staff",schools:"Schools",agent:"Agent updates"};
 export function WorkspaceShell({sidebar,children,school}:{sidebar:React.ReactNode;children:React.ReactNode;school:string}) {
@@ -30,7 +31,7 @@ export function WorkspaceShell({sidebar,children,school}:{sidebar:React.ReactNod
   </aside>
   <div className="workspace-main" inert={open?true:undefined}><header className="workspace-header">
    <div className="flex min-w-0 items-center gap-3"><button type="button" className="icon-button workspace-mobile-menu" onClick={()=>setOpen(true)} aria-label="Open navigation" aria-controls="workspace-navigation" aria-expanded={open}><Menu size={17}/></button><button type="button" className="icon-button workspace-desktop-collapse" onClick={()=>setCollapsed(!collapsed)} aria-label={collapsed?'Expand navigation':'Collapse navigation'}>{collapsed?<PanelLeftOpen size={16}/>:<PanelLeftClose size={16}/>}</button><span className="hidden text-xs text-muted sm:inline">Workspace</span><ChevronRight size={12} className="hidden text-muted sm:block"/><span className="truncate text-xs font-semibold">{page}</span></div>
-   <div className="flex min-w-0 items-center gap-4"><div className="workspace-header-school hidden min-w-0 items-center gap-2 sm:flex"><ShieldCheck size={15} className="shrink-0 text-emerald-500"/><span className="max-w-64 truncate text-xs text-muted" title={school}>{school}</span></div><ThemeToggle/></div>
+   <div className="flex min-w-0 items-center gap-4"><div className="workspace-header-school hidden min-w-0 items-center gap-2 sm:flex"><ShieldCheck size={15} className="shrink-0 text-emerald-500"/><span className="max-w-64 truncate text-xs text-muted" title={school}>{school}</span></div><NotificationBell/><ThemeToggle/></div>
   </header><main id="workspace-content" className="workspace-content" tabIndex={-1}>{children}</main></div>
  </div>;
 }

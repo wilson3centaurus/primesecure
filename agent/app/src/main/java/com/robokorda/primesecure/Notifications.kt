@@ -76,6 +76,29 @@ object Notifications {
         manager(context).cancel(commandId.hashCode())
     }
 
+    fun cancelSupport(context:Context) { manager(context).cancel(930) }
+
+    fun supportReplies(context:Context,catalog:org.json.JSONObject) {
+        val prefs=context.getSharedPreferences("support-notifications",Context.MODE_PRIVATE)
+        val device=AgentStore(context).deviceId
+        if(prefs.getString("device",null)!=device) {
+            cancelSupport(context);prefs.edit().clear().putString("device",device).commit()
+        }
+        val messages=catalog.optJSONArray("support_messages") ?: return
+        val unread=(0 until messages.length()).map { messages.getJSONObject(it) }
+            .filter { it.optString("sender")=="support"&&!it.optBoolean("read")&&it.isNull("deleted_at") }
+        if(unread.isEmpty()) { cancelSupport(context);prefs.edit().remove("unread").apply();return }
+        val signature=unread.joinToString(",") { it.optString("id") }
+        if(prefs.getString("unread",null)==signature)return
+        createChannels(context)
+        val open=PendingIntent.getActivity(context,930,Intent(context,HubActivity::class.java).putExtra("open_support",true),PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val notification=builder(context,MESSAGE_CHANNEL).setSmallIcon(android.R.drawable.ic_dialog_email)
+            .setContentTitle(if(unread.size==1)"New reply from RoboKorda" else "${unread.size} unread support replies")
+            .setContentText("Open PrimeSecure to read your support conversation.").setContentIntent(open)
+            .setVisibility(Notification.VISIBILITY_PRIVATE).setAutoCancel(true).build()
+        runCatching { manager(context).notify(930,notification);prefs.edit().putString("unread",signature).apply() }
+    }
+
     fun schoolSync(context:Context,title:String,body:String) {
         runCatching {
             createChannels(context)

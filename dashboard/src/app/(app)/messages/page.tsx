@@ -16,6 +16,8 @@ export default async function MessagesPage() {
     db.from("devices").select("id,student_name,student_id").eq("school_id",school.id),
     db.from("school_classes").select("form_level,class_name").eq("school_id",school.id)
   ]);
+  const {data:reads}=await db.from("communication_receipts").select("message_id").eq("kind","reply");
+  const readIds=new Set((reads||[]).map(r=>r.message_id));
   const names=new Map((devices||[]).map(d=>[d.id,d]));
   const batches=(data||[]) as Batch[];
   const notices:Notice[]=batches.map(batch=>({id:batch.id,title:batch.title,body:batch.body,time:dateTime(batch.created_at),canDelete:canManage(staff,school.id)||batch.created_by===staff.id,receipts:batch.receipts.map(m=>({id:m.id,name:m.name||"Student",studentId:m.student_id||"",opened:m.seen_at?dateTime(m.seen_at):"",acknowledged:m.acknowledged_at?dateTime(m.acknowledged_at):"",status:m.status}))}));
@@ -23,6 +25,6 @@ export default async function MessagesPage() {
     <div className="flex flex-wrap gap-5 text-xs text-slate-500"><span>{notices.length} recent notices (up to 25)</span><span>{batches.reduce((n,b)=>n+b.receipts.filter(r=>r.seen_at).length,0)} opened</span><span>{batches.reduce((n,b)=>n+b.receipts.filter(r=>r.acknowledged_at).length,0)} acknowledged</span><span>{replies?.length||0} replies</span></div>
     <details className="rounded-xl border border-slate-200 bg-white p-4"><summary className="cursor-pointer text-sm font-semibold text-brand-700">+ New message</summary><div className="mt-4 max-w-2xl"><MessageForm target="school" groups={groups||[]}/></div></details>
     {(error||replyError)&&<p role="alert" className="text-sm text-red-600">{error?.message||replyError?.message}</p>}
-    <MessageHistory notices={notices} replies={(replies||[]).map(r=>({id:r.id,deviceId:r.device_id,name:names.get(r.device_id)?.student_name||"Student",anonymous:r.anonymous,time:dateTime(r.created_at),body:r.body}))}/>
+    <MessageHistory notices={notices} replies={(replies||[]).map(r=>({id:r.id,unread:!readIds.has(r.id),deviceId:r.device_id,name:names.get(r.device_id)?.student_name||"Student",anonymous:r.anonymous,time:dateTime(r.created_at),body:r.body}))}/>
   </div>;
 }

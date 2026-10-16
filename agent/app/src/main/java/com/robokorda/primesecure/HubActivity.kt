@@ -21,6 +21,8 @@ class HubActivity : Activity() {
     private var ready = false
     private var poll: Job? = null
     private var pickingPhoto=false
+    private var pickingAttachment=false
+    private var attachmentDevice:String?=null
     private var refreshing=false
     private var wallpaperBusy=false
     private var cachedRuntime: JSONObject?=null
@@ -126,7 +128,7 @@ class HubActivity : Activity() {
                 catalog.put("items",JSONArray(items)).put("messages",JSONArray(hub.messages()))
                     .put("tasks",HubTasks(this@HubActivity).publicList()).put("online",Connectivity.online(this@HubActivity))
                     .put("runtime",cachedRuntime).put("agent_version",BuildConfig.VERSION_NAME).put("ui_version",uiDirectory?.name?.drop(1)?.toIntOrNull() ?: StudentUiUpdates.BUNDLED_VERSION)
-                    .put("capabilities",JSONObject().put("uninstall_optional_apps",true).put("usage_access_setup",true).put("support_photo",true).put("theme_preferences",true))
+                    .put("capabilities",JSONObject().put("uninstall_optional_apps",true).put("usage_access_setup",true).put("support_photo",true).put("theme_preferences",true).put("communication_inbox",true))
                     .put("ui_theme",StudentTheme.preference(this@HubActivity))
                     .put("hidden_keys",JSONArray(hub.hiddenKeys())).put("sync_error",hub.syncError ?: JSONObject.NULL)
                     .put("last_sync",AgentStore(this@HubActivity).lastCheckInAt)
@@ -134,14 +136,29 @@ class HubActivity : Activity() {
                     .put("device",cachedDevice).put("battery",DeviceInfo.batteryDiagnostics(this@HubActivity))
                     .put("installed_apps_count",cachedAppCount)
                 hub.profileDraft?.let { catalog.put("student_profile",it).put("profile_pending",true) }
-                catalog.put("pending_support",JSONArray(HubTasks(this@HubActivity).all().filter { it.optString("action") in setOf("support","name_appeal","support_photo") && it.optString("status") !in setOf("done","superseded") }.map {
+                val pendingActions=HubTasks(this@HubActivity).pending()
+                val localReads=pendingActions.filter { it.optString("action")=="support_read" }.flatMap { task ->
+                    val ids=task.getJSONObject("payload").optJSONArray("ids") ?: JSONArray()
+                    (0 until ids.length()).map { ids.getString(it) }
+                }.toSet()
+                val localDeletes=pendingActions.filter { it.optString("action")=="support_delete" }.map { it.getJSONObject("payload").optString("id") }.toSet()
+                catalog.optJSONArray("support_messages")?.let { messages -> for(i in 0 until messages.length()) {
+                    val message=messages.getJSONObject(i)
+                    if(message.optString("id") in localReads)message.put("read",true)
+                    if(message.optString("id") in localDeletes)message.put("deleted_at","pending").put("body","Deleting message?").remove("attachment_data")
+                } }
+                catalog.put("pending_support",JSONArray(HubTasks(this@HubActivity).all().filter { it.optString("action") in setOf("support","name_appeal","support_photo","support_post","bug_report") && it.optString("status") !in setOf("done","superseded") }.map {
                     JSONObject().put("body",if(it.optString("action")=="support_photo")"Photo for support" else it.getJSONObject("payload").optString("body")).put("status",it.optString("status"))
                 }))
                 catalog.toString()
             }
             if (ready && data!=lastState) {
                 val quoted=withContext(Dispatchers.Default) { JSONObject.quote(data) }
-                web.evaluateJavascript("window.receiveState($quoted)",null);lastState=data
+                web.evaluateJavascript("window.receiveState($quoted)") {
+                    if(intent.getBooleanExtra("open_support",false)) {
+                        intent.removeExtra("open_support");web.evaluateJavascript("window.openSupport()",null)
+                    }
+                };lastState=data
             }
           } finally { refreshing=false }
         }
@@ -186,6 +203,18 @@ class HubActivity : Activity() {
                         "recovery" -> { PasswordRecovery.activate(this@HubActivity); toast("Confirm your device password if Android asks. Recovery readiness is shown in About Device.");refresh() }
                         "usage_access" -> UsageReporter.openAccessSettings(this@HubActivity)
                         "support_photo" -> SupportCaptureActivity.start(this@HubActivity)
+                        "choose_attachment" -> chooseAttachment()
+                        "support_post","bug_report" -> {
+                            val payload=JSONObject().put("body",a.getString("body")).put("image",a.optString("image"))
+                            if(a.getString("action")=="bug_report")payload.put("details",a.getJSONObject("details"))
+                            enqueue(a.getString("action"),payload,if(a.getString("action")=="bug_report")"Bug report to RoboKorda" else "Message to RoboKorda")
+                        }
+                        "support_delete" -> enqueue("support_delete",JSONObject().put("id",a.getString("id")),"Delete support message")
+                        "support_read" -> {
+                            val ids=a.getJSONArray("ids");check(ids.length()<=200)
+                            withContext(Dispatchers.IO) { HubTasks(this@HubActivity).enqueue("support_read",JSONObject().put("ids",ids),"Read support replies") };OfflineWorker.schedule(this@HubActivity)
+                            Notifications.cancelSupport(this@HubActivity)
+                        }
                         "device_password" -> {
                             PasswordRecovery.activate(this@HubActivity)
                             if(PasswordRecovery.status(this@HubActivity)=="ready") {
@@ -281,10 +310,42 @@ class HubActivity : Activity() {
         toast("Saved on this Primebook. ${if(Connectivity.online(this)) "Processing in the background." else "Waiting for internet."} Check Background tasks.")
         refresh()
     }
+    private fun chooseAttachment() {
+        if(pickingAttachment)return
+        pickingAttachment=true;attachmentDevice=AgentStore(this).deviceId
+        val chooser=Intent(Intent.ACTION_GET_CONTENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE)
+        try { startActivityForResult(chooser,805) }
+        catch(_:android.content.ActivityNotFoundException) {
+            scope.launch {
+                try {
+                    val snapshot=withContext(Dispatchers.IO) { TelemetryWorker.snapshot(this@HubActivity) }.optJSONArray("entries") ?: JSONArray()
+                    val pictures=(0 until snapshot.length()).map { snapshot.getJSONObject(it) }.filter { !it.optBoolean("dir")&&it.optString("mime").startsWith("image/") }.take(200)
+                    check(pictures.isNotEmpty()) { "Take a screenshot first and save it in Pictures or Screenshots, then try again." }
+                    android.app.AlertDialog.Builder(this@HubActivity).setTitle("Choose an image or screenshot").setItems(pictures.map { it.optString("name") }.toTypedArray()) { _,index ->
+                        val file=FileManager(AgentStore(this@HubActivity),this@HubActivity).checkedFile(pictures[index].getString("path"))
+                        onActivityResult(805,RESULT_OK,Intent().setData(android.net.Uri.fromFile(file)))
+                    }.setNegativeButton("Cancel") { _,_ -> pickingAttachment=false }.setOnCancelListener { pickingAttachment=false }.show()
+                } catch(e:Exception) { pickingAttachment=false;if(e is CancellationException)throw e;toast(Connectivity.message(e)) }
+            }
+        }
+    }
     @Deprecated("Activity result compatibility")
     override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?) {
         super.onActivityResult(requestCode,resultCode,data)
         if(requestCode==803) { CheckInWorker.runNow(this);refresh() }
+        if(requestCode==805 && pickingAttachment) {
+            pickingAttachment=false
+            val selectedDevice=attachmentDevice;attachmentDevice=null
+            if(selectedDevice!=AgentStore(this).deviceId)return
+            if(resultCode!=RESULT_OK||data?.data==null)return
+            val uri=data.data!!
+            scope.launch {
+                try {
+                    val image=withContext(Dispatchers.IO) { AttachmentImages.read(this@HubActivity,uri) }
+                    if(ready&&selectedDevice==AgentStore(this@HubActivity).deviceId)web.evaluateJavascript("window.receiveAttachment(${JSONObject.quote(image)})",null)
+                } catch(e:Exception) { if(e is CancellationException)throw e;toast(Connectivity.message(e)) }
+            }
+        }
         if(requestCode==804 && pickingPhoto) {
             pickingPhoto=false
             val uri=data?.data ?: return

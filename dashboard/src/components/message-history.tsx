@@ -4,11 +4,12 @@ import { ChevronDown, Trash2, Search, CheckCheck, Eye } from "lucide-react";
 import { deleteMessages } from "@/app/(app)/messages/actions";
 import { FormMessage } from "./form-message";
 import { SubmitButton } from "./submit-button";
+import { markCommunicationRead } from "./notification-bell";
 import { MessageForm } from "./message-form";
 
 export type Notice = { id: string; title: string; body: string; time: string; canDelete: boolean;
   receipts: { id: string; name: string; studentId: string; opened: string; acknowledged: string; status: string }[] };
-export type StudentReply = { id: string; deviceId: string; name: string; anonymous: boolean; time: string; body: string };
+export type StudentReply = { id: string; unread?: boolean; deviceId: string; name: string; anonymous: boolean; time: string; body: string };
 
 export function MessageHistory({ notices, replies }: { notices: Notice[]; replies: StudentReply[] }) {
   const [query, setQuery] = useState("");
@@ -35,6 +36,6 @@ export function MessageHistory({ notices, replies }: { notices: Notice[]; replie
       </div>)}
       {!shown.length && <p className="p-8 text-center text-sm text-slate-400">No messages to show.</p>}
     </div>
-    <section><h2 className="mb-3 text-sm font-semibold">Student replies <span className="font-normal text-slate-400">({replies.length})</span></h2><div className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white">{replies.map(r => <details key={r.id} className="p-4"><summary className="cursor-pointer text-sm"><span className="font-medium">{r.name}{r.anonymous ? " (anonymous)" : ""}</span><span className="ml-3 text-xs text-slate-400">{r.time}</span><span className="mt-1 block truncate text-xs text-slate-500">{r.body.slice(0,120)}</span></summary><p className="my-3 whitespace-pre-wrap text-sm">{r.body}</p><MessageForm target={r.deviceId} collapsible label="Reply"/></details>)}{!replies.length && <p className="p-5 text-sm text-slate-400">No replies yet.</p>}</div></section>
+    <section><h2 className="mb-3 text-sm font-semibold">Student replies <span className="font-normal text-slate-400">({replies.length})</span></h2><div className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white">{replies.map(r => <details id={`reply-${r.id}`} key={r.id} className="scroll-mt-24 p-4" onToggle={event=>{if(event.currentTarget.open&&r.unread)void markCommunicationRead("reply",[r.id]).catch(()=>{});}}><summary className="cursor-pointer text-sm"><span className="font-medium">{r.unread&&<span className="mr-2 text-[10px] font-semibold text-brand-600">NEW</span>}{r.name}{r.anonymous ? " (anonymous)" : ""}</span><span className="ml-3 text-xs text-slate-400">{r.time}</span><span className="mt-1 block truncate text-xs text-slate-500">{r.body.slice(0,120)}</span></summary><p className="my-3 whitespace-pre-wrap text-sm">{r.body}</p><MessageForm target={r.deviceId} collapsible label="Reply"/></details>)}{!replies.length && <p className="p-5 text-sm text-slate-400">No replies yet.</p>}</div></section>
   </div>;
 }
