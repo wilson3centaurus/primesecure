@@ -1,6 +1,5 @@
 {
   "school_id": "14eea188-73b1-40bc-8f8d-15afbea27ffa",
-  "published_at_utc": "2026-10-16T22:55:00Z",
   "total_resources": 435,
   "total_bytes": 832745321,
   "budget_bytes": 1000000000,
@@ -30,5 +29,6 @@
     "Large OpenStax textbooks are 21 labelled volumes with every source page retained and publisher credits repeated.",
     "English novels and plays are public-domain editions; Shona material is attributed readers and stories, not modern prescribed novels.",
     "Foreign textbooks are supplements requiring teacher review for ZIMSEC alignment."
-  ]
+  ],
+  "published_date_utc": "2026-10-16"
 }
