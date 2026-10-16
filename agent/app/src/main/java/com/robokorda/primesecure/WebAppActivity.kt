@@ -130,7 +130,7 @@ class WebAppActivity : Activity() {
         approvalJob=scope.launch { while(isActive) {
             appStillApproved=withContext(Dispatchers.IO) { appPackage?.let { pkg ->
                 HubStore(this@WebAppActivity).items().any { it.optString("kind")=="app"&&it.optString("package_name")==pkg } &&
-                    runCatching { !AdminReceiver.dpm(this@WebAppActivity).isApplicationHidden(AdminReceiver.component(this@WebAppActivity),pkg)&&!packageManager.isPackageSuspended(pkg) }.getOrDefault(false)
+                    runCatching { !AdminReceiver.dpm(this@WebAppActivity).isApplicationHidden(AdminReceiver.component(this@WebAppActivity),pkg)&&!AdminReceiver.dpm(this@WebAppActivity).isPackageSuspended(AdminReceiver.component(this@WebAppActivity),pkg) }.getOrDefault(false)
             } ?: true }
             if(!appStillApproved) { finish();return@launch };delay(15_000)
         } }

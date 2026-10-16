@@ -44,7 +44,7 @@ internal object ApprovedWebApps {
     fun open(activity: Activity, item: JSONObject) {
         val pkg = item.getString("package_name")
         check(!AdminReceiver.dpm(activity).isApplicationHidden(AdminReceiver.component(activity),pkg) &&
-            !activity.packageManager.isPackageSuspended(pkg)) { "This app is blocked by your school." }
+            !AdminReceiver.dpm(activity).isPackageSuspended(AdminReceiver.component(activity),pkg)) { "This app is blocked by your school." }
         val launch = activity.packageManager.getLaunchIntentForPackage(pkg) ?: error("This app is not installed or is blocked by your school.")
         val url = startUrl(activity, pkg)
         if (url == null) { activity.startActivity(launch); return }
