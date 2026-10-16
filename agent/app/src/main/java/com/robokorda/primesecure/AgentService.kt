@@ -73,7 +73,15 @@ class AgentService : Service() {
             }
         }
         return START_STICKY
-            .also { if (telemetryLoop == null) telemetryLoop = scope.launch { var tick=0; while (true) {
+            .also { if (telemetryLoop == null) telemetryLoop = scope.launch { var tick=0;var visibilityGate=""; while (true) {
+                // Re-apply a saved hide request after the boot grace / unlock even
+                // without internet. Conversely, a locked screen restores protected firmware.
+                val gate="${getSystemService(android.os.UserManager::class.java).isUserUnlocked}:${getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked}:${android.os.SystemClock.elapsedRealtime()>=120_000}"
+                if(gate!=visibilityGate) {
+                    visibilityGate=gate
+                    runCatching { PolicyApplier(this@AgentService,store).applyCached() }
+                        .onFailure { DeviceLog.event(this@AgentService,"warning","policy","visibility_gate_reapply_failed",it) }
+                }
                 keepWifi()
                 scheduleSafely("usage_sample") { UsageReporter.sample(this@AgentService) }
                 delay(30_000L); tick++
