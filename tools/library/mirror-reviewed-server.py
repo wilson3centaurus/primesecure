@@ -18,11 +18,26 @@ def fetch(url,path,expected=None):
     assert 0<len(data)<=90000000,'Publisher file exceeds staging cap'
     if expected:assert hashlib.sha256(data).hexdigest()==expected,'Publisher content changed from reviewed checksum'
     path.write_bytes(data)
+def fetch_report(row,path):
+    if path.exists() and hashlib.sha256(path.read_bytes()).hexdigest()==row['sha256']:return
+    path.parent.mkdir(parents=True,exist_ok=True)
+    deadline=time.time()+3600
+    # This publisher is unreachable from the server's network. Accept only the
+    # checksum-identical original already downloaded and reviewed on the PC.
+    while time.time()<deadline:
+        try:
+            with transfer.get(plan['prefix']+'/reports/'+row['sha256']+'.pdf') as response:data=response.read(20000001)
+            assert len(data)==row['bytes'] and hashlib.sha256(data).hexdigest()==row['sha256']
+            path.write_bytes(data);return
+        except urllib.error.HTTPError as error:
+            if error.code not in (400,404):raise
+            time.sleep(5)
+    raise RuntimeError('Waiting for the verified report transfer timed out')
 def static_download(task):
     kind,row=task;result=dict(row)
     try:
         if kind=='official':
-            path=STAGE/'official-pdfs'/row['filename'];fetch(row['download_url'],path,row['sha256'])
+            path=STAGE/'official-pdfs'/row['filename'];fetch_report(row,path)
             import fitz
             with fitz.open(path) as doc:result['first_text']=' '.join(doc[i].get_text() for i in range(min(2,len(doc))))[:6000]
         elif kind=='shona':fetch(row['source_url'],STAGE/'shona'/row['filename'])
@@ -40,7 +55,21 @@ def main():
             if cmd.startswith('python3 '+str(TRANSFER/'https-transfer-server.py')+' --worker'):os.kill(int(p.name),signal.SIGTERM)
         except (FileNotFoundError,ProcessLookupError,PermissionError):pass
     progress('downloading_on_server')
-    tasks=[(kind,row) for kind in ['official','shona','novels','maths'] for row in INPUTS[kind]]+[('sparkfun',INPUTS['sparkfun'])]
+    progress('downloading_exam_documents')
+    web=Path('/var/tmp/primesecure-library-web')
+    web.mkdir(exist_ok=True)
+    # Browser runs as nobody, with no access to root's keys or database credentials.
+    for src,dest in [(TRANSFER/'browser/node_modules',web/'node_modules'),(TRANSFER/'browsers',web/'browsers'),(TRANSFER/'browser-libs',web/'libs')]:
+        if not dest.exists():shutil.copytree(src,dest)
+    shutil.copyfile(Path(__file__).parent/'mirror-sytbay.cjs',web/'mirror-sytbay.cjs')
+    (web/'inputs.json').write_text(json.dumps({'sytbay':INPUTS['sytbay']}))
+    out=web/'out';out.mkdir(exist_ok=True);out.chmod(0o700);os.chown(out,65534,65534)
+    environment={**os.environ,'PRIMESECURE_WEB_STAGE':str(web),'PLAYWRIGHT_BROWSERS_PATH':str(web/'browsers'),'LD_LIBRARY_PATH':str(web/'libs/usr/lib/x86_64-linux-gnu')}
+    subprocess.run(['runuser','-u','nobody','--','env','LD_LIBRARY_PATH='+environment['LD_LIBRARY_PATH'],'PLAYWRIGHT_BROWSERS_PATH='+environment['PLAYWRIGHT_BROWSERS_PATH'],'PRIMESECURE_WEB_STAGE='+str(web),'/opt/node-v20.19.6-linux-x64/bin/node',str(web/'mirror-sytbay.cjs')],check=True)
+    downloaded=json.loads((out/'sytbay-downloads.json').read_text());assert all(r.get('success') for r in downloaded),'Some browser downloads failed checksum validation'
+    shutil.copytree(out/'sytbay-pdfs',STAGE/'sytbay-pdfs',dirs_exist_ok=True);shutil.copyfile(out/'sytbay-downloads.json',STAGE/'sytbay-downloads.json')
+    progress('downloading_on_server')
+    tasks=[(kind,row) for kind in ['shona','novels','maths','official'] for row in INPUTS[kind]]+[('sparkfun',INPUTS['sparkfun'])]
     results={k:[] for k in ['official','shona','novels','maths','sparkfun']}
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         for n,(kind,row) in enumerate(executor.map(static_download,tasks),1):
@@ -52,19 +81,6 @@ def main():
     (maths/'downloaded-textbooks.json').write_text(json.dumps(results['maths']))
     failures=[r for rows in results.values() for r in rows if r.get('success') is False]
     assert not failures,'Publisher download failures: '+json.dumps([{'title':r.get('title'),'error':r.get('error')} for r in failures])[:800]
-    progress('downloading_exam_documents')
-    web=Path('/var/tmp/primesecure-library-web')
-    web.mkdir(exist_ok=True)
-    # Browser runs as nobody, with no access to root's keys or database credentials.
-    for src,dest in [(TRANSFER/'browser/node_modules',web/'node_modules'),(TRANSFER/'browsers',web/'browsers'),(TRANSFER/'browser-libs',web/'libs')]:
-        if not dest.exists():shutil.copytree(src,dest)
-    shutil.copyfile(Path(__file__).parent/'mirror-sytbay.cjs',web/'mirror-sytbay.cjs')
-    (web/'inputs.json').write_text(json.dumps({'sytbay':INPUTS['sytbay']}))
-    out=web/'out';out.mkdir(exist_ok=True);out.chmod(0o700);os.chown(out,65534,65534)
-    environment={**os.environ,'PRIMESECURE_WEB_STAGE':str(web),'PLAYWRIGHT_BROWSERS_PATH':str(web/'browsers'),'LD_LIBRARY_PATH':str(web/'libs/usr/lib/x86_64-linux-gnu')}
-    subprocess.run(['runuser','-u','nobody','--','/opt/node-v20.19.6-linux-x64/bin/node',str(web/'mirror-sytbay.cjs')],env=environment,check=True)
-    downloaded=json.loads((out/'sytbay-downloads.json').read_text());assert all(r.get('success') for r in downloaded),'Some browser downloads failed checksum validation'
-    shutil.copytree(out/'sytbay-pdfs',STAGE/'sytbay-pdfs',dirs_exist_ok=True);shutil.copyfile(out/'sytbay-downloads.json',STAGE/'sytbay-downloads.json')
     progress('preparing_offline_books')
     environment={**os.environ,'PRIMESECURE_LIBRARY_FONT':'/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'}
     for name in ['prepare-expansion.py','review-expansion.py']:
@@ -83,7 +99,7 @@ def main():
         except urllib.error.HTTPError as error:
             if error.code not in (400,404):raise
         time.sleep(5)
-    paths=[p['path'] for p in plan['parts']]+[plan['prefix']+'/ack',plan['prefix']+'/status.json']
+    paths=[p['path'] for p in plan['parts']]+json.loads(transfer.PLAN.read_text()).get('extra_paths',[])+[plan['prefix']+'/ack',plan['prefix']+'/status.json']
     transfer.api('/object/'+transfer.BUCKET,{'prefixes':paths},'DELETE')
     remaining=transfer.psql("select count(*) from storage.objects where bucket_id="+transfer.literal(transfer.BUCKET)+" and name like "+transfer.literal(plan['prefix']+'/%')+';')
     assert remaining=='0'
