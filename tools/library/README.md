@@ -19,9 +19,9 @@ Storybook PDFs have a publisher debug URL before the PDF header; these are
 normalised with every page and all extracted text verified unchanged.
 
 `prepare-openstax-server.py` downloads directly from OpenStax on the school
-server. Image resolution is reduced for offline use; page count and every page's
-extracted-text hash must remain identical. Original publisher credits and licence
-pages remain in each book. Large original PDFs are not published automatically.
+server, with a separate 300 MB textbook budget and a 90 MB individual-file cap.
+Original publisher PDFs, credits and licence pages remain unchanged. Page count
+and every page's extracted-text hash are checked. Oversized books are skipped.
 
 ## Import
 
@@ -46,6 +46,15 @@ The importer obtains service credentials only inside the server's Docker
 environment. It never prints them or sends them to this repository. Existing
 resources, apps, policies, bucket visibility and access grants are preserved.
 Catalog changes use the existing library-sync triggers; no APK is required.
+
+`publish-reviewed-bundle.py` transfers the reviewed ZIP using resumable SFTP and
+the existing support SSH key. It rejects unknown host keys, compares the partial
+upload's beginning and end against the local file, and verifies the whole archive
+SHA256 on the server before extraction. It then starts the same validated import
+in the background. Progress is in
+`/root/primesecure-library-stage/publish-progress.log`. A connection failure can
+be retried without restarting the large upload. Python Paramiko is required on
+the operator's PC.
 
 ## Classification and rights
 

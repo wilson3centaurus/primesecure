@@ -1,5 +1,5 @@
-"""Server-only publisher downloads. Keeps text intact while reducing image size."""
-import sys,json,hashlib,urllib.request,time
+"""Server-only publisher downloads with a bounded additional textbook budget."""
+import sys,json,hashlib,urllib.request,time,shutil
 from pathlib import Path
 sys.path.insert(0,'/root/primesecure-library-python')
 import pymupdf as fitz
@@ -15,24 +15,28 @@ for identity,form,subject in books:
         if not original.exists():
             temp=original.with_suffix('.part')
             with urllib.request.urlopen(url,timeout=90) as response,temp.open('wb') as output:
-                while chunk:=response.read(1024*1024):output.write(chunk)
+                length=int(response.headers.get('Content-Length',0))
+                if length>90000000 or sum(r['size'] for r in rows)+length>300000000:
+                    print(json.dumps({'book':identity,'skipped':'additional textbook budget'}),flush=True);continue
+                size=0
+                while chunk:=response.read(1024*1024):
+                    size+=len(chunk);assert size<90000000;output.write(chunk)
             temp.rename(original)
+        if sum(r['size'] for r in rows)+original.stat().st_size>300000000:continue
         dest=root/('openstax-'+str(identity)+'.pdf')
         with fitz.open(original) as doc:
             assert not doc.is_repaired and not doc.needs_pass and len(doc)>10
             before=[hashlib.sha256(p.get_text().encode()).hexdigest() for p in doc]
             copyright=' '.join(doc[i].get_text() for i in range(min(12,len(doc))))
             assert 'creative commons' in copyright.lower()
-            if not dest.exists() or dest.stat().st_size<1000:
-                doc.rewrite_images(dpi_threshold=180,dpi_target=120,quality=78,bitonal=False)
-                doc.save(dest,garbage=3,deflate=True)
+            shutil.copyfile(original,dest)
         with fitz.open(dest) as doc:
             assert before==[hashlib.sha256(p.get_text().encode()).hexdigest() for p in doc]
             assert not doc.is_repaired
             pages=len(doc)
         data=dest.read_bytes()
         assert len(data)<90000000
-        row=dict(title=meta['title'],form_level=form,subject=subject,category='Textbooks',source_url=meta['meta']['html_url'],download_url=url,license=meta.get('license_url','See original copyright page'),filename=dest.name,size=len(data),sha256=hashlib.sha256(data).hexdigest(),pages=pages,mime_type='application/pdf',attribution='OpenStax / Rice University and credited contributors. Full publisher credits and licence retained.',description='Supplementary textbook; form grouping is for teacher review, not ZIMSEC approval. Offline copy has reduced-resolution images; all extracted text and page counts verified unchanged. Free school access only. Source: '+meta['meta']['html_url'],copyright_excerpt=copyright[:12000])
+        row=dict(title=meta['title'],form_level=form,subject=subject,category='Textbooks',source_url=meta['meta']['html_url'],download_url=url,license=meta.get('license_url','See original copyright page'),filename=dest.name,size=len(data),sha256=hashlib.sha256(data).hexdigest(),pages=pages,mime_type='application/pdf',attribution='OpenStax / Rice University and credited contributors. Full publisher credits and licence retained.',description='Supplementary textbook; form grouping is for teacher review, not ZIMSEC approval. Original publisher PDF, unmodified. Free school access only. Source: '+meta['meta']['html_url'],copyright_excerpt=copyright[:12000])
         row['description']+=' Attribution: '+row['attribution']+' Licence: '+str(row['license'])
         rows.append(row); print(json.dumps({'book':identity,'bytes':len(data),'pages':pages}),flush=True)
     except Exception as e: print(json.dumps({'book':identity,'error':str(e)[:250]}),flush=True)
