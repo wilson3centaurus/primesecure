@@ -51,6 +51,8 @@ plain-HTTP servers. Release builds are neither.
 
 ### Provision a Primebook
 
+For the Windows setup window (no terminal commands for operators), see [PC Setup](tools/pc-setup/README.md). The portable kit includes the verified APK and connection tools; staff authorize wireless debugging, select a device and enter its enrollment key. Device Owner still requires Android authorization. The kit does not wipe devices or bypass another owner's management.
+
 Device Owner can only be set while the device has no accounts.
 
 1. Settings → Accounts: remove every account (Google etc.).
