@@ -37,7 +37,8 @@ test('Tinkercad preset keeps existing approvals and only edits the form until Sa
  });
  const render=()=>{index=0;return PolicyEditor({policy:{web_filter:'off',web_allowlist:['khanacademy.org']},schoolId:'school-a',canEdit:true,mode:'web'})};
  const find=(node,predicate)=>{if(!node||typeof node!=='object')return; if(predicate(node))return node;for(const child of [node.props?.children].flat(Infinity)){const found=find(child,predicate);if(found)return found;}};
- const before=render();find(before,node=>node.type==='button'&&node.props.children==='Add Tinkercad starter sites').props.onClick();
+ const before=render();let prevented=false;find(before,node=>node.type==='form'&&node.props.onReset).props.onReset({preventDefault:()=>{prevented=true}});assert(prevented);
+ find(before,node=>node.type==='button'&&node.props.children==='Add Tinkercad starter sites').props.onClick();
  const after=render(),sites=find(after,node=>node.props?.name==='web_allowlist').props.value.split('\n');
  assert(sites.includes('khanacademy.org'));assert(sites.includes('tinkercad.com'));assert(sites.includes('accounts.autodesk.com'));assert(!sites.includes('*'));
  assert.equal(find(after,node=>node.props?.name==='web_filter'&&node.props.value==='allowlist').props.checked,true);

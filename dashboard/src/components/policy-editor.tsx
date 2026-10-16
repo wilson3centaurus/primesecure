@@ -61,7 +61,7 @@ export function PolicyEditor({
 
   return (
     <div className="space-y-6">
-      <form action={action} className="space-y-6">
+      <form action={action} onReset={event=>event.preventDefault()} className="space-y-6">
         <input type="hidden" name="editor_mode" value={mode} />
         <input type="hidden" name="school_id" value={schoolId} />
         {deviceId && <input type="hidden" name="device_id" value={deviceId} />}
@@ -123,7 +123,7 @@ export function PolicyEditor({
             <h2 className="font-semibold">Web filtering</h2>
 <p className="text-xs text-slate-500">Agent 0.8.4 adds school web apps inside PrimeSecure, with no address bar or browser icon in allowlist mode. Keep the PrimeOS browser and Chrome blocked in Apps.</p>
           </div>
-          <div className="rounded-lg border border-line bg-panel p-3 text-xs leading-5"><p>Open installed web-wrapper apps using <b>Open</b> in the student App Store. PrimeSecure reads supported declared start websites. For ordinary web links, choose School web app if Android asks. Apps that insist on Chrome Custom Tabs may need a different version. This does not restrict a embedded browsers inside other apps.</p><button type="button" disabled={!canEdit} className="btn-secondary mt-3" onClick={addTinkercad}>Add Tinkercad starter sites</button><p className="mt-2 text-muted">Adds Tinkercad and Autodesk sign-in domains to this form. Save to apply. Pilot sign-in, the editor and cloud saving on one Primebook; add a missing service domain only after reviewing it. File uploads, downloads and separate popup windows are disabled in this first viewer.</p></div>
+          <div className="rounded-lg border border-line bg-panel p-3 text-xs leading-5"><p>Open installed web-wrapper apps using <b>Open</b> in the student App Store. PrimeSecure reads the declared start website from supported wrappers. For ordinary web links, choose School web app if Android asks. Apps that insist on Chrome Custom Tabs may need a different version. This does not restrict a embedded browsers inside other apps.</p><button type="button" disabled={!canEdit} className="btn-secondary mt-3" onClick={addTinkercad}>Add Tinkercad starter sites</button><p className="mt-2 text-muted">Adds Tinkercad and Autodesk sign-in domains to this form. Save to apply. Pilot sign-in, the editor and cloud saving on one Primebook; add a missing service domain only after reviewing it. File uploads, downloads and separate popup windows are disabled in this first viewer.</p></div>
           <div className="flex flex-wrap gap-4 text-sm">
             {([["off", "No filtering"], ["blocklist", "Block listed sites"], ["allowlist", "Only allow listed sites"]] as const).map(([v, l]) => (
               <label key={v} className="flex items-center gap-2">
