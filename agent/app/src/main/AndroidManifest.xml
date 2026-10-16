@@ -91,7 +91,20 @@
             android:label="School Browser"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
 
-        <!-- Launcher entry for the School Browser; enabled only while a web filter is set. -->
+        <!-- URL handler only: no launcher entry. URLs require an explicit school allowlist. -->
+        <activity android:name=".WebAppActivity" android:exported="true" android:enabled="false"
+            android:label="School web app" android:theme="@android:style/Theme.Material.Light.NoActionBar"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:scheme="http" />
+            </intent-filter>
+        </activity>
+
+        <!-- Legacy launcher entry; hidden in allowlist-only web-app mode. -->
         <activity-alias
             android:name=".SchoolBrowser"
             android:enabled="false"

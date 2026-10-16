@@ -26,6 +26,31 @@ function load(relative, imports, environment = {}) {
   return targetModule.exports;
 }
 const school = { id: 'school-a', name: 'QA School' };
+test('Tinkercad preset keeps existing approvals and only edits the form until Save',()=>{
+ const values=[];let index=0,mutations=0;
+ const hooks={...React,useActionState:()=>[undefined,()=>{mutations++}],useState:initial=>{
+  const n=index++;if(!(n in values))values[n]=initial;
+  return [values[n],next=>{values[n]=typeof next==='function'?next(values[n]):next}];
+ }};
+ const {PolicyEditor}=load('src/components/policy-editor.tsx',{
+  react:hooks,'@/app/(app)/policy/actions':{},'@/components/form-message':{},'@/components/submit-button':{},'@/lib/supabase/browser':{},
+ });
+ const render=()=>{index=0;return PolicyEditor({policy:{web_filter:'off',web_allowlist:['khanacademy.org']},schoolId:'school-a',canEdit:true,mode:'web'})};
+ const find=(node,predicate)=>{if(!node||typeof node!=='object')return; if(predicate(node))return node;for(const child of [node.props?.children].flat(Infinity)){const found=find(child,predicate);if(found)return found;}};
+ const before=render();find(before,node=>node.type==='button'&&node.props.children==='Add Tinkercad starter sites').props.onClick();
+ const after=render(),sites=find(after,node=>node.props?.name==='web_allowlist').props.value.split('\n');
+ assert(sites.includes('khanacademy.org'));assert(sites.includes('tinkercad.com'));assert(sites.includes('accounts.autodesk.com'));assert(!sites.includes('*'));
+ assert.equal(find(after,node=>node.props?.name==='web_filter'&&node.props.value==='allowlist').props.checked,true);
+ assert.equal(find(after,node=>node.props?.name==='browser_home_url').props.value,'https://www.tinkercad.com/');assert.equal(mutations,0);
+});
+
+test('student Open buttons require installed apps and the new native capability',()=>{
+ const source=fs.readFileSync(path.join(testDirectory,'../../agent/app/src/main/assets/student/workspace.js'),'utf8').split('\n').find(line=>line.startsWith('function appCard('));
+ const card=(installed,capability)=>new Function('state','agentAtLeast','itemTask','terminalTask','size','icon','esc',source+';return appCard({id:"app-1",title:"Tinkercad",installed:'+installed+',required:true,size:1000});')(
+  {capabilities:{open_approved_apps:capability}},()=>true,()=>null,()=>false,()=>'',()=>'',s=>s);
+ assert.match(card(true,true),/data-action="open_app" data-id="app-1"/);
+ assert.doesNotMatch(card(true,false),/data-action="open_app"/);assert.doesNotMatch(card(false,true),/data-action="open_app"/);
+});
 function recoveryMarkup(code,releases,target=null) {
  const {DeviceSafetyControls}=load('src/components/device-safety-controls.tsx',{
   react:{...React,useActionState:()=>[undefined,()=>{}]},

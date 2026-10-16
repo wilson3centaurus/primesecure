@@ -128,7 +128,7 @@ class HubActivity : Activity() {
                 catalog.put("items",JSONArray(items)).put("messages",JSONArray(hub.messages()))
                     .put("tasks",HubTasks(this@HubActivity).publicList()).put("online",Connectivity.online(this@HubActivity))
                     .put("runtime",cachedRuntime).put("agent_version",BuildConfig.VERSION_NAME).put("ui_version",uiDirectory?.name?.drop(1)?.toIntOrNull() ?: StudentUiUpdates.BUNDLED_VERSION)
-                    .put("capabilities",JSONObject().put("uninstall_optional_apps",true).put("usage_access_setup",true).put("support_photo",true).put("theme_preferences",true).put("communication_inbox",true))
+                    .put("capabilities",JSONObject().put("open_approved_apps",true).put("uninstall_optional_apps",true).put("usage_access_setup",true).put("support_photo",true).put("theme_preferences",true).put("communication_inbox",true))
                     .put("ui_theme",StudentTheme.preference(this@HubActivity))
                     .put("hidden_keys",JSONArray(hub.hiddenKeys())).put("sync_error",hub.syncError ?: JSONObject.NULL)
                     .put("last_sync",AgentStore(this@HubActivity).lastCheckInAt)
@@ -233,6 +233,11 @@ class HubActivity : Activity() {
                         }
                         "profile" -> { val profile=a.getJSONObject("profile");withContext(Dispatchers.IO) { hub.profileDraft=profile };enqueue("profile",profile,"Profile details");refresh() }
                         "support","name_appeal" -> enqueue(a.getString("action"),JSONObject().put("body",a.getString("body")),if(a.getString("action")=="support") "Message to RoboKorda" else "Name correction request")
+                        "open_app" -> {
+                            val item=withContext(Dispatchers.IO) { hub.items().find { it.optString("id")==a.getString("id") && it.optString("kind")=="app" } } ?: error("This app is no longer approved by your school.")
+                            check(AgentStore(this@HubActivity).lastStatus=="active") { "Your school has restricted this device." }
+                            ApprovedWebApps.open(this@HubActivity,item)
+                        }
                         "install" -> {
                             val item=hub.items().find { it.optString("id")==a.getString("id") && it.optString("kind")=="app" } ?: error("This app is unavailable.")
                             enqueue("install",JSONObject().put("item_id",item.getString("id")),item.getString("title"),"install:${item.getString("id")}")

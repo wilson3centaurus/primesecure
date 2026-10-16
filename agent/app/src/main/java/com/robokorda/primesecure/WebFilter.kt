@@ -100,13 +100,17 @@ class WebFilter(
             }
             AdminReceiver.dpm(context).setApplicationRestrictions(AdminReceiver.component(context), CHROME, restrictions)
 
-            // The School Browser appears in the launcher only while there is something to enforce.
+            // Allowlist-only web apps use an icon-free handler, not a general browser launcher.
             context.packageManager.setComponentEnabledSetting(
                 ComponentName(context.packageName, BROWSER_ALIAS),
-                if (filter.active) PackageManager.COMPONENT_ENABLED_STATE_ENABLED else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                if (filter.active && filter.mode != "allowlist") PackageManager.COMPONENT_ENABLED_STATE_ENABLED else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
                 PackageManager.DONT_KILL_APP,
             )
 
+            val webAppsEnabled=ApprovedWebRules(filter.mode,filter.allowlist).enabled
+            context.packageManager.setComponentEnabledSetting(ComponentName(context,WebAppActivity::class.java),
+                if(webAppsEnabled) PackageManager.COMPONENT_ENABLED_STATE_ENABLED else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                PackageManager.DONT_KILL_APP)
             return when (filter.mode) {
                 "blocklist" -> "web: ${filter.blocklist.size} site(s) blocked"
                 "allowlist" -> "web: only ${filter.allowlist.size} site(s) allowed"

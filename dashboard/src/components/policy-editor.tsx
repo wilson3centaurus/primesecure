@@ -37,6 +37,13 @@ export function PolicyEditor({
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [webMode, setWebMode] = useState(policy?.web_filter ?? "off");
+  const [allowedSites,setAllowedSites]=useState((policy?.web_allowlist??[]).join("\n"));
+  const [homeUrl,setHomeUrl]=useState(policy?.browser_home_url??"");
+
+  function addTinkercad(){
+    setWebMode('allowlist');setHomeUrl('https://www.tinkercad.com/');
+    setAllowedSites(previous=>[...new Set([...previous.split(/[\s,]+/).filter(Boolean),'tinkercad.com','accounts.autodesk.com','signin.autodesk.com','auth.autodesk.com','native.auth.autodesk.com','cdn.accounts.autodesk.com','profile.autodesk.com','developer.api.autodesk.com'])].join('\n'));
+  }
 
   async function upload(file: File) {
     setUploadError("");
@@ -114,8 +121,9 @@ export function PolicyEditor({
         <section className="card space-y-4 p-4">
           <div>
             <h2 className="font-semibold">Web filtering</h2>
-<p className="text-xs text-slate-500">Applies to approved Chrome and the School Browser. Manage which apps students may use in Apps.</p>
+<p className="text-xs text-slate-500">Agent 0.8.4 adds school web apps inside PrimeSecure, with no address bar or browser icon in allowlist mode. Keep the PrimeOS browser and Chrome blocked in Apps.</p>
           </div>
+          <div className="rounded-lg border border-line bg-panel p-3 text-xs leading-5"><p>Open installed web-wrapper apps using <b>Open</b> in the student App Store. PrimeSecure reads supported declared start websites. For ordinary web links, choose School web app if Android asks. Apps that insist on Chrome Custom Tabs may need a different version. This does not restrict a embedded browsers inside other apps.</p><button type="button" disabled={!canEdit} className="btn-secondary mt-3" onClick={addTinkercad}>Add Tinkercad starter sites</button><p className="mt-2 text-muted">Adds Tinkercad and Autodesk sign-in domains to this form. Save to apply. Pilot sign-in, the editor and cloud saving on one Primebook; add a missing service domain only after reviewing it. File uploads, downloads and separate popup windows are disabled in this first viewer.</p></div>
           <div className="flex flex-wrap gap-4 text-sm">
             {([["off", "No filtering"], ["blocklist", "Block listed sites"], ["allowlist", "Only allow listed sites"]] as const).map(([v, l]) => (
               <label key={v} className="flex items-center gap-2">
@@ -135,13 +143,13 @@ export function PolicyEditor({
             <div className={webMode === "allowlist" ? "" : "hidden"}>
               <label htmlFor="web_allowlist" className="label">Allowed websites</label>
               <textarea id="web_allowlist" name="web_allowlist" rows={5} disabled={!canEdit} className="input font-mono"
-                defaultValue={(policy?.web_allowlist ?? []).join("\n")} placeholder={"wikipedia.org\nkhanacademy.org"} />
-              <p className="mt-1 text-xs text-slate-500">Everything else is blocked. The home page is always allowed.</p>
+                value={allowedSites} onChange={event=>setAllowedSites(event.target.value)} placeholder={"tinkercad.com\naccounts.autodesk.com"} />
+              <p className="mt-1 text-xs text-slate-500">One domain per line, including sign-in and required service domains. Subdomains are included. The new viewer requires explicitly listed HTTPS sites, including the home page; a wildcard alone does not approve a website.</p>
             </div>
             <div>
               <label htmlFor="browser_home_url" className="label">Home page</label>
               <input id="browser_home_url" name="browser_home_url" type="url" disabled={!canEdit} className="input"
-                defaultValue={policy?.browser_home_url ?? ""} placeholder="https://kolibri.yourschool.local" />
+                value={homeUrl} onChange={event=>setHomeUrl(event.target.value)} placeholder="https://www.tinkercad.com/" />
             </div>
           </div>
           <Toggle name="safe_search" label="Force SafeSearch" hint="Google SafeSearch and YouTube restricted mode in Chrome; SafeSearch in the School Browser."
