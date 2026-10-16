@@ -56,6 +56,22 @@ in the background. Progress is in
 be retried without restarting the large upload. Python Paramiko is required on
 the operator's PC.
 
+For slow operator uplinks, `start-server-mirror.sh <reviewed-commit>` creates an
+isolated checkout and runs `mirror-reviewed-server.py` directly on the server.
+The factual `source-inputs-2026-10.json` records the reviewed public source URLs
+and checksums. Static publisher files and browser-downloaded exam PDFs must
+match those checksums. Shona reader PDFs are normalised and generated literature
+retains its complete source text and licence. The browser runs as `nobody` in a
+separate temporary directory; its missing libraries are extracted locally without
+installing system packages. No production checkout is changed.
+
+`publish-over-https.py` is an alternative private transfer using expiring signed
+URLs for uncatalogued temporary objects in the existing private bucket. Service
+credentials stay on the server. It uses Certifi's trusted root bundle with full
+TLS verification, avoiding an expired cross-certificate in this PC's Windows
+store. The temporary objects are removed after receipt of the final report. Its
+scoped URLs are saved only under ignored artifacts and must never be committed.
+
 ## Classification and rights
 
 - Official ZIMSEC **examiner reports** are separate from actual past papers.

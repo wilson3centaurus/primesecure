@@ -4,7 +4,7 @@ Inputs are publisher downloads under artifacts/school-library-expansion.
 Retains source URLs, rejects repaired/encrypted PDFs and deduplicates by SHA256.
 """
 from pathlib import Path
-import json, hashlib, re, shutil, html
+import json, hashlib, re, shutil, html, os
 import fitz
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
@@ -73,7 +73,7 @@ for item in load('shona-downloads.json'):
     if not re.search(r'chishona|shona',text,re.I): rejected.append({'title':item['title'],'reason':'Shona language not confirmed'});continue
     add(path,item['title'],'Reading library','Shona','Readers & stories',item['source_url'],'CC-BY-4.0',item['author']+' and the credited illustrator/translator; African Storybook, CC BY 4.0. Full credits retained.','Illustrated Shona reading practice; a short reader, not a prescribed secondary novel.')
 
-font=Path('C:/Windows/Fonts/arial.ttf')
+font=Path(os.environ.get('PRIMESECURE_LIBRARY_FONT','C:/Windows/Fonts/arial.ttf'))
 pdfmetrics.registerFont(TTFont('LibrarySans',str(font)))
 styles=getSampleStyleSheet()
 for style in styles.byName.values(): style.fontName='LibrarySans'
@@ -100,7 +100,7 @@ add(guide,'SparkFun Inventor Kit - complete corrected v4.1a guide','Form 3','Rob
 with fitz.open(guide) as original:
     for form,title,start,end in [('Form 1','Breadboards, components and LED circuits',3,36),('Form 2','Buttons, sound, servo and distance sensors',37,71),('Form 3','Displays, motors and autonomous robot',72,107)]:
         out=fitz.open();out.insert_pdf(original,from_page=0,to_page=2);out.insert_pdf(original,from_page=start,to_page=end);out.insert_pdf(original,from_page=111,to_page=111)
-        path=STAGE/(form.replace(' ','-')+'-robotics.pdf');out.save(path,garbage=3,deflate=True);out.close()
+        path=STAGE/(form.replace(' ','-')+'-robotics.pdf');out.save(path,garbage=0,deflate=True);out.close()
         add(path,title+' - practical robotics',''+form,'Robotics','Practical handouts',url,'CC-BY-SA-4.0',credit,'Excerpt selected for '+form+'. Original printed page numbers retained. Supplementary grouping, not an official ZIMSEC syllabus. Teacher-supervised low-voltage circuits only.')
     for form,page,title in [('Form 1',16,'LED and resistor breadboard wiring'),('Form 1',22,'Potentiometer circuit connections'),('Form 2',57,'Servo motor circuit connections'),('Form 2',62,'Ultrasonic distance sensor connections'),('Form 3',94,'Motor driver wiring'),('Form 3',104,'Autonomous robot wiring')]:
         path=STAGE/('robotics-diagram-'+str(page)+'.png');original[page].get_pixmap(matrix=fitz.Matrix(1.5,1.5)).save(path)
