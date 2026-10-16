@@ -26,6 +26,31 @@ function load(relative, imports, environment = {}) {
   return targetModule.exports;
 }
 const school = { id: 'school-a', name: 'QA School' };
+function recoveryMarkup(code,releases,target=null) {
+ const {DeviceSafetyControls}=load('src/components/device-safety-controls.tsx',{
+  react:{...React,useActionState:()=>[undefined,()=>{}]},
+  'lucide-react':{ShieldCheck:()=>null,RotateCcw:()=>null},
+  '@/app/(app)/devices/actions':{},'./form-message':{FormMessage:()=>null},
+  './submit-button':{SubmitButton:({children,disabled})=>React.createElement('button',{disabled},children)},
+ });
+ return renderToStaticMarkup(React.createElement(DeviceSafetyControls,{deviceId:'qa',installedCode:code,installedVersion:'0.8.1-recovery',releases,
+  desired:{revision:1,safe_mode:false,ui_rollback_revision:0,updates_paused:true,recovery_release_id:target}}));
+}
+const recoveryReleases=[{id:'old',version_code:18,version_name:'0.8.2'},{id:'recovery',version_code:19,version_name:'0.8.1-recovery'},{id:'latest',version_code:20,version_name:'0.8.3'}];
+test('recovery code 19 clearly shows its pin and allows only the newer code 20',()=>{
+ const html=recoveryMarkup(19,recoveryReleases,'recovery');
+ assert.match(html,/The pinned build is already installed/);
+ assert.match(html,/Resume automatic updates to clear this pin/);
+ assert.match(html,/<option value="old" disabled="">0.8.2 \(18\) - lower code; rebuild required/);
+ assert.match(html,/<option value="recovery" disabled="">0.8.1-recovery \(19\) - installed/);
+ assert.match(html,/<option value="latest">0.8.3 \(20\)<\/option>/);
+ assert.match(html,/updates until you resume them/);
+});
+test('no higher-code release disables APK installation and explains an obsolete pin',()=>{
+ const html=recoveryMarkup(19,recoveryReleases.slice(0,2),'old');
+ assert.match(html,/lower install code and cannot replace this APK/);
+ assert.match(html,/<button disabled="">Install selected APK<\/button>/);
+});
 test('package blocking accepts unique IDs and rejects wildcards, labels and oversized lists',()=>{
  const {parseBlockedPackages}=load('src/lib/package-rules.ts',{});
  assert.deepEqual(parseBlockedPackages('com.example.app\norg.school.quiz,com.example.app',['com.floydwiz.browser']),['com.floydwiz.browser','com.example.app','org.school.quiz']);

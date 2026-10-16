@@ -17,7 +17,7 @@ export async function setDeviceSafety(_previous:FormState,form:FormData):Promise
  const {error}=await db.rpc('staff_device_safety',{p_device_id:device,p_action:action,p_release_id:release||null});
  if(error)return {error:error.message};
  revalidatePath(`/devices/${device}`);
- return {ok:'Recovery request saved. Waiting for agent 0.8.2 or newer to confirm.'};
+ return {ok:action==='install_recovery'?'Selected APK queued for this device. Automatic updates are held until you resume them.':'Recovery request saved. Waiting for agent 0.8.2 or newer to confirm.'};
 }
 
 export async function requestDeviceSync(_previous:FormState,form:FormData):Promise<FormState> {

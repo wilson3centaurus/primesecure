@@ -155,7 +155,7 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
           {manager && (
             <section className="card p-4">
               <h2 className="mb-3 font-semibold">Lock, suspend, retire</h2>
-              <DeviceSafetyControls deviceId={d.id} desired={safety as SafetyControl|null} reported={runtime?.readings?.safety} releases={recoveryReleases??[]} installedCode={d.agent_version_code??null}/><RecoveryControls deviceId={d.id} runtime={runtime}/><StateControls id={d.id} status={d.status} message={d.status_message} />
+              <DeviceSafetyControls deviceId={d.id} desired={safety as SafetyControl|null} reported={runtime?.readings?.safety} releases={recoveryReleases??[]} installedCode={d.agent_version_code??null} installedVersion={d.agent_version}/><RecoveryControls deviceId={d.id} runtime={runtime}/><StateControls id={d.id} status={d.status} message={d.status_message} />
               {d.status_changed_at && <p className="mt-3 text-xs text-slate-400">State last changed {dateTime(d.status_changed_at)}</p>}
             </section>
           )}
