@@ -58,7 +58,8 @@ def main():
  path='releases/22-'+APK_SHA[:16]+'.apk'
  existing=request('/rest/v1/agent_releases?version_code=eq.22&select=id,sha256,active,storage_path')
  if existing:
-  assert len(existing)==1 and existing[0]['sha256']==APK_SHA and existing[0]['storage_path']==path,'Install code already belongs to another file'
+  assert len(existing)==1 and existing[0]['sha256']==APK_SHA,'Install code already belongs to another file'
+  path=existing[0]['storage_path']
  else:
   try:request('/storage/v1/object/agent/'+path,apk,'POST',mime='application/vnd.android.package-archive')
   except urllib.error.HTTPError as e:
