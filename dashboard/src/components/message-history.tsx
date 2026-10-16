@@ -1,5 +1,5 @@
 "use client";
-import { useActionState, useState } from "react";
+import { useActionState, useState, useEffect } from "react";
 import { ChevronDown, Trash2, Search, CheckCheck, Eye } from "lucide-react";
 import { deleteMessages } from "@/app/(app)/messages/actions";
 import { FormMessage } from "./form-message";
@@ -12,6 +12,10 @@ export type Notice = { id: string; title: string; body: string; time: string; ca
 export type StudentReply = { id: string; unread?: boolean; deviceId: string; name: string; anonymous: boolean; time: string; body: string };
 
 export function MessageHistory({ notices, replies }: { notices: Notice[]; replies: StudentReply[] }) {
+  useEffect(()=>{
+    const openLinkedReply=()=>{const id=location.hash.slice(1);if(!id.startsWith('reply-'))return;const reply=document.getElementById(id);if(reply instanceof HTMLDetailsElement)reply.open=true;};
+    openLinkedReply();window.addEventListener('hashchange',openLinkedReply);return()=>window.removeEventListener('hashchange',openLinkedReply);
+  },[]);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [state, action, pending] = useActionState(deleteMessages, undefined);
