@@ -42,15 +42,19 @@ object DeviceSafety {
     @Synchronized fun restoreJournal(context:Context) {
         if(!AdminReceiver.isDeviceOwner(context))return
         val dpm=AdminReceiver.dpm(context);val admin=AdminReceiver.component(context);val p=prefs(context)
+        val failed=mutableSetOf<String>()
         for(pkg in p.getStringSet("hidden",emptySet())!!.toSet())runCatching {
             if(dpm.isApplicationHidden(admin,pkg))check(dpm.setApplicationHidden(admin,pkg,false))
-        }.onFailure {DeviceLog.event(context,"warning","safety","offline_restore_failed",it,JSONObject().put("package",pkg))}
+        }.onFailure {failed+=pkg;DeviceLog.event(context,"warning","safety","offline_restore_failed",it,JSONObject().put("package",pkg))}
         for(pkg in p.getStringSet("suspended",emptySet())!!.toSet())runCatching {
             if(dpm.isPackageSuspended(admin,pkg))check(dpm.setPackagesSuspended(admin,arrayOf(pkg),false).isEmpty())
-        }.onFailure {DeviceLog.event(context,"warning","safety","offline_restore_failed",it,JSONObject().put("package",pkg))}
+        }.onFailure {failed+=pkg;DeviceLog.event(context,"warning","safety","offline_restore_failed",it,JSONObject().put("package",pkg))}
+        p.edit().putStringSet("restore_failures",failed).putLong("last_restore_at",System.currentTimeMillis()).commit()
     }
     fun status(context:Context)=JSONObject().put("safe_mode",paused(context)).put("updates_paused",updatesPaused(context))
         .put("revision",prefs(context).getLong("revision",0)).put("ui_rollback_applied",prefs(context).getLong("rollback_applied",0))
         .put("offline_boot_restore",true)
+        .put("restore_failures",org.json.JSONArray(prefs(context).getStringSet("restore_failures",emptySet())!!.toList()))
+        .put("last_restore_at",prefs(context).getLong("last_restore_at",0))
     fun clear(context:Context) { prefs(context).edit().clear().commit() }
 }
