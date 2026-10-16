@@ -29,7 +29,8 @@ export default async function AgentPage() {
 
   return (
     <>
-      <PageHeader title="Agent updates" description="Publish a new PrimeSecure agent; every enrolled Primebook installs it silently." />
+      <PageHeader title="Agent updates" description="Upload a release, test it on one Primebook, then choose when to start a fleet rollout." />
+      <p className="mb-5 text-xs leading-5 text-muted">New uploads are paused unless you select automatic rollout. Resume enables a release for the fleet; eligible devices use the highest active install code. Individual device pins and update holds take precedence. Choose a specific build on its device page, or Resume automatic updates there to clear the hold.</p>
       <section className="card mb-6 p-5">
         <h2 className="font-semibold">Student interface updates</h2>
         <p className="mt-2 text-sm text-slate-600">PrimeSecure 0.5.0 and newer download signed interface updates in the background. Production deployments publish the interface automatically; devices check hourly and use it on their next opening. Their saved interface continues working offline.</p>
