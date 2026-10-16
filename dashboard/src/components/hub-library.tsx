@@ -13,11 +13,12 @@ export async function HubLibrary({ kind,settingsOnly=false,query="",page=1 }: { 
   const staff = await requireStaff(); const school = await getCurrentSchool();
   if (!school) return <PageHeader title="Student library" description="Create a school first." />;
   const supabase = await createClient();
-  const [{ data: rows, error }, { data: access }, { data: settings },{data:groups}] = await Promise.all([
+  const [{ data: rows, error }, { data: access }, { data: settings },{data:groups},{data:folders,error:folderError}] = await Promise.all([
     supabase.from("hub_items").select("id,title,description,package_name,version_name,size,published,school_id,preinstall,storage_path,source_url,created_at,form_level,subject,category,mime_type").eq("kind", kind).or(`school_id.is.null,school_id.eq.${school.id}`).order("created_at", { ascending: false }),
     supabase.from("hub_access").select("item_id").eq("school_id", school.id),
     kind==='wallpaper'?supabase.from("hub_settings").select("*").or(`scope.eq.global,school_id.eq.${school.id}`):Promise.resolve({data:[]}),
     kind==='resource'?supabase.from("school_classes").select("form_level,class_name").eq("school_id",school.id):Promise.resolve({data:[]}),
+    kind==='resource'?supabase.from('hub_folders').select('path,school_id').or(`school_id.is.null,school_id.eq.${school.id}`):Promise.resolve({data:[],error:null}),
   ]);
   type Item={id:string;title:string;description:string;package_name:string;version_name:string;size:number;published:boolean;school_id:string|null;preinstall:boolean;storage_path:string;source_url:string|null;created_at:string;form_level:string;subject:string;category:string;icon_data?:string;mime_type?:string};
   const items=(rows??[]) as Item[];
@@ -40,9 +41,9 @@ export async function HubLibrary({ kind,settingsOnly=false,query="",page=1 }: { 
   if(settingsOnly)return defaults;
   return <section className="space-y-6">
     <PageHeader title={title} description={kind === "resource" ? "An organised, offline-ready learning library for every Primebook." : kind === "app" ? "Only approved apps appear in the student hub. Publish, assign and preinstall from one place." : "Set your school's look. Give students a choice within your approved gallery."} />
-    {error && <p role="alert" className="card p-4 text-red-700">Library unavailable: {error.message}</p>}
+    {(error||folderError) && <p role="alert" className="card p-4 text-red-700">Library unavailable: {error?.message||folderError?.message}</p>}
     {kind==='app'&&manager&&<details className="rounded-xl border border-slate-200 bg-white p-4" open={!items?.length}><summary className="cursor-pointer text-sm font-semibold text-brand-700">+ Upload an APK</summary><p className="mt-3 text-sm text-slate-500">Name, icon, version and package are read from the file.</p><div className="mt-4"><HubUpload key={school.id} kind="app" schoolId={school.id} superAdmin={staff.role==='super_admin'}/></div></details>}
-    {kind==='resource'&&<FolderLibrary items={(items||[]).map(i=>({...i,mime:i.mime_type,url:previewUrls.get(i.storage_path)||undefined}))} schoolId={school.id} superAdmin={staff.role==='super_admin'} manager={manager} enabled={[...enabled]} forms={[...new Set((groups||[]).map(g=>g.form_level))]}/>}
+    {kind==='resource'&&<FolderLibrary items={(items||[]).map(i=>({...i,mime:i.mime_type,url:previewUrls.get(i.storage_path)||undefined}))} schoolId={school.id} superAdmin={staff.role==='super_admin'} manager={manager} folders={folders||[]} enabled={[...enabled]} forms={[...new Set((groups||[]).map(g=>g.form_level))]}/>}
     {kind==='wallpaper'&&manager && <details className="card p-5"><summary className="cursor-pointer font-semibold text-brand-700">+ Publish a wallpaper</summary><div className="pt-5"><HubUpload kind={kind} schoolId={school.id} superAdmin={staff.role === "super_admin"} /></div></details>}
     {kind==='app'&&<><Form key={query} className="card flex flex-wrap items-center gap-3 p-3" action="/apps" scroll={false}><input type="hidden" name="tab" value="store"/><label className="flex min-w-48 flex-1 items-center gap-2"><Search size={15} className="text-muted"/><input name="q" defaultValue={query} aria-label="Search approved apps" placeholder="Search name, version, package or description..." className="w-full min-w-0 bg-transparent text-xs outline-none"/></label><span className="text-xs text-muted">{matches.length} apps</span><button className="btn-secondary">Search</button>{query&&<Link className="text-xs text-brand-700" href="/apps">Clear</Link>}</Form><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{displayed.map(item=><article key={item.id} className="app-list-card">
       <div className="app-list-icon text-brand-500">{iconData.get(item.id)?<Image unoptimized src={iconData.get(item.id)!} alt={item.title} width={58} height={58} className="size-full object-contain"/>:<AppWindow size={26}/>}</div>

@@ -128,7 +128,7 @@ class HubActivity : Activity() {
                 catalog.put("items",JSONArray(items)).put("messages",JSONArray(hub.messages()))
                     .put("tasks",HubTasks(this@HubActivity).publicList()).put("online",Connectivity.online(this@HubActivity))
                     .put("runtime",cachedRuntime).put("agent_version",BuildConfig.VERSION_NAME).put("ui_version",uiDirectory?.name?.drop(1)?.toIntOrNull() ?: StudentUiUpdates.BUNDLED_VERSION)
-                    .put("capabilities",JSONObject().put("open_approved_apps",true).put("uninstall_optional_apps",true).put("usage_access_setup",true).put("support_photo",true).put("theme_preferences",true).put("communication_inbox",true))
+                    .put("capabilities",JSONObject().put("resource_requests",true).put("open_approved_apps",true).put("uninstall_optional_apps",true).put("usage_access_setup",true).put("support_photo",true).put("theme_preferences",true).put("communication_inbox",true))
                     .put("ui_theme",StudentTheme.preference(this@HubActivity))
                     .put("hidden_keys",JSONArray(hub.hiddenKeys())).put("sync_error",hub.syncError ?: JSONObject.NULL)
                     .put("last_sync",AgentStore(this@HubActivity).lastCheckInAt)
@@ -264,6 +264,7 @@ class HubActivity : Activity() {
                             } else { HubSync.schedule(this@HubActivity);toast("This wallpaper has not downloaded yet. Check Background tasks, then choose it when ready.") }
                         }
                         "request_app" -> enqueue("request_app",JSONObject().put("name",a.getString("name")).put("reason",a.optString("reason")),"App request")
+                        "request_resource" -> enqueue("request_resource",JSONObject().put("name",a.getString("name")).put("reason",a.optString("reason")).put("resource_type",a.optString("resource_type")).put("form_level",a.optString("form_level")).put("subject",a.optString("subject")),"Learning material request")
                         "resource" -> {
                             val item=hub.items().find { it.getString("id")==a.getString("id") && it.optString("kind")=="resource" } ?: error("Resource unavailable")
                             val file=hub.resourceFile(item)

@@ -57,10 +57,20 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
             WorkManager.getInstance(context).enqueueUniqueWork(NOW, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
         }
 
+        fun retryUpdate(context: Context) {
+            val request = OneTimeWorkRequestBuilder<CheckInWorker>()
+                .setConstraints(online)
+                .setInitialDelay(UpdateRetryRules.DELAY_MS, TimeUnit.MILLISECONDS)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                .build()
+            WorkManager.getInstance(context).enqueueUniqueWork("agent-update-retry", ExistingWorkPolicy.REPLACE, request)
+        }
+
         fun cancel(context: Context) {
             AgentService.stop(context)
             WorkManager.getInstance(context).cancelUniqueWork(PERIODIC)
             WorkManager.getInstance(context).cancelUniqueWork(NOW)
+            WorkManager.getInstance(context).cancelUniqueWork("agent-update-retry")
             WorkManager.getInstance(context).cancelUniqueWork("student-hub-sync")
             WorkManager.getInstance(context).cancelUniqueWork("hub-outbox")
             WorkManager.getInstance(context).cancelUniqueWork("message-acknowledgements")

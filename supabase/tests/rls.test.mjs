@@ -996,3 +996,44 @@ test('prepared recovery APK must be newer and selected by super admin only',asyn
  // No other device receives the paused recovery release.
  assert.notEqual((await as(ids.devB,"select device_check_in('{\"agent_version_code\":18}') value"))[0].value.agent_update?.version_code,999);
 });
+
+test('learning requests are offline-idempotent and remain device and school scoped',async()=>{
+ const req=(await db.query('select gen_random_uuid() id')).rows[0].id;
+ const payload={name:'Chemistry 2024 Paper 2',resource_type:'Past exam papers',form_level:'Form 4',subject:'Chemistry',reason:'Revision'};
+ for(let i=0;i<2;i++)await as(communication.user,"select device_offline_action($1,'request_resource',$2)",[req,payload]);
+ const rows=await as(ids.adminA,"select * from hub_requests where name=$1",[payload.name]);
+ assert.equal(rows.length,1);assert.equal(rows[0].kind,'resource');assert.equal(rows[0].device_id,communication.device);
+ assert.equal((await as(ids.adminB,"select * from hub_requests where name=$1",[payload.name])).length,0);
+ assert.equal((await as(ids.devB,"select * from hub_requests where name=$1",[payload.name])).length,0);
+ const hub=(await as(communication.user,'select device_hub() value'))[0].value;
+ assert(hub.resource_requests.some(r=>r.name===payload.name&&r.status==='requested'));
+ await as(ids.adminA,"update hub_requests set status='reviewing' where id=$1",[rows[0].id]);
+ assert.equal((await as(communication.user,'select device_hub() value'))[0].value.resource_requests.find(r=>r.name===payload.name).status,'reviewing');
+ for(const user of [null,ids.stray,ids.adminA])await rejects(as(user,"select device_offline_action(gen_random_uuid(),'request_resource',$1)",[payload]),/permission denied|not an active/);
+ await rejects(as(communication.user,"select device_offline_action(gen_random_uuid(),'request_resource',$1)",[{...payload,resource_type:'invalid'}]),/Invalid/);
+});
+
+test('learning request limits include app requests and do not duplicate on retries',async()=>{
+ await db.query("insert into hub_requests(device_id,school_id,name) select $1,$2,'Limit fixture' from generate_series(1,10)",[communication.device,ids.schoolA]);
+ await rejects(as(communication.user,"select device_offline_action(gen_random_uuid(),'request_resource','{\"name\":\"Book\",\"resource_type\":\"Book\"}')"),/Daily request limit/);
+});
+
+test('notes folder create rename delete preserve files and reject other schools and students',async()=>{
+ const path=['Folder QA','Chemistry','Notes'];
+ for(const user of [null,ids.stray,ids.teacherA,ids.adminB,communication.user])await rejects(as(user,"select staff_library_folder($1,false,'create',$2)",[ids.schoolA,path]),/permission denied|Administrator/);
+ await rejects(as(ids.adminA,"select staff_library_folder($1,true,'create',$2)",[ids.schoolA,path]),/Administrator/);
+ await as(ids.adminA,"select staff_library_folder($1,false,'create',$2)",[ids.schoolA,path]);
+ assert.equal((await as(ids.adminA,"select * from hub_folders where path[1]='Folder QA'")).length,3);
+ await rejects(as(communication.user,"insert into hub_folders(school_id,scope,path) values($1::uuid,$1::uuid::text,$2)",[ids.schoolA,path]));
+ const item=(await as(ids.adminA,"insert into hub_items(school_id,kind,title,form_level,subject,category,storage_path,size) values($1::uuid,'resource','Folder fixture','Folder QA','Chemistry','Notes',$1::uuid::text||'/folder-fixture.pdf',10) returning id",[ids.schoolA]))[0].id;
+ await rejects(as(ids.adminA,"select staff_library_folder($1,false,'delete',$2)",[ids.schoolA,['Folder QA']]),/contains files/);
+ await as(ids.adminA,"select staff_library_folder($1,false,'rename',$2,'Science')",[ids.schoolA,['Folder QA','Chemistry']]);
+ assert.equal((await as(ids.adminA,'select subject,storage_path from hub_items where id=$1',[item]))[0].subject,'Science');
+ assert.equal((await as(ids.adminA,'select storage_path from hub_items where id=$1',[item]))[0].storage_path,ids.schoolA+'/folder-fixture.pdf');
+ await as(ids.adminA,"select staff_library_folder($1,false,'create',$2)",[ids.schoolA,['Folder QA','Physics']]);
+ await rejects(as(ids.adminA,"select staff_library_folder($1,false,'rename',$2,'Physics')",[ids.schoolA,['Folder QA','Science']]),/already exists/);
+ await as(ids.adminA,"update hub_items set subject='Elsewhere' where id=$1",[item]);
+ await as(ids.adminA,"select staff_library_folder($1,false,'delete',$2)",[ids.schoolA,['Folder QA','Science']]);
+ assert.equal((await as(ids.adminA,'select id from hub_items where id=$1',[item])).length,1);
+ for(const path of [[],['Bad/path'],['ok','ok','ok','too deep']])await rejects(as(ids.adminA,"select staff_library_folder($1,false,'create',$2)",[ids.schoolA,path]),/valid folder/);
+});

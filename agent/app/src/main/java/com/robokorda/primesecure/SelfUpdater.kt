@@ -15,14 +15,11 @@ import java.security.MessageDigest
  */
 object SelfUpdater {
 
-    private const val RETRY_MS = 6 * 60 * 60_000L
-
     suspend fun maybeUpdate(context: Context, store: AgentStore, offer: JSONObject?) {
         offer ?: return
         val code = offer.optInt("version_code", 0)
         if (code <= BuildConfig.VERSION_CODE) return
-        // A failed version is retried every few hours, not on every check-in.
-        if (store.updateAttemptCode == code && System.currentTimeMillis() - store.updateAttemptAt < RETRY_MS) return
+        if (!UpdateRetryRules.due(code, store.updateAttemptCode, store.updateAttemptAt, System.currentTimeMillis())) return
         store.updateAttemptCode = code
         store.updateAttemptAt = System.currentTimeMillis()
 
@@ -43,6 +40,7 @@ object SelfUpdater {
             if(e is kotlinx.coroutines.CancellationException)throw e
             DeviceLog.event(context,"error","update","agent_update_failed",e)
             store.updateError = "update to $code failed: ${e.message}"
+            CheckInWorker.retryUpdate(context)
         } finally {
             apk.delete()
         }

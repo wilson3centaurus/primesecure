@@ -91,5 +91,41 @@ export async function reviewAppRequest(_prev: FormState, form: FormData): Promis
   if (!["reviewing", "approved", "declined"].includes(status)) return { error: "Invalid status." };
   const { data, error } = await supabase.from("hub_requests").update({ status }).eq("id", String(form.get("id"))).select("id");
   if (error || !data?.length) return { error: error?.message || "You cannot review this request." };
-  revalidatePath("/apps"); revalidatePath("/requests"); return { ok: "Updated. Approved apps must also be published to the library." };
+  revalidatePath("/apps"); revalidatePath("/requests"); revalidatePath("/library"); return { ok: "Request status updated. Add approved materials to the library so students can download them." };
+}
+
+
+export async function manageNotesFolder(_prev: FormState, form: FormData): Promise<FormState> {
+ const staff=await requireStaff(),school=await getCurrentSchool();
+ if(!school||!canManage(staff,school.id))return {error:'Administrator access required.'};
+ let path:unknown;try{path=JSON.parse(String(form.get('path')||'[]'));}catch{return {error:'Invalid folder.'};}
+ if(!Array.isArray(path)||path.some(p=>typeof p!=='string'))return {error:'Invalid folder.'};
+ if(form.get('action')==='create')path[path.length-1]=String(form.get('name')||'').trim();
+ const db=await createClient();
+ const {error}=await db.rpc('staff_library_folder',{p_school:school.id,p_shared:form.get('shared')==='on',p_action:String(form.get('action')),p_path:path,p_name:String(form.get('name')||'')});
+ if(error)return {error:error.message};revalidatePath('/library');return {ok:'Folder saved.'};
+}
+
+export async function organiseNoteFile(_prev: FormState, form: FormData): Promise<FormState> {
+ const staff=await requireStaff(),school=await getCurrentSchool();
+ if(!school||!canManage(staff,school.id))return {error:'Administrator access required.'};
+ const action=String(form.get('action')),id=String(form.get('id'));
+ let target:unknown;try{target=JSON.parse(String(form.get('target')||'[]'));}catch{return {error:'Choose a destination folder.'};}
+ if(!Array.isArray(target)||target.length!==3||target.some((v,n)=>typeof v!=='string'||!v.trim()||v.length>(n===1?100:80)||/[\\/]/.test(v)))return {error:'Choose a form, subject and resource folder.'};
+ const [form_level,subject,category]=target as string[];
+ const db=await createClient();
+ const {data:item,error:readError}=await db.from('hub_items').select('*').eq('id',id).eq('kind','resource').maybeSingle();
+ if(readError||!item)return {error:readError?.message||'Resource not found.'};
+ if(action==='move'){
+  if(item.school_id!==school.id&&!(item.school_id===null&&staff.role==='super_admin'))return {error:'Only RoboKorda admins can move shared resources. You can copy one into your school.'};
+  const {error}=await db.from('hub_items').update({form_level,subject,category}).eq('id',id).select('id').single();
+  if(error)return {error:error.message};
+ }else if(action==='copy'){
+  const copyId=crypto.randomUUID(),path=`${school.id}/${copyId}/${item.storage_path.split('/').pop()}`;
+  const {error:copyError}=await db.storage.from('primesecure-hub').copy(item.storage_path,path);
+  if(copyError)return {error:copyError.message};
+  const {error}=await db.from('hub_items').insert({id:copyId,school_id:school.id,kind:'resource',title:item.title,description:item.description,form_level,subject,category,storage_path:path,mime_type:item.mime_type,size:item.size,published:item.published});
+  if(error){await db.storage.from('primesecure-hub').remove([path]);return {error:error.message};}
+ }else return {error:'Choose move or copy.'};
+ revalidatePath('/library');return {ok:action==='copy'?'Copied into your school library. Original kept.':'Moved. Devices receive the new folder at their next sync.'};
 }
