@@ -18,6 +18,7 @@ export function PublishRelease() {
   const [name, setName] = useState("");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
+  const [startRollout, setStartRollout] = useState(false);
   const [state, setState] = useState<FormState>();
 
   function pick(f: File | null) {
@@ -36,7 +37,7 @@ export function PublishRelease() {
     const { error } = await createClient().storage.from("agent")
       .upload(path, file, { contentType: "application/vnd.android.package-archive" });
     if (error) { setBusy(false); return setState({ error: `Upload failed: ${error.message}` }); }
-    const result = await addRelease({ versionCode: Number(code), versionName: name, storagePath: path, sha256: digest, notes });
+    const result = await addRelease({ versionCode: Number(code), versionName: name, storagePath: path, sha256: digest, notes, startRollout });
     setBusy(false);
     setState(result);
   }
@@ -62,6 +63,8 @@ export function PublishRelease() {
         </div>
         <button type="submit" className="btn-primary" disabled={busy}>{busy ? "Publishing…" : "Publish"}</button>
       </div>
+      <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={startRollout} onChange={e=>setStartRollout(e.target.checked)}/>Start automatic rollout to devices without an individual update hold</label>
+      <p className="text-xs text-slate-500">Leave this unchecked to upload a paused build for one-device testing. Select it under that device&apos;s Recovery &amp; rollback panel. Resume automatic updates on a device to clear its individual pin and follow active fleet releases again.</p>
       <p className="text-xs text-slate-500">
         Use the APK from the &ldquo;Agent (signed release APK)&rdquo; workflow. Devices check the version code and checksum
         before installing; a build signed with a different key is rejected by Android.

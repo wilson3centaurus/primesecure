@@ -177,11 +177,21 @@ On a student's device page, **Recovery & rollback** offers:
 - **Roll back interface** uses the previous saved working signed interface, or the APK's bundled interface,
   on the next opening. It pauses automatic updates so the faulty interface is not immediately downloaded again.
   This changes presentation only, not Android controls or native viewers.
-- **Install a prepared recovery APK** is for RoboKorda super administrators. Rebuild the known working source
+- **Install a specific APK** is for RoboKorda super administrators. Rebuild the known working source
   with the same signing key and a version code higher than the installed APK, upload it under Agent updates,
   and pause that release's fleet rollout. Select it on the affected device. Only that device receives this offer.
   Merely selecting an old lower-code APK does not downgrade Android. Existing enrollment/files are retained;
   do not uninstall the device owner. Recovery builds must remain compatible with stored app data.
+
+Publishing under **Agent updates** now defaults to a paused release. Leave **Start automatic rollout**
+unchecked for a pilot, then choose the build under one device's **Install a specific APK** selector.
+That selection pins the device and holds automatic updates. **Resume automatic updates** clears its pin
+and lets it follow active fleet releases again. Publishing/resuming a fleet release does not override an
+individual hold. Lower-code builds are displayed but disabled, with the reason beside them.
+
+The prepared 0.8.1-recovery APK uses code 19. To leave it, install **0.8.3 (20)** or a higher-code APK.
+An old source version can be restored only after rebuilding/signing it with a new install code. Editing
+the dashboard's version field does not change the code inside an APK; the updater rejects a mismatch.
 
 The small app-visibility recovery journal is saved in device-protected storage before package changes.
 At locked boot, local restoration retries independently of network requests, until first unlock. It needs

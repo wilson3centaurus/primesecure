@@ -37,6 +37,16 @@ function recoveryMarkup(code,releases,target=null) {
   desired:{revision:1,safe_mode:false,ui_rollback_revision:0,updates_paused:true,recovery_release_id:target}}));
 }
 const recoveryReleases=[{id:'old',version_code:18,version_name:'0.8.2'},{id:'recovery',version_code:19,version_name:'0.8.1-recovery'},{id:'latest',version_code:20,version_name:'0.8.3'}];
+test('publishing defaults to a paused APK and fleet rollout requires explicit opt in',async()=>{
+ const saved=[];
+ const {addRelease}=load('src/app/(app)/agent/actions.ts',{
+  'next/cache':{revalidatePath:()=>{}},'@/lib/auth':{requireStaff:async()=>({role:'super_admin'})},
+  '@/lib/supabase/server':{createClient:async()=>({from:()=>({insert:async row=>{saved.push(row);return {error:null}}})})},
+ });
+ const build={versionCode:20,versionName:'0.8.3',storagePath:'releases/20-qa.apk',sha256:'a'.repeat(64),notes:'QA'};
+ assert.match((await addRelease(build)).ok,/published|Published/);assert.equal(saved[0].active,false);
+ assert.match((await addRelease({...build,startRollout:true})).ok,/Automatic rollout is enabled/);assert.equal(saved[1].active,true);
+});
 test('recovery code 19 clearly shows its pin and allows only the newer code 20',()=>{
  const html=recoveryMarkup(19,recoveryReleases,'recovery');
  assert.match(html,/The pinned build is already installed/);

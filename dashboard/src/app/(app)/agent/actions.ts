@@ -11,7 +11,7 @@ async function superAdmin() {
 }
 
 export async function addRelease(input: {
-  versionCode: number; versionName: string; storagePath: string; sha256: string; notes: string;
+  versionCode: number; versionName: string; storagePath: string; sha256: string; notes: string; startRollout?: boolean;
 }): Promise<FormState> {
   const supabase = await superAdmin();
   if (!supabase) return { error: "Only RoboKorda admins publish agent updates." };
@@ -25,13 +25,16 @@ export async function addRelease(input: {
     storage_path: input.storagePath,
     sha256: input.sha256 || null,
     notes: input.notes.trim() || null,
+    active: input.startRollout === true,
   });
   if (error) {
     await supabase.storage.from("agent").remove([input.storagePath]);
     return { error: error.code === "23505" ? "That version code is already published." : error.message };
   }
   revalidatePath("/agent");
-  return { ok: `Published ${input.versionName} (${input.versionCode}). Devices update at their next check-in.` };
+  return { ok: input.startRollout === true
+    ? `Published ${input.versionName} (${input.versionCode}). Automatic rollout is enabled; individually held devices remain held.`
+    : `Published ${input.versionName} (${input.versionCode}) paused. Select it on a device page, or Resume this release to enable automatic rollout.` };
 }
 
 export async function setReleaseActive(_prev: FormState, formData: FormData): Promise<FormState> {
