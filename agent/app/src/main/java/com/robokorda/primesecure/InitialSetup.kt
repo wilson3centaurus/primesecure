@@ -26,7 +26,7 @@ internal class InitialSetup(private val context: Context) {
     fun catalogReceived() { check(prefs.edit().putBoolean("catalog_ready", true).commit()) }
     fun finish() {
         check(prefs.edit().putBoolean("complete", true).commit())
-        DeviceLog.event(context,"info","setup","preparation_completed")
+        DeviceLog.event(context,"info","setup","preparation_handed_to_background")
     }
     fun destination() = Intent(context, if (pending) SetupActivity::class.java else HubActivity::class.java)
 

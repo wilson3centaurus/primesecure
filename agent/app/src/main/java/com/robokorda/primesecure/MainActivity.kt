@@ -106,7 +106,6 @@ class MainActivity : Activity() {
         gap(card, 17)
         card.addView(label("Link this Primebook", 22f, StudentTheme.foreground(this), true).apply { gravity = Gravity.CENTER })
         gap(card, 8)
-        card.addView(label("Enter the key shown on your school technician's PC. Keep this Primebook connected while we prepare your apps and learning materials.", 14f, muted))
         gap(card, 23)
         val keyHeading = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         keyHeading.addView(label("ENROLLMENT KEY", 11f, muted, true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -205,7 +204,12 @@ class MainActivity : Activity() {
         }
         card.addView(diagnostics)
         gap(root, 16)
-        root.addView(label("Keep this Primebook online during setup.", 12f, muted).apply { gravity = Gravity.CENTER })
+        root.addView(ImageView(this).apply {
+            setImageResource(R.drawable.robokorda)
+            contentDescription = "RoboKorda Africa"
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }, LinearLayout.LayoutParams(dp(110), dp(72)).apply { gravity = Gravity.CENTER_HORIZONTAL })
+        root.addView(label("RoboKorda Africa \u00a9 ${java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)}", 12f, muted).apply { gravity = Gravity.CENTER })
         val scroll = ScrollView(this).apply { isFillViewport = true; addView(root) }
         setContentView(scroll)
         scroll.viewTreeObserver.addOnGlobalLayoutListener {

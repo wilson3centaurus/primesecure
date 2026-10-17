@@ -22,7 +22,12 @@ internal object LocalMediaCovers {
         return runCatching {
             val file=FileManager(store,context).checkedFile(path)
             if(token(store.deviceId,path,file)!=key)return null
-            cache.get(key)?.let { return it }
+            render(file,key)
+        }.getOrNull()
+    }
+    /** Caller supplies an already authorized local file, never a WebView path. */
+    @Synchronized fun render(file:File,key:String):ByteArray? = runCatching {
+            cache.get(key)?.let { return@runCatching it }
             val bitmap=when(file.extension.lowercase()) {
                 "jpg","jpeg","png","webp","gif","bmp","heic","heif"->if(android.os.Build.VERSION.SDK_INT>=29)ThumbnailUtils.createImageThumbnail(file,Size(320,240),null) else decodeImage(file)
                 "mp4","webm","mkv","avi","mov","m4v","3gp"->if(android.os.Build.VERSION.SDK_INT>=29)ThumbnailUtils.createVideoThumbnail(file,Size(320,240),null) else ThumbnailUtils.createVideoThumbnail(file.path,android.provider.MediaStore.Video.Thumbnails.MINI_KIND)
@@ -47,7 +52,6 @@ internal object LocalMediaCovers {
             try { ByteArrayOutputStream().use { out->bitmap.compress(Bitmap.CompressFormat.JPEG,75,out);out.toByteArray().takeIf { it.size<=150_000 }?.also { cache.put(key,it) } } }
             finally { bitmap.recycle() }
         }.getOrNull()
-    }
     private fun decodeImage(file:File):Bitmap? {
         val options=BitmapFactory.Options().apply { inJustDecodeBounds=true };BitmapFactory.decodeFile(file.path,options)
         if(options.outWidth<=0||options.outHeight<=0)return null

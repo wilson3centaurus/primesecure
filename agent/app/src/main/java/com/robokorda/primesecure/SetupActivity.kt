@@ -39,6 +39,7 @@ class SetupActivity : Activity() {
         super.onCreate(savedInstanceState)
         if (!AgentStore(this).isEnrolled) { startActivity(Intent(this, MainActivity::class.java)); finish(); return }
         if (!InitialSetup(this).pending) { startActivity(Intent(this, HubActivity::class.java)); finish(); return }
+        EnrollmentStartup.apply(this)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setPadding(40, 30, 40, 30)
@@ -58,21 +59,15 @@ class SetupActivity : Activity() {
         details = label("", 14f); card.addView(details)
         root.addView(card)
         val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        buttons.addView(Button(this).apply { text = "Retry setup"; setOnClickListener { retry() } })
-        buttons.addView(Button(this).apply { text = "Wi-Fi settings"; setOnClickListener {
-            runCatching { startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) }.onFailure { toast("Open Wi-Fi from your Primebook's system controls.") }
-        } })
         media = Button(this).apply { text = "Allow media access"; setOnClickListener { requestMediaAccess() } }; buttons.addView(media)
         root.addView(buttons)
         open = Button(this).apply {
-            text = "Open PrimeSecure"; isEnabled = false
+            text = "Open PrimeSecure"; isEnabled = true
             setOnClickListener {
                 scope.launch {
-                    val snapshot = withContext(Dispatchers.IO) { snapshot() }
-                    if (snapshot.ready) {
-                        withContext(Dispatchers.IO) { InitialSetup(this@SetupActivity).finish() }
-                        startActivity(Intent(this@SetupActivity, HubActivity::class.java)); finish()
-                    } else toast("Setup still has work to finish. Keep the internet connected.")
+                    withContext(Dispatchers.IO) { InitialSetup(this@SetupActivity).finish() }
+                    CheckInWorker.runNow(this@SetupActivity); HubSync.schedule(this@SetupActivity); OfflineWorker.schedule(this@SetupActivity)
+                    startActivity(Intent(this@SetupActivity, HubActivity::class.java)); finish()
                 }
             }
         }; root.addView(open)
@@ -84,6 +79,7 @@ class SetupActivity : Activity() {
     override fun onResume() {
         super.onResume()
         if (!::stages.isInitialized) return
+        EnrollmentStartup.apply(this)
         polling?.cancel()
         polling = scope.launch {
             while (isActive) {
@@ -95,8 +91,8 @@ class SetupActivity : Activity() {
     }
     override fun onPause() { polling?.cancel(); polling = null; super.onPause() }
     override fun onDestroy() { scope.cancel(); super.onDestroy() }
-    @Deprecated("First setup remains visible until completed")
-    override fun onBackPressed() { toast("Setup will resume when you reopen PrimeSecure. You can use the Home key to leave it.") }
+    @Deprecated("Open the student workspace while downloads continue")
+    override fun onBackPressed() { if (::open.isInitialized) open.performClick() }
 
     private data class Snapshot(val rows: List<Pair<String, Boolean>>, val ready: Boolean,
         val online: Boolean, val activity: String, val error: String?, val filesAllowed: Boolean)
@@ -137,7 +133,7 @@ class SetupActivity : Activity() {
             setTextColor(if (complete) Color.rgb(15, 125, 86) else Color.rgb(82, 91, 115))
         })
         details.text = listOfNotNull(value.activity.takeIf { it.isNotBlank() }, value.error).joinToString("\n\n")
-        open.isEnabled = value.ready
+        open.isEnabled = true
         media.visibility = if (value.filesAllowed) View.GONE else View.VISIBLE
     }
     private fun retry() {

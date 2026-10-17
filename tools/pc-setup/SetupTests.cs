@@ -34,6 +34,7 @@ namespace PrimeSecureSetup {
                 if(OwnerRejected)return Done(0,"Error: Not allowed to set the device owner because there are already some accounts on the device.");
                 if(!SkipOwnerChange)OwnerPackage=SetupEngine.Package;return Done(0,"Success: Device owner set to package "+SetupEngine.Receiver);
             }
+            if(cmd=="shell appops set "+SetupEngine.Package+" GET_USAGE_STATS allow")return Done(0,"");
             if(cmd=="shell appops set "+SetupEngine.Package+" MANAGE_EXTERNAL_STORAGE allow")return Done(0,"");
             if(cmd.StartsWith("shell am start -W -n "+SetupEngine.Package+"/.MainActivity")) { if(a.Contains("token"))EnrollSeen=true;return Done(0,"Starting: Intent { cmp="+SetupEngine.Package+"/.MainActivity (has extras) }"); }
             if(cmd=="shell dumpsys activity activities")return Done(0,"  mResumedActivity: ActivityRecord{123 u0 "+SetupEngine.Package+"/."+(Existing?"HubActivity":EnrollSeen?"SetupActivity":"MainActivity")+" t3}");

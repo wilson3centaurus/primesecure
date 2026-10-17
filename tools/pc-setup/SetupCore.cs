@@ -186,6 +186,8 @@ namespace PrimeSecureSetup {
             progress(3,"Granting school media access");
             var access=await DeviceCommand(serial,c,20,"shell","appops","set",Package,"MANAGE_EXTERNAL_STORAGE","allow");
             if(access.Code!=0||Regex.IsMatch(access.Output,@"(?im)^\s*(Error|Exception)"))log("Media access needs confirmation on the Primebook's setup screen.");else log("Media-access request accepted.");
+            var usage=await DeviceCommand(serial,c,20,"shell","appops","set",Package,"GET_USAGE_STATS","allow");
+            log(usage.Code==0?"Usage-access request accepted; collection follows the school reporting setting.":"Usage access needs Android confirmation.");
             progress(4,"Opening PrimeSecure and checking existing enrollment");
             var opened=await DeviceCommand(serial,c,25,"shell","am","start","-W","-n",Package+"/.MainActivity");Require(opened,"Open PrimeSecure",key);
             await Delay(1600,c);

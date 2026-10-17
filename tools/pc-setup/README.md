@@ -1,10 +1,12 @@
 PrimeSecure PC Setup - student enrollment pilot
 
+The compact two-column window keeps the connection, student and key controls on one page.
+
 Extract the complete ZIP, then double-click PrimeSecure Setup.exe on Windows 10/11. No terminal, Android Studio or SDK installation is needed.
 
 1. Unlock the Primebook, enable Wireless debugging and connect it to the PC's Wi-Fi. Use Pair using pairing code: enter the pairing address and six-digit code in the PC tool, then Pair. Keep the pairing screen open. If discovery fails, enter the separate connection address from Wireless debugging's main screen and click Connect. Supported authorized USB debugging also works.
 2. Select the connected Primebook. Click Admin sign in and use your PrimeSecure dashboard administrator account. Choose the school, enter the student's real name, and select a form and class. Classes come from the dashboard and are cached under this Windows user's LocalAppData. Cached classes are visibly marked; the server rechecks the class before creating a key. Internet is required to create a student and key.
-3. Click Prepare and create key. The tool verifies and installs the bundled APK, authorizes Device Owner through Android debugging, requests media access and opens the Primebook enrollment screen. Existing enrollment is retained; an already enrolled Primebook is never silently reassigned.
+3. Click Prepare and create key. The tool verifies and installs the bundled APK, authorizes Device Owner through Android debugging, requests media and usage access and opens the Primebook enrollment screen. Existing enrollment is retained; an already enrolled Primebook is never silently reassigned.
 4. Read the displayed XXXX-XXXX key and enter it ON THE PRIMEBOOK, then click Enroll there. The PC never types or submits the key for you in this flow. Keep the window open: it checks the server every three seconds and confirms both the student enrollment and the hardware serial. App installation alone is not reported as enrollment success.
 5. When All good appears, keep the Primebook online for school preparation and click Next device. The school and cached class list remain available. Verify apps, notes and the correct student record before handing it out.
 
@@ -16,4 +18,4 @@ The tool runs its own connection server on local port 5047. Pairing trust stays 
 
 No automatic wipe, account removal, setup-flag bypass, forced downgrade or test-only install is performed. Android may refuse Device Owner if accounts or another owner are present; use supported settings/manufacturer provisioning to resolve it. Keep the current school app rules unchanged during initial testing.
 
-The kit includes PrimeSecure 0.8.14 (31), signed with the existing fleet APK key, not test-only and not debuggable. The Windows executable is locally built and not Authenticode signed. Platform-tools and NOTICE are included. Source/build/tests: tools/pc-setup. Automated tests and live server checks do not prove physical PrimeOS pairing, Device Owner provisioning or firmware behavior. Pilot on one Primebook before three, and test those before 300.
+The kit includes PrimeSecure 0.8.15 (32), signed with the existing fleet APK key, not test-only and not debuggable. The Windows executable is locally built and not Authenticode signed. Platform-tools and NOTICE are included. Source/build/tests: tools/pc-setup. Automated tests and live server checks do not prove physical PrimeOS pairing, Device Owner provisioning or firmware behavior. Pilot on one Primebook before three, and test those before 300.

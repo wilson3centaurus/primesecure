@@ -1,8 +1,9 @@
-param([string]$PlatformTools = "$env:LOCALAPPDATA\Android\Sdk\platform-tools", [string]$VersionName = "0.8.14", [int]$VersionCode = 31)
+param([string]$PlatformTools = "$env:LOCALAPPDATA\Android\Sdk\platform-tools", [string]$VersionName = "0.8.15", [int]$VersionCode = 32, [string]$KitSuffix = "StudentEnrollment-Compact")
 if ($VersionName -notmatch '^\d+\.\d+\.\d+$' -or $VersionCode -lt 1) { throw 'Invalid release version.' }
+if ($KitSuffix -notmatch '^[A-Za-z0-9-]+$') { throw 'Invalid kit name.' }
 $ErrorActionPreference = 'Stop'
 $SetupRepo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$SetupOutput = Join-Path $SetupRepo "artifacts\PrimeSecure-PC-Setup-$VersionName-StudentEnrollment"
+$SetupOutput = Join-Path $SetupRepo "artifacts\PrimeSecure-PC-Setup-$VersionName-$KitSuffix"
 $SetupCompiler = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 $SetupProof = Get-Content -LiteralPath (Join-Path $SetupRepo "artifacts\verification-$VersionName-native.json") -Raw | ConvertFrom-Json
 $SetupApk = Join-Path $SetupRepo "artifacts\primesecure-$VersionName-$VersionCode.apk"
@@ -57,7 +58,7 @@ if($LASTEXITCODE -ne 0){ throw 'Setup regression checks failed.' }
 if($LASTEXITCODE -ne 0){ throw 'Cloud setup test compilation failed.' }
 & (Join-Path $SetupRepo 'artifacts\PcSetupCloudTests.exe')
 if($LASTEXITCODE -ne 0){ throw 'Cloud enrollment regression checks failed.' }
-$SetupZip=Join-Path $SetupRepo "artifacts\PrimeSecure-PC-Setup-$VersionName-StudentEnrollment.zip"
+$SetupZip=Join-Path $SetupRepo "artifacts\PrimeSecure-PC-Setup-$VersionName-$KitSuffix.zip"
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 if(Test-Path -LiteralPath $SetupZip){Remove-Item -LiteralPath $SetupZip -Force}

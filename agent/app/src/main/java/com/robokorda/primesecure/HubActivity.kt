@@ -48,6 +48,7 @@ class HubActivity : Activity() {
         super.onCreate(savedInstanceState)
         if (!AgentStore(this).isEnrolled) { startActivity(Intent(this, MainActivity::class.java)); finish(); return }
         if (InitialSetup(this).pending) { startActivity(Intent(this, SetupActivity::class.java)); finish(); return }
+        EnrollmentStartup.apply(this)
         hub = HubStore(this); uiDirectory=StudentUiUpdates.begin(this); web = WebView(this)
         StudentTheme.applyWindow(this);web.setBackgroundColor(StudentTheme.background(this))
         web.settings.apply {
@@ -63,6 +64,14 @@ class HubActivity : Activity() {
                 if(uri.scheme=="https"&&uri.host=="student.primesecure.local"&&uri.port==-1&&name.matches(Regex("local-media-cover/[0-9a-f]{64}\\.jpg"))) {
                     val key=name.substringAfter('/').removeSuffix(".jpg")
                     val bytes=mediaCoverPaths[key]?.let { LocalMediaCovers.read(this@HubActivity,it,key) }
+                    return WebResourceResponse("image/jpeg",null,if(bytes!=null)200 else 404,if(bytes!=null)"OK" else "Unavailable",mapOf("Cache-Control" to "no-store"),java.io.ByteArrayInputStream(bytes ?: ByteArray(0)))
+                }
+                if(uri.scheme=="https"&&uri.host=="student.primesecure.local"&&uri.port==-1&&name.matches(Regex("resource-cover/[0-9a-fA-F-]{36}\\.jpg"))) {
+                    val store=AgentStore(this@HubActivity)
+                    val id=name.substringAfter('/').removeSuffix(".jpg")
+                    val item=if(store.isEnrolled&&store.lastStatus=="active")hub.items().find { it.optString("id")==id&&it.optString("kind")=="resource" } else null
+                    val file=item?.let { resource -> hub.resourceFile(resource).takeIf { it.isFile&&it.length()==resource.optLong("size") } }
+                    val bytes=file?.let { LocalMediaCovers.render(it,"school:${store.deviceId}:$id:${it.lastModified()}:${it.length()}") }
                     return WebResourceResponse("image/jpeg",null,if(bytes!=null)200 else 404,if(bytes!=null)"OK" else "Unavailable",mapOf("Cache-Control" to "no-store"),java.io.ByteArrayInputStream(bytes ?: ByteArray(0)))
                 }
                 if(uri.scheme=="https"&&uri.host=="student.primesecure.local"&&uri.port==-1&&name.matches(Regex("prime-media-cover/[A-Za-z0-9_-]{11}\\.jpg"))) {
@@ -141,8 +150,9 @@ class HubActivity : Activity() {
                 catalog.put("items",JSONArray(items)).put("messages",JSONArray(hub.messages()))
                     .put("tasks",HubTasks(this@HubActivity).publicList()).put("online",Connectivity.online(this@HubActivity))
                     .put("runtime",cachedRuntime).put("agent_version",BuildConfig.VERSION_NAME).put("ui_version",uiDirectory?.name?.drop(1)?.toIntOrNull() ?: StudentUiUpdates.BUNDLED_VERSION)
+                    .put("welcome_complete",StudentWelcome(this@HubActivity).complete).put("welcome_step",StudentWelcome(this@HubActivity).step)
                     .put("media_view",getSharedPreferences("student-display",MODE_PRIVATE).getString("media_view","grid"))
-                    .put("capabilities",JSONObject().put("delete_personal_media",true).put("resource_requests",true).put("open_approved_apps",true).put("uninstall_optional_apps",true).put("usage_access_setup",true).put("support_photo",true).put("theme_preferences",true).put("communication_inbox",true).put("controlled_downloads",true).put("prime_media",true).put("prime_media_covers",true))
+                    .put("capabilities",JSONObject().put("welcome_flow",true).put("resource_covers",true).put("resource_copy",true).put("media_batch",true).put("delete_personal_media",true).put("resource_requests",true).put("open_approved_apps",true).put("uninstall_optional_apps",true).put("usage_access_setup",true).put("support_photo",true).put("theme_preferences",true).put("communication_inbox",true).put("controlled_downloads",true).put("prime_media",true).put("prime_media_covers",true))
                     .put("download_sites",JSONArray(SchoolWebTools.all.mapNotNull { SchoolWebTools.configured(this@HubActivity,it.id) }.map { tool -> JSONObject().put("id",tool.id).put("title",tool.title).put("url",tool.startUrl).put("allowed",ApprovedWebApps.rules(this@HubActivity).allows(tool.startUrl)) }))
                     .put("ui_theme",StudentTheme.preference(this@HubActivity))
                     .put("hidden_keys",JSONArray(hub.hiddenKeys())).put("sync_error",hub.syncError ?: JSONObject.NULL)
@@ -216,6 +226,9 @@ class HubActivity : Activity() {
                                 }.setNegativeButton("Cancel") { _,_ -> pickingPhoto=false }.show()
                             }
                         }
+                        "welcome_step" -> { StudentWelcome(this@HubActivity).advance(a.getInt("step")); refresh() }
+                        "welcome_complete" -> { StudentWelcome(this@HubActivity).finish(); refresh() }
+                        "media_access" -> { if(android.os.Build.VERSION.SDK_INT>=30) startActivity(Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,android.net.Uri.parse("package:$packageName"))) }
                         "recovery" -> { PasswordRecovery.activate(this@HubActivity); toast("Confirm your device password if Android asks. Recovery readiness is shown in About Device.");refresh() }
                         "usage_access" -> UsageReporter.openAccessSettings(this@HubActivity)
                         "support_photo" -> SupportCaptureActivity.start(this@HubActivity)
@@ -308,6 +321,29 @@ class HubActivity : Activity() {
                         }
                         "request_app" -> enqueue("request_app",JSONObject().put("name",a.getString("name")).put("reason",a.optString("reason")),"App request")
                         "request_resource" -> enqueue("request_resource",JSONObject().put("name",a.getString("name")).put("reason",a.optString("reason")).put("resource_type",a.optString("resource_type")).put("form_level",a.optString("form_level")).put("subject",a.optString("subject")),"Learning material request")
+                        "copy_resources" -> {
+                            val ids=a.getJSONArray("ids");check(ids.length() in 1..100) { "Select up to 100 resources." }
+                            val selected=(0 until ids.length()).map { n -> hub.items().find { it.optString("id")==ids.getString(n)&&it.optString("kind")=="resource" } ?: error("Resource unavailable") }
+                            check(selected.all { hub.resourceFile(it).isFile }) { "Save the selected resources offline before copying." }
+                            withContext(Dispatchers.IO) { selected.forEach { item -> PersonalCopies.copy(hub.resourceFile(item),item.optString("title")) } }
+                            toast("Copied to Documents / PrimeSecure Copies. Your school originals are unchanged.")
+                        }
+                        "copy_media" -> {
+                            val requested=a.optJSONArray("paths") ?: JSONArray().put(a.getString("path"))
+                            check(requested.length() in 1..100) { "Select up to 100 files." }
+                            check(mediaIndexedDevice==AgentStore(this@HubActivity).deviceId) { "Refresh Media first." }
+                            val paths=(0 until requested.length()).map { requested.getString(it) }.distinct()
+                            withContext(Dispatchers.IO) {
+                                paths.forEach { path ->
+                                    val expected=mediaDeletionEntries[path] ?: error("Refresh Media first.")
+                                    val file=FileManager(AgentStore(this@HubActivity),this@HubActivity).checkedFile(path)
+                                    check(MediaDeletion.snapshot(file)==expected) { "The file changed. Refresh Media first." }
+                                    PersonalCopies.copy(file,file.nameWithoutExtension)
+                                }
+                            }
+                            toast("Copies saved in Documents / PrimeSecure Copies.")
+                            web.evaluateJavascript("window.refreshVisibleMedia?.()",null)
+                        }
                         "resource" -> {
                             val item=hub.items().find { it.getString("id")==a.getString("id") && it.optString("kind")=="resource" } ?: error("Resource unavailable")
                             val file=hub.resourceFile(item)
@@ -342,7 +378,8 @@ class HubActivity : Activity() {
                             }
                             web.evaluateJavascript("window.receiveFiles(${JSONObject.quote(listing.toString())})",null)
                         }
-                        "delete_media" -> confirmMediaDeletion(a.getString("path"))
+                        "delete_media" -> confirmMediaDeletion(listOf(a.getString("path")))
+                        "delete_media_batch" -> { val paths=a.getJSONArray("paths");check(paths.length() in 1..100);confirmMediaDeletion((0 until paths.length()).map { paths.getString(it) }.distinct()) }
                         "open_file" -> { val file=FileManager(AgentStore(this@HubActivity),this@HubActivity).checkedFile(a.getString("path")); openFile(file,MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase()) ?: "application/octet-stream") }
                     }
                 } catch(e:Exception) {
@@ -353,19 +390,19 @@ class HubActivity : Activity() {
             }
         }
     }
-    private fun confirmMediaDeletion(path:String) {
+    private fun confirmMediaDeletion(paths:List<String>) {
         if(deletingMedia)return
         val device=AgentStore(this).deviceId
-        check(device!=null&&mediaIndexedDevice==device&&AgentStore(this).lastStatus=="active") { "Refresh Media before deleting a file." }
-        val expected=mediaDeletionEntries[path] ?: error("Only personal files listed in Media can be deleted. Refresh Media.")
+        check(device!=null&&mediaIndexedDevice==device&&AgentStore(this).lastStatus=="active") { "Refresh Media before deleting files." }
+        val selected=paths.associateWith { mediaDeletionEntries[it] ?: error("Only personal files listed in Media can be deleted. Refresh Media.") }
         deletingMedia=true
-        android.app.AlertDialog.Builder(this).setTitle("Delete file?")
-            .setMessage("Permanently delete ${File(expected.canonicalPath).name}? This cannot be undone.")
-            .setNegativeButton("Cancel") { _,_ -> deletingMedia=false }
-            .setOnCancelListener { deletingMedia=false }
-            .setPositiveButton("Delete") { _,_ ->
-                scope.launch {
-                    try {
+        android.app.AlertDialog.Builder(this).setTitle(if(paths.size==1) "Delete file?" else "Delete ${paths.size} files?")
+            .setMessage("Permanently delete " + (if(paths.size==1) File(selected.values.first().canonicalPath).name else "${paths.size} selected personal files") + "? This cannot be undone.")
+            .setNegativeButton("Cancel") { _,_ -> deletingMedia=false }.setOnCancelListener { deletingMedia=false }
+            .setPositiveButton("Delete") { _,_ -> scope.launch {
+                var removed=0
+                try {
+                    for((path,expected) in selected) {
                         withContext(Dispatchers.IO) {
                             val store=AgentStore(this@HubActivity)
                             check(store.isEnrolled&&store.deviceId==device&&store.lastStatus=="active") { "This device is no longer available." }
@@ -374,14 +411,13 @@ class HubActivity : Activity() {
                             mediaDeletionEntries.remove(path);mediaCoverPaths.entries.removeAll { it.value==path }
                             runCatching { android.media.MediaScannerConnection.scanFile(this@HubActivity,arrayOf(file.path),null,null) }
                         }
+                        removed++
                         web.evaluateJavascript("window.mediaFileDeleted?.(${JSONObject.quote(path)})",null)
-                        toast("File deleted.")
-                    } catch(e:Exception) {
-                        if(e is CancellationException)throw e
-                        toast(Connectivity.message(e))
-                    } finally { deletingMedia=false }
-                }
-            }.show()
+                    }
+                    toast("$removed file(s) deleted.")
+                } catch(e:Exception) { if(e is CancellationException)throw e;toast("$removed file(s) deleted. "+Connectivity.message(e)) }
+                finally { deletingMedia=false }
+            } }.show()
     }
     private fun openFile(file:File,mime:String) {
         val extension=file.extension.lowercase()

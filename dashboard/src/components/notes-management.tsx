@@ -9,8 +9,8 @@ import { FormMessage } from "./form-message";
 
 export type NotesFolder={path:string[];school_id:string|null};
 
-export function NotesFolderTools({path,superAdmin,onSaved,folders,defaultShared=false}:{path:string[];superAdmin:boolean;folders:string[][];defaultShared?:boolean;onSaved:(path:string[])=>void}) {
- const [open,setOpen]=useState(false),[mode,setMode]=useState('create'),[shared,setShared]=useState(defaultShared);
+export function NotesFolderTools({path,superAdmin,onSaved,folders,defaultShared=false,initialMode='create'}:{path:string[];superAdmin:boolean;folders:string[][];defaultShared?:boolean;initialMode?:string;onSaved:(path:string[])=>void}) {
+ const [open,setOpen]=useState(initialMode!=='create'),[mode,setMode]=useState(initialMode),[shared,setShared]=useState(defaultShared);
  const destinations=[...new Map(folders.filter(p=>p.length===path.length-1&&p.some((v,n)=>v!==path[n])).map(p=>[JSON.stringify(p),p])).values()];
  const [state,action]=useActionState(async(prev:Parameters<typeof manageNotesFolder>[0],data:FormData)=>{
   const result=await manageNotesFolder(prev,data);
