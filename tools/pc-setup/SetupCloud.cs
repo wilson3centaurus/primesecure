@@ -46,7 +46,7 @@ namespace PrimeSecureSetup {
    Guid.Parse(school);Guid.Parse(id);name=name.Trim();if(name.Length<2||name.Length>160)throw new InvalidOperationException("Enter the student's real name (2 to 160 characters).");if(klass==null||String.IsNullOrWhiteSpace(klass.class_name))throw new InvalidOperationException("Select a form and class from the school library.");
    var existing=await Find(school,id,c);if(existing!=null)return existing;
    var current=await FreshClasses(school,c);if(!current.Any(k=>k.form_level==klass.form_level&&k.class_name==klass.class_name))throw new InvalidOperationException("This class was removed or changed. Refresh the school classes before continuing.");
-   var result=json.Deserialize<PendingStudent[]>(await Send("/rest/v1/devices?select=id,school_id,student_name,student_id,enroll_token,status,enrolled_at,auth_user_id,serial",HttpMethod.Post,new{id=id,school_id=school,student_name=name,form_level=klass.form_level,class_name=klass.class_name},c));return result.Single();
+   return json.Deserialize<PendingStudent>(await Send("/rest/v1/rpc/staff_prepare_student",HttpMethod.Post,new{p_request_id=id,p_school=school,p_student_name=name,p_form_level=klass.form_level,p_class_name=klass.class_name},c));
   }
   public static bool Confirmed(PendingStudent student,string hardware){if(student==null||student.status=="pending"||String.IsNullOrEmpty(student.enrolled_at)||String.IsNullOrEmpty(student.auth_user_id))return false;if(!String.Equals(student.serial,hardware,StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("The key was used on a different Primebook. Check the student record; this device is not confirmed.");return true;}
   public void Dispose(){access=refresh=user=null;http.Dispose();}

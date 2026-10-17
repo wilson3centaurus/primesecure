@@ -1,4 +1,4 @@
-param([string]$PlatformTools = "$env:LOCALAPPDATA\Android\Sdk\platform-tools", [string]$VersionName = "0.8.13", [int]$VersionCode = 30)
+param([string]$PlatformTools = "$env:LOCALAPPDATA\Android\Sdk\platform-tools", [string]$VersionName = "0.8.14", [int]$VersionCode = 31)
 if ($VersionName -notmatch '^\d+\.\d+\.\d+$' -or $VersionCode -lt 1) { throw 'Invalid release version.' }
 $ErrorActionPreference = 'Stop'
 $SetupRepo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -11,7 +11,11 @@ if ((Get-FileHash -Algorithm SHA256 -LiteralPath $SetupApk).Hash.ToLowerInvarian
 New-Item -ItemType Directory -Path $SetupOutput,(Join-Path $SetupOutput 'tools'),(Join-Path $SetupOutput 'brand') -Force | Out-Null
 Copy-Item -LiteralPath $SetupApk -Destination (Join-Path $SetupOutput 'PrimeSecure.apk') -Force
 foreach ($SetupFile in @('adb.exe','AdbWinApi.dll','AdbWinUsbApi.dll','libwinpthread-1.dll','NOTICE.txt','source.properties')) {
-    Copy-Item -LiteralPath (Join-Path $PlatformTools $SetupFile) -Destination (Join-Path $SetupOutput "tools\$SetupFile") -Force
+    $SetupToolSource=Join-Path $PlatformTools $SetupFile
+    $SetupToolTarget=Join-Path $SetupOutput "tools\$SetupFile"
+    if (!(Test-Path -LiteralPath $SetupToolTarget) -or (Get-FileHash -Algorithm SHA256 -LiteralPath $SetupToolSource).Hash -ne (Get-FileHash -Algorithm SHA256 -LiteralPath $SetupToolTarget).Hash) {
+        Copy-Item -LiteralPath $SetupToolSource -Destination $SetupToolTarget -Force
+    }
 }
 Copy-Item -LiteralPath (Join-Path $SetupRepo 'dashboard\public\brand\robokorda.jpg') -Destination (Join-Path $SetupOutput 'brand\robokorda.jpg') -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README.md') -Destination (Join-Path $SetupOutput 'READ ME.txt') -Force

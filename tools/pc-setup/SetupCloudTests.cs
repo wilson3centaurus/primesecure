@@ -16,10 +16,10 @@ namespace PrimeSecureSetup{
     if(path.Contains("profiles?"))data=new[]{new{role=Teacher?"teacher":"school_admin"}};
     else if(path.Contains("schools?"))data=new[]{new{id=CloudTests.School,name="School"}};
     else if(path.Contains("school_classes?")){if(Offline)throw new HttpRequestException("offline");data=Removed?new SchoolClass[0]:new[]{new SchoolClass{form_level="Form 2",class_name="A"}};}
-    else if(path.Contains("devices?")){
-     if(r.Method==HttpMethod.Post){Creates++;Student=json.Deserialize<PendingStudent>(await r.Content.ReadAsStringAsync());Student.enroll_token="ABCD-1234";Student.status="pending";if(LostReply){LostReply=false;throw new HttpRequestException("response lost");}}
-     data=Student==null?new PendingStudent[0]:new[]{Student};
-    }else throw new Exception("unexpected request: "+path);
+    else if(path.Contains("rpc/staff_prepare_student")){
+     Creates++;var input=json.Deserialize<System.Collections.Generic.Dictionary<string,string>>(await r.Content.ReadAsStringAsync());Student=new PendingStudent{id=input["p_request_id"],school_id=input["p_school"],student_name=input["p_student_name"],enroll_token="ABCD-1234",status="pending"};if(LostReply){LostReply=false;throw new HttpRequestException("response lost");}data=Student;
+    }else if(path.Contains("devices?"))data=Student==null?new PendingStudent[0]:new[]{Student};
+    else throw new Exception("unexpected request: "+path);
    }
    return new HttpResponseMessage(HttpStatusCode.OK){Content=new StringContent(json.Serialize(data),Encoding.UTF8,"application/json")};
   }

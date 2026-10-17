@@ -24,7 +24,7 @@ namespace PrimeSecureSetup {
    this.root=root;this.preview=preview;
    engine=new SetupEngine(new AdbProcess(Path.Combine(root,"tools","adb.exe"),Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"RoboKorda","PrimeSecure Setup","android")),Stage,Log);
    cloud=new SetupCloud(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"RoboKorda","PrimeSecure Setup","classes"));
-   Text="PrimeSecure | School setup";Font=new Font("Segoe UI",10);ForeColor=Color.FromArgb(30,41,59);BackColor=Color.FromArgb(245,247,252);MinimumSize=new Size(810,780);Size=new Size(920,950);StartPosition=FormStartPosition.CenterScreen;
+   Text="PrimeSecure | Student enrollment | "+Kit.VersionName;Font=new Font("Segoe UI",10);ForeColor=Color.FromArgb(30,41,59);BackColor=Color.FromArgb(245,247,252);MinimumSize=new Size(810,780);Size=new Size(920,950);StartPosition=FormStartPosition.CenterScreen;
    var scroll=new Panel{Dock=DockStyle.Fill,AutoScroll=true};var all=new TableLayoutPanel{Dock=DockStyle.Top,AutoSize=true,ColumnCount=1,Padding=new Padding(20)};all.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));scroll.Controls.Add(all);Controls.Add(scroll);
    var brand=new Panel{Height=68,Dock=DockStyle.Top};try{brand.Controls.Add(new PictureBox{Image=Image.FromFile(Path.Combine(root,"brand","robokorda.jpg")),SizeMode=PictureBoxSizeMode.Zoom,Location=new Point(0,0),Size=new Size(52,52)});}catch(ArgumentException){}catch(IOException){}
    brand.Controls.Add(new Label{Text="PrimeSecure",Font=new Font(Font.FontFamily,23,FontStyle.Bold),ForeColor=purple,Location=new Point(65,0),AutoSize=true});brand.Controls.Add(new Label{Text="Connect. Choose a student. Enroll.",ForeColor=muted,Location=new Point(68,42),AutoSize=true});all.Controls.Add(brand);
@@ -71,7 +71,7 @@ namespace PrimeSecureSetup {
    if(device.Serial!=boundDevice||school.id!=pendingSchool)throw new InvalidOperationException("Resume with the same device and school, or click Next device.");
    Stage(5,"Creating or resuming the student enrollment key");
    var student=await cloud.Create(pendingSchool,pendingId,studentName.Text,klass,c);
-   if(!SetupCloud.Confirmed(student,hardware)){key.Text=SetupEngine.EnrollmentKey(student.enroll_token??"");result.Text="Type "+key.Text+" on the Primebook and click Enroll. Keep both devices online.";phase.Text="Waiting for server confirmation";}
+   if(!SetupCloud.Confirmed(student,hardware)){key.Text=SetupEngine.EnrollmentKey(student.enroll_token??"");key.Focus();key.SelectAll();result.Text="Type "+key.Text+" on the Primebook and click Enroll. Keep both devices online.";phase.Text="Waiting for server confirmation";}
    while(!SetupCloud.Confirmed(student,hardware)){
     await Task.Delay(3000,c);
     try{student=await cloud.Find(pendingSchool,pendingId,c);if(student==null)throw new InvalidOperationException("The student record was removed. Check the dashboard before continuing.");phase.Text="Waiting for the student to enroll on the Primebook";}
