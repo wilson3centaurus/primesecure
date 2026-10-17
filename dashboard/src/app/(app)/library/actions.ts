@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { canManage, getCurrentSchool, requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import type { FormState } from "@/lib/types";
+import {MEDIA_MIMES} from "@/lib/prime-media";
 import { inspectApk } from "@/lib/apk";
 
 export async function publishItem(input: { kind: string; title: string; description: string; form: string; subject: string; category: string; path: string; mime: string; size: number; packageName?: string; shared: boolean; preinstall: boolean; schoolId?:string;uploadId?:string }): Promise<FormState> {
@@ -12,9 +13,10 @@ export async function publishItem(input: { kind: string; title: string; descript
   const school = input.schoolId ? {id:input.schoolId} : await getCurrentSchool();
   if (!school || !canManage(staff, school.id) || (input.shared && staff.role !== "super_admin")) return { error: "Administrator access required." };
   const prefix = input.shared ? "shared" : school.id;
-  if (!input.path.startsWith(`${prefix}/`) || input.path.includes("..") || !["resource", "wallpaper", "app"].includes(input.kind)) return { error: "Invalid upload." };
+  if (!input.path.startsWith(`${prefix}/`) || input.path.includes("..") || !["resource", "wallpaper", "app", "media"].includes(input.kind)) return { error: "Invalid upload." };
   if ((!input.title.trim() && input.kind!=="app") || input.title.length > 160 || input.description.length > 2000) return { error: "Enter a title of up to 160 characters and description of up to 2,000." };
   if (input.kind === "wallpaper" && !["image/jpeg", "image/png", "image/webp"].includes(input.mime)) return { error: "Wallpapers must be JPG, PNG or WebP." };
+  if(input.kind==="media"&&(!MEDIA_MIMES.includes(input.mime)||input.size>250_000_000))return {error:"Choose MP3, M4A, OGG, WAV, MP4 or WebM smaller than 250 MB."};
   const supabase = await createClient();
   const matches=(row:{storage_path:string;school_id:string|null;kind:string})=>row.storage_path===input.path&&row.school_id===(input.shared?null:school.id)&&row.kind===input.kind;
   if(input.uploadId){

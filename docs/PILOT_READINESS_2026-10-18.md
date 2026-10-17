@@ -2,9 +2,9 @@
 
 **Prepared 17 October 2026 · Pilot: 18 October · School: Rusununguko ZIMFEP**
 
-**Decision: controlled pilot, not yet a 300-device security sign-off.** Android controls need Device Owner. A saved dashboard switch is a request; confirm the device's reported result and test the behaviour. New settings hardening requires 0.8.7+. Current candidate: **0.8.8 (25), published paused**, adding controlled download-page popups and per-event URL settings.
+**Decision: controlled pilot, not yet a 300-device security sign-off.** Android controls need Device Owner. A saved dashboard switch is a request; confirm the device's reported result and test the behaviour. New settings hardening requires 0.8.7+. Current candidate: **0.8.9 (26), published paused**, adding Prime Media with school collections, in-app YouTube playback, controlled search and on-demand offline media downloads.
 
-**Pilot configuration:** school settings lockdown requested ON; debugging restriction and Wi-Fi configuration lock OFF until provisioning/recovery checks pass. Older agents ignore the new controls. Automated checks: **69 native tests, 80 database/isolation tests**, four URL-validation tests, release/lint checks and guide browser checks; physical pilot gates below remain open.
+**Pilot configuration:** school settings lockdown requested ON; debugging restriction and Wi-Fi configuration lock OFF until provisioning/recovery checks pass. Older agents ignore the new controls. Automated checks: **72 native tests, 82 database/isolation tests**, four URL-validation tests, release/lint checks and guide browser checks; physical pilot gates below remain open.
 
 ## Problems, changes and remaining checks
 
@@ -73,3 +73,5 @@ flowchart LR
 - [ ] Record device/model, build, result and unresolved failures. **Any login loop, broken recovery or unenforced critical restriction blocks fleet rollout.**
 
 Sources: [Android user-restriction reference](https://developer.android.com/reference/android/os/UserManager), [Android device-policy reference](https://developer.android.com/reference/android/app/admin/DevicePolicyManager), repository implementation and the user's physical-device reports. Build/database/browser checks are recorded separately from the pilot gates above.
+
+Prime Media setup and limits: [prime-media.md](prime-media.md). Test a real YouTube search, embedded playback, queued school-file download, offline playback and withdrawal on one Primebook before rollout.

@@ -28,6 +28,8 @@ class MediaActivity : Activity() {
             val notes = File(filesDir,"school-notes").canonicalFile
             @Suppress("DEPRECATION") val shared=android.os.Environment.getExternalStorageDirectory().canonicalFile
             val usb=file.path.matches(Regex("/storage/[0-9a-fA-F]{4}-[0-9a-fA-F]{4}/.+")) && HubStore(this).catalog.optJSONObject("management")?.optBoolean("block_usb_storage") != true
+            val school=HubStore(this);val allowedSchool=school.items().filter { it.optString("kind") in setOf("resource","wallpaper") || it.optString("kind")=="media"&&school.catalog.optJSONObject("prime_media")?.optBoolean("enabled")==true }.map { school.resourceFile(it).canonicalPath }.toSet()
+            require(!file.path.startsWith(notes.path+File.separator)||file.path in allowedSchool) { "This school file is no longer available." }
             require(file.isFile && (file.path.startsWith(notes.path+File.separator) || file.path.startsWith(shared.path+File.separator) || usb)) { "File unavailable" }
             val root = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;setPadding(16,8,16,8);setBackgroundColor(android.graphics.Color.rgb(245,247,255)) }
             val bar=LinearLayout(this).apply { gravity=android.view.Gravity.CENTER_VERTICAL }
@@ -37,7 +39,7 @@ class MediaActivity : Activity() {
             val mime=intent.getStringExtra("mime") ?: ""
             currentFile=file;kind=mime.substringBefore('/')
             val extensions=when(kind) { "image"->setOf("jpg","jpeg","png","webp","gif","bmp");"video"->setOf("mp4","mkv","webm","3gp","avi","mov");else->emptySet() }
-            neighbours=file.parentFile?.listFiles()?.filter { it.isFile && !it.name.startsWith('.') && it.extension.lowercase() in extensions && it.canonicalFile.parentFile==file.parentFile }?.sortedBy { it.name.lowercase() } ?: emptyList()
+            neighbours=file.parentFile?.listFiles()?.filter { it.isFile && !it.name.startsWith('.') && it.extension.lowercase() in extensions && it.canonicalFile.parentFile==file.parentFile && (!it.path.startsWith(notes.path+File.separator)||it.canonicalPath in allowedSchool) }?.sortedBy { it.name.lowercase() } ?: emptyList()
             mediaIndex=neighbours.indexOf(file).coerceAtLeast(0)
             when {
                 mime.startsWith("image/") -> {

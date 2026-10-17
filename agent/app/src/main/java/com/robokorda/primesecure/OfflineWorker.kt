@@ -20,7 +20,9 @@ class OfflineWorker(context: Context, params: WorkerParameters) : CoroutineWorke
             val id = task.getString("id"); val action = task.getString("action"); val payload = task.getJSONObject("payload")
             try {
                 tasks.update(id, "syncing")
-                if (action == "install") {
+                if(action=="media_download") {
+                    PrimeMediaDownloads.download(applicationContext,payload,id)
+                } else if (action == "install") {
                     val revision=api.rpc("device_sync_state").optLong("revision")
                     val catalog = api.rpc("device_hub").put("_sync_revision",revision); hub.catalog = catalog
                     check(catalog.optString("status",store.lastStatus) == "active") { "App installs are available only on active school devices." }

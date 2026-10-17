@@ -109,7 +109,7 @@ class HubActivity : Activity() {
                 val requiredPackages=InitialSetup.requiredApps(catalog,sourceItems).map { it.optString("package_name") }.toSet()
                 val items = sourceItems.map { item -> JSONObject(item.toString()).apply {
                     put("hidden", hub.hidden("item:${item.getString("id")}"))
-                    put("available", item.optString("kind") in setOf("resource","wallpaper") && hub.resourceFile(item).exists())
+                    put("available", item.optString("kind") in setOf("resource","wallpaper","media") && hub.resourceFile(item).exists())
                     if (item.optString("kind") == "app") {
                         val pkg=item.optString("package_name")
                         val installed=runCatching { packageManager.getPackageInfo(pkg,0) }.getOrNull()
@@ -128,7 +128,7 @@ class HubActivity : Activity() {
                 catalog.put("items",JSONArray(items)).put("messages",JSONArray(hub.messages()))
                     .put("tasks",HubTasks(this@HubActivity).publicList()).put("online",Connectivity.online(this@HubActivity))
                     .put("runtime",cachedRuntime).put("agent_version",BuildConfig.VERSION_NAME).put("ui_version",uiDirectory?.name?.drop(1)?.toIntOrNull() ?: StudentUiUpdates.BUNDLED_VERSION)
-                    .put("capabilities",JSONObject().put("resource_requests",true).put("open_approved_apps",true).put("uninstall_optional_apps",true).put("usage_access_setup",true).put("support_photo",true).put("theme_preferences",true).put("communication_inbox",true).put("controlled_downloads",true))
+                    .put("capabilities",JSONObject().put("resource_requests",true).put("open_approved_apps",true).put("uninstall_optional_apps",true).put("usage_access_setup",true).put("support_photo",true).put("theme_preferences",true).put("communication_inbox",true).put("controlled_downloads",true).put("prime_media",true))
                     .put("download_sites",JSONArray(SchoolWebTools.all.mapNotNull { SchoolWebTools.configured(this@HubActivity,it.id) }.map { tool -> JSONObject().put("id",tool.id).put("title",tool.title).put("url",tool.startUrl).put("allowed",ApprovedWebApps.rules(this@HubActivity).allows(tool.startUrl)) }))
                     .put("ui_theme",StudentTheme.preference(this@HubActivity))
                     .put("hidden_keys",JSONArray(hub.hiddenKeys())).put("sync_error",hub.syncError ?: JSONObject.NULL)
@@ -238,6 +238,27 @@ class HubActivity : Activity() {
                             val item=withContext(Dispatchers.IO) { hub.items().find { it.optString("id")==a.getString("id") && it.optString("kind")=="app" } } ?: error("This app is no longer approved by your school.")
                             check(AgentStore(this@HubActivity).lastStatus=="active") { "Your school has restricted this device." }
                             ApprovedWebApps.open(this@HubActivity,item)
+                        }
+                        "prime_media_terms" -> startActivity(Intent(this@HubActivity,PrimeMediaLegalActivity::class.java).putExtra("document",if(a.optString("id")=="privacy")"privacy" else "terms"))
+                        "prime_media_search" -> {
+                            check(Connectivity.online(this@HubActivity)) { "Connect to the internet to search YouTube. Your downloaded files are still available." }
+                            val request=a.optString("request_id");val query=a.optString("query").trim();val channel=a.optString("channel")
+                            try {
+                                val results=PrimeMediaClient.search(this@HubActivity,query,channel)
+                                web.evaluateJavascript("window.receivePrimeMedia(${JSONObject.quote(JSONObject().put("request_id",request).put("items",results).toString())})",null)
+                            } catch(e:Exception) { if(e is CancellationException)throw e;web.evaluateJavascript("window.receivePrimeMedia(${JSONObject.quote(JSONObject().put("request_id",request).put("error",Connectivity.message(e)).toString())})",null) }
+                        }
+                        "prime_media_play" -> {
+                            val id=a.getString("id");check(Connectivity.online(this@HubActivity)) { "Connect to the internet to watch this video." }
+                            check(PrimeMediaClient.approved(this@HubActivity,id)) { "This video is no longer approved. Search again or choose from your school collection." }
+                            startActivity(Intent(this@HubActivity,PrimeMediaPlayerActivity::class.java).putExtra("video_id",id))
+                        }
+                        "prime_media_download","prime_media_file" -> {
+                            check(AgentStore(this@HubActivity).lastStatus=="active"&&hub.catalog.optJSONObject("prime_media")?.optBoolean("enabled")==true) { "Prime Media is unavailable for this device." }
+                            val item=hub.items().find { it.optString("id")==a.getString("id")&&it.optString("kind")=="media" } ?: error("This file is no longer approved.")
+                            val file=hub.resourceFile(item)
+                            if(a.getString("action")=="prime_media_file"&&file.exists())openFile(file,item.getString("mime_type"))
+                            else enqueue("media_download",JSONObject().put("item_id",item.getString("id")),item.getString("title"),"media:${item.getString("id")}")
                         }
                         "open_school_site" -> {
                             val tool=SchoolWebTools.configured(this@HubActivity,a.getString("id")) ?: error("This website is unavailable.")

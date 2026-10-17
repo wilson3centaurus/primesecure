@@ -1072,3 +1072,32 @@ test('download event rules follow school/device policy isolation and cannot be w
  await rejects(as(communication.user,'select effective_policy($1)',[communication.device]),/permission/);
  await rejects(as(communication.user,'select effective_policy_media_base($1)',[communication.device]),/permission/);
 });
+
+test('Prime Media isolates school collections and private files; disabled schools lose their catalogue',async()=>{
+ const video='abcdefghijk';
+ await as(ids.adminA,'insert into prime_media_videos(school_id,video_id,title) values($1,$2,$3)',[ids.schoolA,video,'Robotics demo']);
+ await as(ids.adminA,'insert into prime_media_settings(school_id,enabled) values($1,true)',[ids.schoolA]);
+ const file=(await as(ids.adminA,"insert into hub_items(school_id,kind,title,storage_path,mime_type,size) values($1::uuid,'media','School recording',$1::text||'/recording.mp3','audio/mpeg',100) returning id",[ids.schoolA]))[0];
+ let a=(await as(communication.user,'select device_hub() value'))[0].value;
+ assert.equal(a.prime_media.videos[0].video_id,video);assert.ok(a.items.some(i=>i.id===file.id));
+ assert.equal((await as(ids.devB,'select device_prime_media() value'))[0].value.videos.length,0);
+ assert.equal((await as(communication.user,'select * from prime_media_videos')).length,0);
+ await rejects(as(communication.user,'insert into prime_media_settings(school_id) values($1)',[ids.schoolA]));
+ await rejects(as(ids.adminB,'insert into prime_media_videos(school_id,video_id,title) values($1,$2,$3)',[ids.schoolA,'zzzzzzzzzzz','Forbidden']));
+ await as(ids.adminA,'update prime_media_settings set enabled=false where school_id=$1',[ids.schoolA]);
+ a=(await as(communication.user,'select device_hub() value'))[0].value;
+ assert.equal(a.prime_media.enabled,false);assert.equal(a.prime_media.videos.length,0);assert.ok(!a.items.some(i=>i.id===file.id));
+ await rejects(as(communication.user,'select device_prime_media_search_gate()'),/not enabled/);
+ await rejects(as(null,'select device_prime_media()'),/permission/);
+ await rejects(as(communication.user,'select device_hub_prime_media_base()'),/permission/);
+});
+test('Prime Media search requires opt-in and channel scope and cannot exceed its atomic daily budget',async()=>{
+ const channels=[{id:'UCabcdefghijklmnopqrstuv',name:'School channel'}];
+ await as(ids.adminA,'update prime_media_settings set enabled=true,youtube_search=true,channels=$1 where school_id=$2',[channels,ids.schoolA]);
+ await rejects(as(communication.user,'select device_prime_media_search_gate($1)',['UCzzzzzzzzzzzzzzzzzzzzzz']),/approved channel/);
+ await as(communication.user,'select device_prime_media_search_gate($1)',[channels[0].id]);
+ await db.query('update prime_media_search_budget set calls=80 where school_id=$1',[ids.schoolA]);
+ await rejects(as(communication.user,'select device_prime_media_search_gate($1)',[channels[0].id]),/budget/);
+ await rejects(as(communication.user,'delete from prime_media_search_budget'),/permission/);
+ await as(ids.adminA,'update prime_media_settings set youtube_search=false where school_id=$1',[ids.schoolA]);
+});

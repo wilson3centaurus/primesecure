@@ -9,6 +9,8 @@ export async function proxy(request: NextRequest) {
   if (request.nextUrl.pathname === "/student-ui/release.json") return NextResponse.next();
   // Publisher licences and corresponding source links are public; no school data.
   if (request.nextUrl.pathname === "/school-app-notices.json") return NextResponse.next();
+  // Native media search authenticates its device bearer token in the route.
+  if (request.nextUrl.pathname === "/api/prime-media/search") return NextResponse.next();
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(

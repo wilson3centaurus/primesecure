@@ -6,6 +6,7 @@ import { UploadCloud,X,Pause,Play,RotateCcw,CheckCircle2,AlertCircle,LoaderCircl
 import { UploadQueue,type UploadJob,type UploadOptions,type UploadEntry } from '@/lib/upload-queue';
 import { BrowserUploadRepository } from '@/lib/upload-repository';
 import { transferUpload,publishUpload } from '@/lib/upload-transfer';
+import {mediaMime,MEDIA_MIMES} from '@/lib/prime-media';
 import { createClient } from '@/lib/supabase/browser';
 
 type UploadContext={jobs:UploadJob[];ready:boolean;leader:boolean;open:boolean;setOpen:(open:boolean)=>void;enqueue:(files:File[],schoolId:string,options:UploadOptions)=>Promise<void>;pause:(id:string)=>void;retry:(id:string)=>void;remove:(id:string)=>void;error?:string};
@@ -48,12 +49,13 @@ export function UploadQueueProvider({userId,schools,children}:{userId:string;sch
    if(!files.length||files.length>50)throw new Error('Choose between 1 and 50 files.');
    if(options.kind==='app'&&files.some(f=>!f.name.toLowerCase().endsWith('.apk')||f.size>250_000_000))throw new Error('Choose .apk files smaller than 250 MB.');
    if(options.kind==='wallpaper'&&files.some(f=>f.size>8_000_000||!['image/png','image/jpeg','image/webp'].includes(f.type)))throw new Error('Choose JPG, PNG or WebP wallpapers smaller than 8 MB.');
+   if(options.kind==='media'&&files.some(f=>f.size>250_000_000||!MEDIA_MIMES.includes(mediaMime(f.name,f.type))))throw new Error('Choose MP3, M4A, OGG, WAV, MP4 or WebM smaller than 250 MB.');
    if(files.some(f=>!f.size))throw new Error('Empty files cannot be uploaded.');
    const estimate=await navigator.storage?.estimate?.();
    if(estimate?.quota&&Number(estimate.usage||0)+files.reduce((n,f)=>n+f.size,0)>estimate.quota)throw new Error('Not enough browser storage to queue these files. Select fewer files or clear completed uploads.');
    const entries:UploadEntry[]=files.map(file=>{
     const id=crypto.randomUUID();const name=file.name.replace(/[^a-zA-Z0-9._-]/g,'_').slice(-180);
-    return {file,job:{id,ownerId:userId,schoolId,schoolName:schools.find(s=>s.id===schoolId)?.name||'School',name:file.name,mime:options.kind==='app'?'application/vnd.android.package-archive':file.type||'application/octet-stream',size:file.size,path:`${options.shared?'shared':schoolId}/${id}/${name}`,createdAt:Date.now(),state:'queued',bytes:0,speed:0,uploaded:false,attempts:0,retryAt:0,
+    return {file,job:{id,ownerId:userId,schoolId,schoolName:schools.find(s=>s.id===schoolId)?.name||'School',name:file.name,mime:options.kind==='app'?'application/vnd.android.package-archive':options.kind==='media'?mediaMime(file.name,file.type):file.type||'application/octet-stream',size:file.size,path:`${options.shared?'shared':schoolId}/${id}/${name}`,createdAt:Date.now(),state:'queued',bytes:0,speed:0,uploaded:false,attempts:0,retryAt:0,
      options:{...options,title:files.length>1?(options.kind==='app'?'':file.name.slice(0,160)):options.title|| (options.kind==='app'?'':file.name.slice(0,160))}}};
    });
    try{await engine.current.enqueue(entries);}catch{throw new Error('Could not save the selected files in browser storage. Select fewer files and try again.');}

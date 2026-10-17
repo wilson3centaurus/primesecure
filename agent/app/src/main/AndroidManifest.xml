@@ -172,5 +172,7 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+        <activity android:name=".PrimeMediaLegalActivity" android:exported="false" />
+        <activity android:name=".PrimeMediaPlayerActivity" android:exported="false" />
     </application>
 </manifest>

@@ -31,8 +31,8 @@ android {
         minSdk = 26
         targetSdk = 34
         // New native releases must exceed the installed recovery and production codes.
-        versionCode = System.getenv("AGENT_VERSION_CODE")?.toIntOrNull() ?: 25
-        versionName = System.getenv("AGENT_VERSION_NAME") ?: "0.8.8"
+        versionCode = System.getenv("AGENT_VERSION_CODE")?.toIntOrNull() ?: 26
+        versionName = System.getenv("AGENT_VERSION_NAME") ?: "0.8.9"
 
         buildConfigField("String", "SUPABASE_URL", "\"${setting("primesecure.url", "PRIMESECURE_URL")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${setting("primesecure.anonKey", "PRIMESECURE_ANON_KEY")}\"")
