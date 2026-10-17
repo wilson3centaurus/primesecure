@@ -372,7 +372,7 @@ class HubActivity : Activity() {
                             val file=FileManager(store,this@HubActivity).checkedFile(path)
                             MediaDeletion.delete(file,expected)
                             mediaDeletionEntries.remove(path);mediaCoverPaths.entries.removeAll { it.value==path }
-                            android.media.MediaScannerConnection.scanFile(this@HubActivity,arrayOf(file.path),null,null)
+                            runCatching { android.media.MediaScannerConnection.scanFile(this@HubActivity,arrayOf(file.path),null,null) }
                         }
                         web.evaluateJavascript("window.mediaFileDeleted?.(${JSONObject.quote(path)})",null)
                         toast("File deleted.")
