@@ -20,11 +20,13 @@ internal object MediaDiscovery {
             for(file in children) {
                 if(++visited>maxVisited || found.size>=limit || System.nanoTime()>deadline) { truncated=true;break@scan }
                 if(file.name.startsWith('.'))continue
+                val directory=file.isDirectory
+                if(!directory&&file.extension.lowercase() !in extensions)continue
                 val canonical=runCatching { file.canonicalFile }.getOrNull() ?: continue
                 if(canonical!=file.absoluteFile || !canonical.path.startsWith(base.path+File.separator))continue
                 val relative=canonical.toRelativeString(base).replace(File.separatorChar,'/')
                 if(relative=="Android/data" || relative=="Android/obb")continue
-                if(file.isDirectory)queue.add(Triple(canonical,base,prefix))
+                if(directory)queue.add(Triple(canonical,base,prefix))
                 else if(file.isFile && file.extension.lowercase() in extensions)found.add(listOf(prefix,relative).filter { it.isNotEmpty() }.joinToString("/") to file)
             }
         }

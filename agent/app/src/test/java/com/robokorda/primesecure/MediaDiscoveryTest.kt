@@ -8,7 +8,7 @@ import java.io.File
 
 class MediaDiscoveryTest {
     @get:Rule val temporary = TemporaryFolder()
-    private fun put(root:File,path:String):File = File(root,path).apply { parentFile.mkdirs();writeText("test") }
+    private fun put(root:File,path:String):File = File(root,path).apply { parentFile!!.mkdirs();writeText("test") }
     @Test fun discoversCustomDownloadsCameraAndAndroidMediaWithoutInventoryCrowding() {
         val root=temporary.newFolder()
         repeat(5100) { put(root,"unrelated/item$it.bin") }
