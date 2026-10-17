@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import { FolderPlus, Pencil, Trash2, Copy, FolderInput } from "lucide-react";
 import { manageNotesFolder, organiseNoteFile } from "@/app/(app)/library/actions";
 import { SubmitButton } from "./submit-button";
+import {FolderDestination} from "./folder-destination";
 import { FormMessage } from "./form-message";
 
 export type NotesFolder={path:string[];school_id:string|null};
@@ -31,5 +32,5 @@ export function NotesFolderTools({path,superAdmin,onSaved,folders,defaultShared=
 export function NotesFileTools({id,current,destinations,canMove}:{id:string;current:string[];destinations:string[][];canMove:boolean}) {
  const [state,action]=useActionState(organiseNoteFile,undefined);
  const choices=[...new Map([current,...destinations].filter(p=>p.length>=1&&p.length<=3).map(p=>[JSON.stringify(p),p])).values()].sort((a,b)=>a.join('/').localeCompare(b.join('/')));
- return <details className="mt-3 text-xs"><summary className="cursor-pointer font-medium text-brand-700">Move or copy</summary><form action={action} onReset={e=>e.preventDefault()} className="mt-2 space-y-2"><input type="hidden" name="id" value={id}/><label className="label">Destination<select className="input mt-1 text-xs" name="target" defaultValue={JSON.stringify(current)}>{choices.map(p=><option key={JSON.stringify(p)} value={JSON.stringify(p)}>{p.join(' / ')}</option>)}</select></label><label className="label">Action<select className="input mt-1" name="action"><option value="copy">Copy to school (keep original)</option>{canMove&&<option value="move">Move original</option>}</select></label><SubmitButton className="btn-secondary"><Copy size={12}/>Apply</SubmitButton><FormMessage state={state}/><p className="text-[10px] text-muted">Create a destination folder above first. Copy keeps the original file.</p></form></details>;
+ return <details className="mt-3 text-xs"><summary className="cursor-pointer font-medium text-brand-700">Move or copy</summary><form action={action} onReset={e=>e.preventDefault()} className="mt-2 space-y-2"><input type="hidden" name="id" value={id}/><FolderDestination paths={choices} value={JSON.stringify(current)} name="target"/><label className="label">Action<select className="input mt-1" name="action"><option value="copy">Copy to school (keep original)</option>{canMove&&<option value="move">Move original</option>}</select></label><SubmitButton className="btn-secondary"><Copy size={12}/>Apply</SubmitButton><FormMessage state={state}/><p className="text-[10px] text-muted">Create a destination folder above first. Copy keeps the original file.</p></form></details>;
 }
