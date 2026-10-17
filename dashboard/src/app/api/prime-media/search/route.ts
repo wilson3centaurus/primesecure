@@ -1,5 +1,6 @@
 import {createClient} from '@supabase/supabase-js';
 import {SUPABASE_URL,SUPABASE_ANON_KEY} from '@/lib/env';
+import {schoolSearchAllowed} from '@/lib/school-search-safety';
 
 export const maxDuration=30;
 const headers={'Cache-Control':'private, no-store'};
@@ -16,6 +17,8 @@ export async function POST(request:Request){
  const {data:cfg,error:policyError}=await db.rpc('device_prime_media');
  if(policyError||!cfg?.enabled||!cfg.youtube_search)return Response.json({error:'YouTube search is not enabled for this device. Browse your school collection.'},{status:403,headers});
  if(cfg.channels.length&&!cfg.channels.some((c:{id:string})=>c.id===channel))return Response.json({error:'Choose a school-approved channel.'},{status:403,headers});
+ // Apply before spending quota or requesting results. Raw search terms are not logged.
+ if(!schoolSearchAllowed(query))return Response.json({error:'This search is not available on school devices. Try a learning topic or contact Support.'},{status:422,headers});
  if(!process.env.YOUTUBE_API_KEY)return Response.json({error:'YouTube search is awaiting school setup. Your approved collection is still available.'},{status:503,headers});
  const {error:budgetError}=await db.rpc('device_prime_media_search_gate',{p_channel:channel});
  if(budgetError)return Response.json({error:budgetError.message},{status:429,headers});

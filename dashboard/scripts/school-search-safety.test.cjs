@@ -1,0 +1,5 @@
+const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript'),path=require('node:path');
+const output=ts.transpileModule(fs.readFileSync(path.join(__dirname,'../src/lib/school-search-safety.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;const mod={};vm.runInNewContext(output,{exports:mod});
+test('blocks explicit-search intent before requesting results',()=>{for(const query of ['sexy','sexy music','porn videos','xxx','nudes','sex videos','naked girls','onlyfans'])assert.equal(mod.schoolSearchAllowed(query),false,query)});
+test('normalises common disguises and Unicode lookalikes',()=>{for(const query of ['s3xy','s e x y','s.e.x.y','ｓｅｘｙ','se\u200bxy','ѕеху','p0rn'])assert.equal(mod.schoolSearchAllowed(query),false,query)});
+test('keeps ordinary learning and biology terms available',()=>{for(const query of ['robot sensors','mathematics form 2','sexual reproduction biology','sex chromosomes','Sussex youth orchestra','classical music','human anatomy for biology'])assert.equal(mod.schoolSearchAllowed(query),true,query)});
