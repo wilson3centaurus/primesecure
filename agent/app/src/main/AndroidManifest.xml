@@ -173,6 +173,6 @@
             </intent-filter>
         </receiver>
         <activity android:name=".PrimeMediaLegalActivity" android:exported="false" />
-        <activity android:name=".PrimeMediaPlayerActivity" android:exported="false" />
+        <activity android:name=".PrimeMediaPlayerActivity" android:exported="false" android:theme="@android:style/Theme.Material.Light.Dialog.NoActionBar" android:label="Prime Media" />
     </application>
 </manifest>

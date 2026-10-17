@@ -4,6 +4,12 @@ import java.net.URI
 
 internal object PrimeMediaRules {
     fun videoId(value:String)=value.matches(Regex("[A-Za-z0-9_-]{11}"))
+    fun playerPage(value:String,video:String,appId:String):Boolean=runCatching {
+        val uri=URI(value)
+        uri.scheme=="https"&&uri.rawUserInfo==null&&uri.port in setOf(-1,443)&&
+            ((uri.host==appId&&uri.path=="/prime-media/player/$video")||
+             (uri.host in setOf("www.youtube.com","www.youtube-nocookie.com")&&uri.path=="/embed/$video"))
+    }.getOrDefault(false)
     fun playerResource(value:String,video:String):Boolean=runCatching {
         val uri=URI(value);val host=uri.host ?: return false
         if(!uri.scheme.equals("https",true)||uri.rawUserInfo!=null||uri.port !in setOf(-1,443))return false

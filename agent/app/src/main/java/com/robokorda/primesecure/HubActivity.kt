@@ -56,6 +56,10 @@ class HubActivity : Activity() {
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse {
                 val uri=request.url
                 val name=uri.path?.removePrefix("/") ?: ""
+                if(uri.scheme=="https"&&uri.host=="student.primesecure.local"&&uri.port==-1&&name.matches(Regex("prime-media-cover/[A-Za-z0-9_-]{11}\\.jpg"))) {
+                    val cover=PrimeMediaCovers.read(this@HubActivity,name.substringAfter('/').removeSuffix(".jpg"))
+                    return WebResourceResponse("image/jpeg",null,if(cover!=null)200 else 404,if(cover!=null)"OK" else "Unavailable",mapOf("Cache-Control" to "private, max-age=300"),java.io.ByteArrayInputStream(cover ?: ByteArray(0)))
+                }
                 if(uri.scheme=="https" && uri.host=="student.primesecure.local" && uri.port==-1 && name in setOf("index.html","workspace.js","workspace.css","primebook.png","robokorda.jpg")) {
                     val mime=when(name.substringAfterLast('.')) { "html"->"text/html";"js"->"application/javascript";"css"->"text/css";"png"->"image/png";else->"image/jpeg" }
                     return runCatching {
@@ -128,7 +132,7 @@ class HubActivity : Activity() {
                 catalog.put("items",JSONArray(items)).put("messages",JSONArray(hub.messages()))
                     .put("tasks",HubTasks(this@HubActivity).publicList()).put("online",Connectivity.online(this@HubActivity))
                     .put("runtime",cachedRuntime).put("agent_version",BuildConfig.VERSION_NAME).put("ui_version",uiDirectory?.name?.drop(1)?.toIntOrNull() ?: StudentUiUpdates.BUNDLED_VERSION)
-                    .put("capabilities",JSONObject().put("resource_requests",true).put("open_approved_apps",true).put("uninstall_optional_apps",true).put("usage_access_setup",true).put("support_photo",true).put("theme_preferences",true).put("communication_inbox",true).put("controlled_downloads",true).put("prime_media",true))
+                    .put("capabilities",JSONObject().put("resource_requests",true).put("open_approved_apps",true).put("uninstall_optional_apps",true).put("usage_access_setup",true).put("support_photo",true).put("theme_preferences",true).put("communication_inbox",true).put("controlled_downloads",true).put("prime_media",true).put("prime_media_covers",true))
                     .put("download_sites",JSONArray(SchoolWebTools.all.mapNotNull { SchoolWebTools.configured(this@HubActivity,it.id) }.map { tool -> JSONObject().put("id",tool.id).put("title",tool.title).put("url",tool.startUrl).put("allowed",ApprovedWebApps.rules(this@HubActivity).allows(tool.startUrl)) }))
                     .put("ui_theme",StudentTheme.preference(this@HubActivity))
                     .put("hidden_keys",JSONArray(hub.hiddenKeys())).put("sync_error",hub.syncError ?: JSONObject.NULL)

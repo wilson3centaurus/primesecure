@@ -2,9 +2,9 @@
 
 **Prepared 17 October 2026 · Pilot: 18 October · School: Rusununguko ZIMFEP**
 
-**Decision: controlled pilot, not yet a 300-device security sign-off.** Android controls need Device Owner. A saved dashboard switch is a request; confirm the device's reported result and test the behaviour. New settings hardening requires 0.8.7+. Current candidate: **0.8.9 (26), published paused**, adding Prime Media with school collections, in-app YouTube playback, controlled search and on-demand offline media downloads.
+**Decision: controlled pilot, not yet a 300-device security sign-off.** Android controls need Device Owner. A saved dashboard switch is a request; confirm the device's reported result and test the behaviour. New settings hardening requires 0.8.7+. Current candidate: **0.8.10 (27), published paused**, simplifying Prime Media to video search with cached covers, an in-app player overlay and a correction to player page filtering.
 
-**Pilot configuration:** school settings lockdown requested ON; debugging restriction and Wi-Fi configuration lock OFF until provisioning/recovery checks pass. Older agents ignore the new controls. Automated checks: **72 native tests, 82 database/isolation tests**, four URL-validation tests, release/lint checks and guide browser checks; physical pilot gates below remain open.
+**Pilot configuration:** school settings lockdown requested ON; debugging restriction and Wi-Fi configuration lock OFF until provisioning/recovery checks pass. Older agents ignore the new controls. Automated checks: **73 native tests, 82 database/isolation tests**, four URL-validation tests, release/lint checks and guide browser checks; physical pilot gates below remain open.
 
 ## Problems, changes and remaining checks
 

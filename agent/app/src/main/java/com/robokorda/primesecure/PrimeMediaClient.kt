@@ -17,6 +17,9 @@ internal object PrimeMediaClient {
     private var results=JSONArray()
     private var queryKey=""
     private fun signature(cfg:JSONObject)=JSONObject().put("enabled",cfg.optBoolean("enabled")).put("search",cfg.optBoolean("youtube_search")).put("channels",cfg.optJSONArray("channels")).toString()
+    fun knownCover(owner:String?,id:String,cfg:JSONObject):Boolean=synchronized(this) {
+        cfg.optBoolean("youtube_search")&&device==owner&&policy==signature(cfg)&&expires>System.currentTimeMillis()&&(0 until results.length()).any { results.getJSONObject(it).optString("video_id")==id }
+    }
     suspend fun search(context:Context,query:String,channel:String):JSONArray=withContext(Dispatchers.IO) {
         require(query.length in 2..120)
         val store=AgentStore(context);val owner=store.deviceId;check(store.lastStatus=="active") { "Your school has restricted this device." }
