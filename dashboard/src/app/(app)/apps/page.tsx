@@ -20,7 +20,7 @@ function size(bytes: number | null) {
   return bytes > 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(bytes / 1024)} KB`;
 }
 
-export default async function AppsPage({searchParams}:{searchParams:Promise<{tab?:string;q?:string;page?:string}>}) {
+export default async function AppsPage({searchParams}:{searchParams:Promise<{tab?:string;q?:string;page?:string;status?:string;install?:string}>}) {
   const staff = await requireStaff();
   const school = await getCurrentSchool();
   if (!school) return <PageHeader title="Apps" description="Add a school first." />;
@@ -32,7 +32,7 @@ export default async function AppsPage({searchParams}:{searchParams:Promise<{tab
   const tabs=[{id:"store",label:"App Store"},{id:"requests",label:"Student requests"},...(manager?[{id:"rules",label:"App rules"},{id:"viewers",label:"Media viewers"},{id:"legacy",label:"Older deployments"}]:[])];
   const current=tabs.some(t=>t.id===tab)?tab:"store";
   const navigation=<SectionTabs base="/apps" current={current} tabs={tabs}/>;
-  if(current==="store")return <>{navigation}<HubLibrary kind="app" query={typeof params.q==='string'?params.q:''} page={Number(params.page)||1}/></>;
+  if(current==="store")return <>{navigation}<HubLibrary kind="app" query={typeof params.q==='string'?params.q:''} page={Number(params.page)||1} status={typeof params.status==='string'?params.status:'all'} install={typeof params.install==='string'?params.install:'all'}/></>;
   if(current==="requests")return <>{navigation}<AppRequests/></>;
   if(current==="legacy") {
     const {data}=await supabase.from("apps").select("*").eq("school_id",school.id).order("name");
