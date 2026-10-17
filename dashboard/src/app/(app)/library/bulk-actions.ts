@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { canManage, getCurrentSchool, requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
-type Input={schoolId:string;ids:string[];action:string;target?:string[]};
+type Input={schoolId:string;ids:string[];action:string;target?:string[];confirmedDelete?:boolean};
 export async function bulkNotes(input:Input):Promise<{ok?:string;error?:string;completed:string[]}> {
  const completed:string[]=[];
  const fail=(error:string)=>({error,completed});
@@ -12,7 +12,8 @@ export async function bulkNotes(input:Input):Promise<{ok?:string;error?:string;c
  if(!input||typeof input!=='object')return fail('Invalid bulk action.');
  if(!school||school.id!==input.schoolId||!canManage(staff,school.id))return fail('Administrator access to the current school is required.');
  if(!Array.isArray(input.ids)||!input.ids.length||input.ids.length>1000||input.ids.some(id=>typeof id!=='string'||!/^[0-9a-f-]{36}$/i.test(id)))return fail('Select between 1 and 1,000 files.');
- if(!['move','copy','enable','disable','publish','withdraw'].includes(input.action))return fail('Choose a bulk action.');
+ if(!['move','copy','enable','disable','publish','withdraw','delete'].includes(input.action))return fail('Choose a bulk action.');
+ if(input.action==='delete'&&input.confirmedDelete!==true)return fail('Confirm permanent deletion first.');
  const ids=[...new Set(input.ids)],target=input.target;
  if(['move','copy'].includes(input.action)&&(!Array.isArray(target)||target.length!==3||target.some((v,n)=>typeof v!=='string'||!v.trim()||v.length>(n===1?100:80)||/[\\/]/.test(v))))return fail('Choose a destination form, subject and resource folder.');
  const db=await createClient();
@@ -25,9 +26,29 @@ export async function bulkNotes(input:Input):Promise<{ok?:string;error?:string;c
  }
  if(rows.length!==ids.length||rows.some(row=>row.school_id!==null&&row.school_id!==school.id))return fail('Some selected files are unavailable in this school. Refresh and select again.');
  if(['enable','disable'].includes(input.action)&&rows.some(row=>row.school_id!==null))return fail('Enable and Disable apply to shared-library files only.');
- if(['move','publish','withdraw'].includes(input.action)&&rows.some(row=>row.school_id===null&&staff.role!=='super_admin'))return fail('Only RoboKorda administrators can change shared originals. Copy them into your school instead.');
- let failure='';
- if(input.action==='copy'){
+ if(['move','publish','withdraw','delete'].includes(input.action)&&rows.some(row=>row.school_id===null&&staff.role!=='super_admin'))return fail('Only RoboKorda administrators can change shared originals. Copy them into your school instead.');
+ let failure='',cleanupWarning=false;
+ if(input.action==='delete'){
+  if(rows.some(row=>!row.storage_path.startsWith(`${row.school_id===null?'shared':school.id}/`)||row.storage_path.split('/').some(part=>part==='..'||part==='.')))return fail('A selected file has an invalid storage location. Contact Support before deleting it.');
+  for(let start=0;start<ids.length;start+=80){
+   const batch=ids.slice(start,start+80);
+   const {data:deleted,error}=await db.from('hub_items').delete().eq('kind','resource').in('id',batch).or(`school_id.is.null,school_id.eq.${school.id}`).select('id,storage_path');
+   if(error){failure=error.message;break;}
+   const removed=(deleted||[]) as {id:string;storage_path:string}[];completed.push(...removed.map(row=>row.id));
+   // Delete catalogue entries first. A failed storage cleanup must never leave broken library entries.
+   const paths=[...new Set(removed.map(row=>row.storage_path))];
+   for(let offset=0;offset<paths.length;offset+=10){
+    const chunk=paths.slice(offset,offset+10);
+    try {
+     const {data:references,error:referenceError}=await db.from('hub_items').select('storage_path').in('storage_path',chunk).limit(1000);
+     if(referenceError||!references||references.length>=1000){cleanupWarning=true;continue;}
+     const used=new Set(references.map(row=>row.storage_path)),unreferenced=chunk.filter(path=>!used.has(path));
+     if(unreferenced.length){const {error:storageError}=await db.storage.from('primesecure-hub').remove(unreferenced);if(storageError)cleanupWarning=true;}
+    } catch { cleanupWarning=true; }
+   }
+   if(removed.length!==batch.length){failure='Some selected files were already removed or became unavailable. Refresh the library.';break;}
+  }
+ }else if(input.action==='copy'){
   for(let start=0;start<rows.length;start+=4){
    await Promise.all(rows.slice(start,start+4).map(async row=>{
     const id=crypto.randomUUID(),path=`${school.id}/${id}/${row.storage_path.split('/').pop()}`;
@@ -54,5 +75,6 @@ export async function bulkNotes(input:Input):Promise<{ok?:string;error?:string;c
  }
  revalidatePath('/library');
  if(failure)return fail(`${completed.length} of ${ids.length} files completed. Remaining files stay selected. ${failure}`);
- return {ok:`${completed.length} file${completed.length===1?'':'s'} ${input.action==='copy'?'copied; originals kept':input.action==='move'?'moved':input.action==='publish'?'republished':input.action==='withdraw'?'withdrawn':input.action==='enable'?'enabled for this school':'disabled for this school'}. Devices receive changes when online.`,completed};
+ if(cleanupWarning)return fail(`${completed.length} resources deleted from the library. Some stored files could not be cleaned up; contact Support. Do not repeat the deletion.`);
+ return {ok:`${completed.length} file${completed.length===1?'':'s'} ${input.action==='delete'?'permanently deleted':input.action==='copy'?'copied; originals kept':input.action==='move'?'moved':input.action==='publish'?'republished':input.action==='withdraw'?'withdrawn':input.action==='enable'?'enabled for this school':'disabled for this school'}. Devices receive changes when online.`,completed};
 }
