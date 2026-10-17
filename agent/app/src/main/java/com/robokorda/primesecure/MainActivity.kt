@@ -81,28 +81,32 @@ class MainActivity : Activity() {
             background = rounded(StudentTheme.surface(this@MainActivity), 24, border)
         }
         root.addView(card, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        val brand = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        val brand = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
         brand.addView(ImageView(this).apply {
             setImageResource(R.drawable.primebook)
             contentDescription = "Primebook"
             scaleType = ImageView.ScaleType.FIT_CENTER
-            setPadding(dp(10), dp(10), dp(10), dp(10))
-            background = rounded(Color.WHITE, 15)
-        }, LinearLayout.LayoutParams(dp(58), dp(58)))
-        brand.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), 0, 0, 0)
-            addView(label("PrimeSecure", 25f, StudentTheme.foreground(this@MainActivity), true))
-            addView(label("School device setup", 13f, muted))
-        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            background = rounded(Color.WHITE, 22)
+        }, LinearLayout.LayoutParams(dp(88), dp(88)))
+        gap(brand, 14)
+        brand.addView(label("PrimeSecure", 27f, StudentTheme.foreground(this), true).apply { gravity = Gravity.CENTER })
+        gap(brand, 5)
+        brand.addView(label("YOUR SCHOOL WORKSPACE", 11f, muted, true).apply {
+            gravity = Gravity.CENTER
+            letterSpacing = 0.12f
+        })
         card.addView(brand)
         gap(card, 23)
         badge = label("Not enrolled", 12f, accent, true).apply { setPadding(dp(11), dp(7), dp(11), dp(7)) }
-        card.addView(badge, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        card.addView(badge, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { gravity = Gravity.CENTER_HORIZONTAL })
         gap(card, 17)
-        card.addView(label("Connect your Primebook", 22f, StudentTheme.foreground(this), true))
+        card.addView(label("Link this Primebook", 22f, StudentTheme.foreground(this), true).apply { gravity = Gravity.CENTER })
         gap(card, 8)
-        card.addView(label("Enter the enrollment key provided by your school. Your learning workspace will be prepared after enrollment.", 14f, muted))
+        card.addView(label("Enter the key shown on your school technician's PC. Keep this Primebook connected while we prepare your apps and learning materials.", 14f, muted))
         gap(card, 23)
         val keyHeading = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         keyHeading.addView(label("ENROLLMENT KEY", 11f, muted, true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))

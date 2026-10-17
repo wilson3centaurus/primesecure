@@ -57,7 +57,7 @@ namespace PrimeSecureSetup {
         public override string ToString() { return (String.IsNullOrEmpty(Model)?Serial:Model+"  -  "+Serial)+"  ("+State+")"; }
     }
     public sealed class SetupOutcome {
-        public bool AlreadyEnrolled;public string Message;
+        public bool AlreadyEnrolled;public string Message;public string HardwareSerial;
     }
     public sealed class SetupEngine {
         public const string Package="com.robokorda.primesecure";
@@ -119,7 +119,7 @@ namespace PrimeSecureSetup {
         }
         void Require(CommandResult result,string stage,string secret) {
             if(result.Code==0&&!Regex.IsMatch(result.Output,@"(?im)^\s*(Error:|Exception|Failure\s*\[)"))return;
-            string safe=result.Output.Replace(secret,"[enrollment key]").Replace(secret.Replace("-",""),"[enrollment key]");
+            string safe=String.IsNullOrEmpty(secret)?result.Output:result.Output.Replace(secret,"[enrollment key]").Replace(secret.Replace("-",""),"[enrollment key]");
             log(stage+": "+safe.Trim().Substring(0,Math.Min(1600,safe.Trim().Length)));throw new InvalidOperationException(Failure(result.Output));
         }
         public async Task<List<Device>> Refresh(CancellationToken c) {
@@ -142,8 +142,8 @@ namespace PrimeSecureSetup {
             if(result.Code!=0||(!result.Output.Contains("connected to "+endpoint)&&!result.Output.Contains("already connected to "+endpoint)))throw new InvalidOperationException("Connection failed. Use the connection address on Wireless debugging's main screen, not the pairing address. Keep the PC and Primebook on the same Wi-Fi; school Wi-Fi may block communication between devices.");
         }
         public static string Hash(string path) { using(var stream=File.OpenRead(path))using(var sha=SHA256.Create())return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-","").ToLowerInvariant(); }
-        public async Task<SetupOutcome> Prepare(string serial,string token,string apk,string expectedHash,CancellationToken c) {
-            Serial(serial);string key=EnrollmentKey(token);
+        public async Task<SetupOutcome> Prepare(string serial,string token,string apk,string expectedHash,CancellationToken c,bool manual=false) {
+            Serial(serial);string key=manual?"":EnrollmentKey(token);
             progress(0,"Verifying the APK and selected Primebook");
             if(Hash(apk)!=expectedHash)throw new InvalidOperationException("The APK checksum differs from this kit. Extract a fresh kit; do not install this file.");
             var device=(await Refresh(c)).SingleOrDefault(d=>d.Serial==serial);
@@ -193,6 +193,12 @@ namespace PrimeSecureSetup {
             string foreground=Foreground(activity.Output);
             if(new[]{"HubActivity","SetupActivity","LockActivity","MessageActivity"}.Contains(foreground))return new SetupOutcome { AlreadyEnrolled=true,Message="This Primebook is already enrolled. Its existing student assignment was kept; the entered key was not submitted. Check its student record in the dashboard." };
             if(foreground!="MainActivity")throw new InvalidOperationException("PrimeSecure is not visible yet. Unlock the Primebook, reopen it, then retry. The enrollment key has not been submitted.");
+            if(manual) {
+                var hardware=await DeviceCommand(serial,c,15,"shell","getprop","ro.serialno");Require(hardware,"Hardware identity",key);
+                string identity=hardware.Output.Trim();
+                if(String.IsNullOrWhiteSpace(identity)||identity=="unknown")throw new InvalidOperationException("The hardware serial could not be read. No student was created.");
+                return new SetupOutcome { HardwareSerial=identity,Message="Primebook ready. Enter the displayed school key on the Primebook." };
+            }
             progress(5,"Submitting the school enrollment key");
             opened=await DeviceCommand(serial,c,25,"shell","am","start","-W","-n",Package+"/.MainActivity","--es","token",key);Require(opened,"Start enrollment",key);
             for(int poll=0;poll<EnrollmentPolls;poll++) {
