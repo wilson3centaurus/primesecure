@@ -6,34 +6,47 @@ import java.util.Locale
 /** Curated entry points, kept separate from the privileged student WebView. */
 internal data class SchoolWebTool(
     val id:String, val title:String, val startUrl:String,
-    private val resources:List<String>, private val downloads:List<String>, val imagesOnly:Boolean=false
+    val resources:List<String>, val downloads:List<String>, val imagesOnly:Boolean=false,
+    val pages:List<String> = emptyList()
 ) {
-    private val resourceRules=ApprovedWebRules("allowlist",resources)
-    private val downloadRules=ApprovedWebRules("allowlist",downloads)
-    private val navigationRules=ApprovedWebRules("allowlist",listOf(URI(startUrl).host))
-    private fun advertising(host:String)=listOf("abscloud.org","rolledipocras.com","crn77.com").any { host==it || host.endsWith(".$it") }
-    fun allowsNavigation(url:String)=navigationRules.allows(url)
+    private val resourceRules=DownloadEventRules(listOf("https://${URI(startUrl).host}/")+resources+pages)
+    private val downloadRules=DownloadEventRules(listOf("https://${URI(startUrl).host}/")+downloads)
+    private val navigationRules=DownloadEventRules(listOf("https://${URI(startUrl).host}/")+pages)
+    private fun advertising(host:String)=listOf("abscloud.org","rolledipocras.com","crn77.com","omg10.com","extroverted-roll.com").any { host==it || host.endsWith(".$it") }
+    fun allowsNavigation(url:String)=!advertising(runCatching { URI(url).host?.lowercase(Locale.ROOT) }.getOrNull() ?: "")&&navigationRules.allows(url)
     fun allowsResource(url:String,school:ApprovedWebRules):Boolean {
         val uri=runCatching { URI(url) }.getOrNull() ?: return false
         val host=uri.host?.lowercase(Locale.ROOT) ?: return false
-        if(advertising(host))return false
+        if(advertising(host)||!school.allows(startUrl))return false
         // Metadata only, without granting the YouTube website or its player.
         if(host=="www.youtube.com"&&uri.path=="/oembed")return ApprovedWebRules("allowlist",listOf(host)).allows(url)
-        return resourceRules.allows(url)||school.allows(url)
+        return resourceRules.allows(url)
     }
-    fun allowsDownload(url:String,school:ApprovedWebRules)=!advertising(runCatching { URI(url).host?.lowercase(Locale.ROOT) }.getOrNull() ?: "")&&(downloadRules.allows(url)||school.allows(url))
+    fun allowsDownload(url:String,school:ApprovedWebRules)=school.allows(startUrl)&&!advertising(runCatching { URI(url).host?.lowercase(Locale.ROOT) }.getOrNull() ?: "")&&downloadRules.allows(url)
 }
 
 internal object SchoolWebTools {
     val all=listOf(
         SchoolWebTool("music","Music & videos","https://v4.mp3juices.africa.com/",
             listOf("v4.mp3juices.africa.com","api.ytmp3.tube","us-central1-ytmp3-tube.cloudfunctions.net","ytimg.com","suggestqueries.google.com"),
-            listOf("v4.mp3juices.africa.com","ytmp3.tube","googlevideo.com")),
+            listOf("v4.mp3juices.africa.com","ytmp3.tube","googlevideo.com"),
+            pages=listOf("https://api.ytmp3.tube/mp3","https://api.ytmp3.tube/mp4")),
         SchoolWebTool("images","Image search","https://unsplash.com/",
             listOf("unsplash.com","images.unsplash.com","plus.unsplash.com"),
             listOf("unsplash.com","images.unsplash.com","plus.unsplash.com"),imagesOnly=true)
     )
     fun find(id:String)=all.find { it.id==id }
+    fun configured(context:android.content.Context,id:String):SchoolWebTool? {
+        val base=find(id) ?: return null
+        val config=runCatching { org.json.JSONObject(AgentStore(context).webFilter ?: "{}").optJSONObject("download_rules")?.optJSONObject(id) }.getOrNull() ?: return base
+        fun list(key:String,fallback:List<String>):List<String> {
+            val array=config.optJSONArray(key) ?: return fallback
+            return (0 until minOf(40,array.length())).mapNotNull { array.optString(it).trim().takeIf { s->s.isNotEmpty()&&s.length<=1000 } }
+        }
+        val start=config.optString("start_url",base.startUrl)
+        if(!DownloadEventRules(listOf(start)).allows(start))return base
+        return base.copy(startUrl=start,pages=list("pages",base.pages),resources=list("resources",base.resources),downloads=list("downloads",base.downloads))
+    }
 }
 
 /** Recognise supported media; filenames and a website's MIME claim are insufficient. */

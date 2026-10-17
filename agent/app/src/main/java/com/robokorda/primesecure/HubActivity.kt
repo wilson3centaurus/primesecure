@@ -129,7 +129,7 @@ class HubActivity : Activity() {
                     .put("tasks",HubTasks(this@HubActivity).publicList()).put("online",Connectivity.online(this@HubActivity))
                     .put("runtime",cachedRuntime).put("agent_version",BuildConfig.VERSION_NAME).put("ui_version",uiDirectory?.name?.drop(1)?.toIntOrNull() ?: StudentUiUpdates.BUNDLED_VERSION)
                     .put("capabilities",JSONObject().put("resource_requests",true).put("open_approved_apps",true).put("uninstall_optional_apps",true).put("usage_access_setup",true).put("support_photo",true).put("theme_preferences",true).put("communication_inbox",true).put("controlled_downloads",true))
-                    .put("download_sites",JSONArray(SchoolWebTools.all.map { tool -> JSONObject().put("id",tool.id).put("title",tool.title).put("url",tool.startUrl).put("allowed",ApprovedWebApps.rules(this@HubActivity).allows(tool.startUrl)) }))
+                    .put("download_sites",JSONArray(SchoolWebTools.all.mapNotNull { SchoolWebTools.configured(this@HubActivity,it.id) }.map { tool -> JSONObject().put("id",tool.id).put("title",tool.title).put("url",tool.startUrl).put("allowed",ApprovedWebApps.rules(this@HubActivity).allows(tool.startUrl)) }))
                     .put("ui_theme",StudentTheme.preference(this@HubActivity))
                     .put("hidden_keys",JSONArray(hub.hiddenKeys())).put("sync_error",hub.syncError ?: JSONObject.NULL)
                     .put("last_sync",AgentStore(this@HubActivity).lastCheckInAt)
@@ -240,7 +240,7 @@ class HubActivity : Activity() {
                             ApprovedWebApps.open(this@HubActivity,item)
                         }
                         "open_school_site" -> {
-                            val tool=SchoolWebTools.find(a.getString("id")) ?: error("This website is unavailable.")
+                            val tool=SchoolWebTools.configured(this@HubActivity,a.getString("id")) ?: error("This website is unavailable.")
                             check(AgentStore(this@HubActivity).lastStatus=="active"&&ApprovedWebApps.rules(this@HubActivity).allows(tool.startUrl)) { "Your school needs to approve this website in Settings > Web filtering." }
                             check(Connectivity.online(this@HubActivity)) { "Connect to the internet to search this website. Your saved files are still available in Media." }
                             startActivity(Intent(this@HubActivity,WebAppActivity::class.java).setData(android.net.Uri.parse(tool.startUrl)).putExtra("school_web_tool",tool.id))

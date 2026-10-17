@@ -15,7 +15,7 @@ internal object ApprovedWebApps {
             serviceWorkerWebSettings.allowContentAccess=false
             setServiceWorkerClient(object:android.webkit.ServiceWorkerClient() {
                 override fun shouldInterceptRequest(request:android.webkit.WebResourceRequest):android.webkit.WebResourceResponse? =
-                    if(if(tool==null) rules(app).allows(request.url.toString()) else rules(app).allows(tool.startUrl)&&tool.allowsResource(request.url.toString(),rules(app))) null else android.webkit.WebResourceResponse("text/plain","UTF-8",403,"Not approved",mapOf("Cache-Control" to "no-store"),java.io.ByteArrayInputStream(ByteArray(0)))
+                    if(if(tool==null) rules(app).allows(request.url.toString()) else SchoolWebTools.configured(app,tool.id)?.let { rules(app).allows(it.startUrl)&&it.allowsResource(request.url.toString(),rules(app)) }==true) null else android.webkit.WebResourceResponse("text/plain","UTF-8",403,"Not approved",mapOf("Cache-Control" to "no-store"),java.io.ByteArrayInputStream(ByteArray(0)))
             })
         }
     }

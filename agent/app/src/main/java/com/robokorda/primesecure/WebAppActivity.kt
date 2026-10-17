@@ -21,6 +21,10 @@ class WebAppActivity : Activity() {
     private var appPackage: String? = null
     private var schoolTool:SchoolWebTool?=null
     private var downloadPrompt=false
+    private lateinit var popupHost:FrameLayout
+    private var popupCapture:WebView?=null
+    private var popupTimeout:Runnable?=null
+    private var lastInteraction=0L
     private var failed = false
     private val reportedHosts=java.util.Collections.synchronizedSet(mutableSetOf<String>())
     private var appStillApproved=true
@@ -36,14 +40,15 @@ class WebAppActivity : Activity() {
         }
     }
     private fun rules() = ApprovedWebApps.rules(this)
-    private fun allowed(url:String,mainFrame:Boolean=false)=schoolTool?.let { tool ->
+    private fun currentTool()=schoolTool?.let { SchoolWebTools.configured(this,it.id) }
+    private fun allowed(url:String,mainFrame:Boolean=false)=currentTool()?.let { tool ->
         rules().allows(tool.startUrl)&&(if(mainFrame)tool.allowsNavigation(url) else tool.allowsResource(url,rules()))
     } ?: rules().allows(url)
     private fun permittedSession(): Boolean = AgentStore(this).let { store ->
         store.isEnrolled && store.lastStatus == "active" &&
             getSystemService(android.os.UserManager::class.java).isUserUnlocked &&
             !getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked && rules().enabled &&
-            appStillApproved && (schoolTool==null||rules().allows(schoolTool!!.startUrl))
+            appStillApproved && (schoolTool==null||currentTool()?.let { rules().allows(it.startUrl) }==true)
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -51,7 +56,7 @@ class WebAppActivity : Activity() {
         super.onCreate(savedInstanceState)
         appPackage = intent.getStringExtra("web_app_package")
         val toolId=intent.getStringExtra("school_web_tool")
-        schoolTool=toolId?.let(SchoolWebTools::find)
+        schoolTool=toolId?.let { SchoolWebTools.configured(this,it) }
         if(toolId!=null&&schoolTool==null) { finish();return }
         appStillApproved=appPackage==null || HubStore(this).items().any { it.optString("kind")=="app" && it.optString("package_name")==appPackage }
         val url = intent.dataString
@@ -63,7 +68,7 @@ class WebAppActivity : Activity() {
         val title = schoolTool?.title ?: appPackage?.let { pkg -> HubStore(this).items().find { it.optString("package_name") == pkg }?.optString("title") } ?: "School web app"
         val bar = LinearLayout(this).apply {
             setPadding(12,8,12,8); gravity = android.view.Gravity.CENTER_VERTICAL; setBackgroundColor(StudentTheme.surface(this@WebAppActivity))
-            addView(Button(this@WebAppActivity).apply { text="Back"; setOnClickListener { if(web.canGoBack()) web.goBack() else finish() } })
+            addView(Button(this@WebAppActivity).apply { text="Back"; setOnClickListener { goBackWithinApp() } })
             addView(TextView(this@WebAppActivity).apply { text=title; textSize=16f; setTextColor(StudentTheme.foreground(this@WebAppActivity)); setPadding(12,0,12,0) },LinearLayout.LayoutParams(0,-2,1f))
             addView(Button(this@WebAppActivity).apply { text="Reload"; setOnClickListener { lastAllowed?.takeIf { allowed(it,true) }?.let(::navigate) } })
             addView(Button(this@WebAppActivity).apply { text="Close"; setOnClickListener { finish() } })
@@ -75,18 +80,20 @@ class WebAppActivity : Activity() {
                 javaScriptEnabled=true; domStorageEnabled=true
                 allowFileAccess=false; allowContentAccess=false
                 mixedContentMode=WebSettings.MIXED_CONTENT_NEVER_ALLOW
-                javaScriptCanOpenWindowsAutomatically=false; setSupportMultipleWindows(true)
+                javaScriptCanOpenWindowsAutomatically=schoolTool!=null; setSupportMultipleWindows(true)
                 mediaPlaybackRequiresUserGesture=true; safeBrowsingEnabled=true
                 builtInZoomControls=true; displayZoomControls=false
             }
             CookieManager.getInstance().setAcceptThirdPartyCookies(this,false)
             // No Android link/search context menu that could hand text to another app.
             isLongClickable=false;setOnLongClickListener { true }
+            setOnTouchListener { _,event -> if(event.action==android.view.MotionEvent.ACTION_UP)lastInteraction=android.os.SystemClock.elapsedRealtime();false }
+            setOnKeyListener { _,_,event -> if(event.action==android.view.KeyEvent.ACTION_UP)lastInteraction=android.os.SystemClock.elapsedRealtime();false }
             webViewClient=object:WebViewClient() {
                 override fun shouldOverrideUrlLoading(view:WebView,request:WebResourceRequest):Boolean {
                     val url=request.url.toString()
                     if(request.isForMainFrame&&schoolTool!=null&&!allowed(url,true)) {
-                        if(request.method=="GET"&&schoolTool!!.allowsDownload(url,rules()))confirmDownload(url,web.settings.userAgentString,"School download") else blocked(url)
+                        if(request.method=="GET"&&currentTool()?.allowsDownload(url,rules())==true)confirmDownload(url,web.settings.userAgentString,"School download") else blocked(url)
                         return true
                     }
                     if (!allowed(url,request.isForMainFrame)) { if(request.isForMainFrame) blocked(url); return true };return false
@@ -94,8 +101,7 @@ class WebAppActivity : Activity() {
                 override fun shouldInterceptRequest(view:WebView,request:WebResourceRequest):WebResourceResponse? {
                     if(allowed(request.url.toString(),request.isForMainFrame)) return null
                     // Includes subframes/resources; file/content/data and external app schemes never pass through.
-                    val host=request.url.host
-                    if(host!=null&&reportedHosts.size<20&&reportedHosts.add(host)) DeviceLog.event(this@WebAppActivity,"info","web_app","web_host_blocked",details=org.json.JSONObject().put("reason",host))
+                    reportBlocked(request.url.toString(),if(request.isForMainFrame)"pages" else "resources")
                     return WebResourceResponse("text/plain","UTF-8",403,"Not approved",mapOf("Cache-Control" to "no-store"),ByteArrayInputStream(ByteArray(0)))
                 }
                 override fun onPageStarted(view:WebView,url:String,icon:Bitmap?) {
@@ -111,7 +117,7 @@ class WebAppActivity : Activity() {
             webChromeClient=object:WebChromeClient() {
                 override fun onProgressChanged(view:WebView,value:Int) { this@WebAppActivity.progress.progress=value;this@WebAppActivity.progress.visibility=if(value<100) android.view.View.VISIBLE else android.view.View.GONE }
                 override fun onCreateWindow(view:WebView,dialog:Boolean,userGesture:Boolean,result:android.os.Message):Boolean {
-                    status.text="This app requested a separate window. Use a sign-in flow that stays in this window.";return false
+                    return capturePopup(userGesture,result)
                 }
                 override fun onPermissionRequest(request:PermissionRequest) { request.deny() }
                 override fun onShowFileChooser(view:WebView,callback:android.webkit.ValueCallback<Array<android.net.Uri>>,params:FileChooserParams):Boolean { callback.onReceiveValue(null);status.text="File uploads are not enabled in school web apps.";return true }
@@ -121,7 +127,8 @@ class WebAppActivity : Activity() {
                 else confirmDownload(target,agent.orEmpty(),runCatching { URLUtil.guessFileName(target,disposition,mime) }.getOrDefault("School download"))
             }
         }
-        val root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;setBackgroundColor(StudentTheme.background(this@WebAppActivity));addView(bar);addView(status);addView(progress,LinearLayout.LayoutParams(-1,4));addView(web,LinearLayout.LayoutParams(-1,0,1f)) }
+        popupHost=FrameLayout(this).apply { visibility=android.view.View.GONE }
+        val root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;setBackgroundColor(StudentTheme.background(this@WebAppActivity));addView(bar);addView(status);addView(progress,LinearLayout.LayoutParams(-1,4));addView(popupHost,LinearLayout.LayoutParams(1,1));addView(web,LinearLayout.LayoutParams(-1,0,1f)) }
         StudentTheme.styleReader(this,bar);setContentView(root)
         val identity=getSharedPreferences("approved-web-identity",MODE_PRIVATE)
         val device=AgentStore(this).deviceId
@@ -134,24 +141,85 @@ class WebAppActivity : Activity() {
             }
         } else navigate(url)
     }
-    private fun navigate(url:String) { if(allowed(url,true)) { lastAllowed=url;web.loadUrl(url) } else blocked(url) }
+    private fun navigate(url:String) { closePopup();if(allowed(url,true)) { lastAllowed=url;web.loadUrl(url) } else blocked(url) }
+    private fun goBackWithinApp() {
+        if(popupCapture!=null) { closePopup();status.text="Download page cancelled." }
+        else if(::web.isInitialized&&web.canGoBack())web.goBack() else finish()
+    }
+    /** Capture a window.open/target=_blank URL; approved pages reuse our visible WebView. */
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun capturePopup(gesture:Boolean,result:android.os.Message):Boolean {
+        if(!DownloadPopupRules.mayCapture(schoolTool!=null,permittedSession(),popupCapture!=null,gesture,android.os.SystemClock.elapsedRealtime(),lastInteraction)) {
+            status.text=if(schoolTool==null)"Separate windows are not enabled in this school web app." else "Click the download button again to open an approved page."
+            return false
+        }
+        val transport=result.obj as? WebView.WebViewTransport ?: return false
+        val child=WebView(this);val handled=java.util.concurrent.atomic.AtomicBoolean(false)
+        fun route(url:String,method:String="GET") {
+            if(url=="about:blank"||!handled.compareAndSet(false,true))return
+            handler.post {
+                if(popupCapture!==child)return@post
+                closePopup()
+                if(!permittedSession())return@post
+                val tool=currentTool() ?: return@post
+                when {
+                    method!="GET" -> { reportBlocked(url,"popup_method");status.text="This page needs a form submission that is not supported in the download window." }
+                    tool.allowsNavigation(url) -> navigate(url)
+                    tool.allowsDownload(url,rules()) -> confirmDownload(url,web.settings.userAgentString,"School download")
+                    else -> blocked(url,"pages")
+                }
+            }
+        }
+        child.settings.apply { javaScriptEnabled=true;domStorageEnabled=true;allowFileAccess=false;allowContentAccess=false;mixedContentMode=WebSettings.MIXED_CONTENT_NEVER_ALLOW;safeBrowsingEnabled=true;setSupportMultipleWindows(false);javaScriptCanOpenWindowsAutomatically=false }
+        CookieManager.getInstance().setAcceptThirdPartyCookies(child,false)
+        child.webViewClient=object:WebViewClient() {
+            override fun shouldOverrideUrlLoading(view:WebView,request:WebResourceRequest):Boolean { if(request.isForMainFrame)route(request.url.toString(),request.method);return true }
+            override fun onPageStarted(view:WebView,url:String,icon:Bitmap?) { route(url) }
+            override fun shouldInterceptRequest(view:WebView,request:WebResourceRequest):WebResourceResponse {
+                if(request.isForMainFrame)route(request.url.toString(),request.method)
+                return WebResourceResponse("text/plain","UTF-8",403,"Capture only",mapOf("Cache-Control" to "no-store"),ByteArrayInputStream(ByteArray(0)))
+            }
+            override fun onReceivedSslError(view:WebView,ssl:SslErrorHandler,error:SslError) { ssl.cancel() }
+        }
+        child.webChromeClient=object:WebChromeClient() {
+            override fun onPermissionRequest(request:PermissionRequest) { request.deny() }
+            override fun onCreateWindow(view:WebView,dialog:Boolean,userGesture:Boolean,message:android.os.Message)=false
+            override fun onCloseWindow(window:WebView) { if(popupCapture===window)closePopup() }
+        }
+        popupCapture=child;popupHost.addView(child,FrameLayout.LayoutParams(1,1))
+        popupTimeout=Runnable { if(popupCapture===child) { closePopup();status.text="The website did not provide a download page. Try its download button again." } }.also { handler.postDelayed(it,60_000) }
+        status.text="Checking the requested download page..."
+        transport.webView=child;result.sendToTarget();return true
+    }
+    private fun closePopup() {
+        popupTimeout?.let(handler::removeCallbacks);popupTimeout=null
+        popupCapture?.let { popupCapture=null;popupHost.removeView(it);it.stopLoading();it.destroy() }
+    }
     private fun confirmDownload(url:String,agent:String,name:String) {
-        val tool=schoolTool ?: return
+        val tool=currentTool() ?: return
         if(downloadPrompt)return
-        if(!permittedSession()||!tool.allowsDownload(url,rules())) { status.text="This download host is not approved by your school.";return }
+        if(!permittedSession()||!tool.allowsDownload(url,rules())) { reportBlocked(url,"downloads");status.text="This download URL is not approved by your school.";return }
         downloadPrompt=true
         android.app.AlertDialog.Builder(this).setTitle("Save to Media?")
             .setMessage(name.take(120)+"\n\nOnly supported ${if(tool.imagesOnly)"images" else "music and video files"} can be saved. Follow progress in Background tasks.")
             .setPositiveButton("Download") { _,_ ->
-                runCatching { WebMediaWorker.enqueue(this,tool,url,name,agent) }.onSuccess {
+                runCatching { WebMediaWorker.enqueue(this,currentTool() ?: error("This website is no longer approved."),url,name,agent) }.onSuccess {
                     status.text="Download queued. Open Background tasks for progress, or Media when it finishes."
                 }.onFailure { status.text=it.message ?: "This download could not be queued." }
             }.setNegativeButton("Cancel",null).setOnDismissListener { downloadPrompt=false }.show()
     }
-    private fun blocked(url:String) {
+    private fun reportBlocked(url:String,event:String) {
+        val uri=runCatching { java.net.URI(url) }.getOrNull();val host=uri?.host ?: return
+        if(reportedHosts.size<20&&reportedHosts.add("$event:$host")) {
+            val clean=runCatching { java.net.URI(uri.scheme,null,host,uri.port,uri.path,null,null).toString().take(500) }.getOrDefault(host)
+            DeviceLog.event(this,"info","web_app","web_event_blocked",details=org.json.JSONObject().put("event",event).put("host",host).put("url_without_query",clean))
+        }
+    }
+    private fun blocked(url:String,event:String="pages") {
         web.stopLoading();failed=true
+        reportBlocked(url,event)
         val host=runCatching { java.net.URI(url).host }.getOrNull()
-        status.text=if(host==null) "This link is not approved by your school." else "Your school has not approved $host."
+        status.text=if(host==null) "This link is not approved by your school." else "Your school has not approved $host for $event. Ask an administrator to review its download-site URLs."
     }
     override fun onResume() {
         super.onResume();if(!::web.isInitialized)return
@@ -164,8 +232,8 @@ class WebAppActivity : Activity() {
             if(!appStillApproved) { finish();return@launch };delay(15_000)
         } }
     }
-    override fun onPause() { handler.removeCallbacks(checkPolicy);approvalJob?.cancel();approvalJob=null;super.onPause() }
-    override fun onDestroy() { handler.removeCallbacks(checkPolicy);scope.cancel();if(::web.isInitialized) { web.stopLoading();web.destroy() };if(schoolTool!=null)ApprovedWebApps.restrictWorkers(this);super.onDestroy() }
+    override fun onPause() { handler.removeCallbacks(checkPolicy);approvalJob?.cancel();approvalJob=null;closePopup();super.onPause() }
+    override fun onDestroy() { handler.removeCallbacks(checkPolicy);scope.cancel();closePopup();if(::web.isInitialized) { web.stopLoading();web.destroy() };if(schoolTool!=null)ApprovedWebApps.restrictWorkers(this);super.onDestroy() }
     @Deprecated("Navigate within approved web app")
-    override fun onBackPressed() { if(::web.isInitialized&&web.canGoBack())web.goBack() else finish() }
+    override fun onBackPressed() { goBackWithinApp() }
 }

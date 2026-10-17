@@ -19,6 +19,7 @@ class WebFilter(
     val allowlist: List<String>,
     val safeSearch: Boolean,
     val homeUrl: String?,
+    val downloadRules:JSONObject = JSONObject(),
 ) {
     val active: Boolean get() = mode != "off" || safeSearch || homeUrl != null
 
@@ -57,6 +58,7 @@ class WebFilter(
     fun toJson(): JSONObject = JSONObject()
         .put("mode", mode).put("blocklist", JSONArray(blocklist)).put("allowlist", JSONArray(allowlist))
         .put("safe_search", safeSearch).put("home_url", homeUrl ?: JSONObject.NULL)
+        .put("download_rules",downloadRules)
 
     companion object {
         const val CHROME = "com.android.chrome"
@@ -68,6 +70,7 @@ class WebFilter(
             allowlist = policy.stringSet("web_allowlist").toList(),
             safeSearch = policy.optBoolean("safe_search", false),
             homeUrl = policy.stringOrNull("browser_home_url"),
+            downloadRules = policy.optJSONObject("web_download_rules") ?: JSONObject(),
         )
 
         fun fromJson(json: JSONObject?) = if (json == null) WebFilter("off", emptyList(), emptyList(), false, null)
@@ -76,7 +79,8 @@ class WebFilter(
                 .put("web_blocklist", json.optJSONArray("blocklist") ?: JSONArray())
                 .put("web_allowlist", json.optJSONArray("allowlist") ?: JSONArray())
                 .put("safe_search", json.optBoolean("safe_search"))
-                .put("browser_home_url", json.opt("home_url") ?: JSONObject.NULL))
+                .put("browser_home_url", json.opt("home_url") ?: JSONObject.NULL)
+                .put("web_download_rules",json.optJSONObject("download_rules") ?: JSONObject()))
 
         /** Applies [filter] to Chrome and the School Browser; returns a one-line summary. */
         fun apply(context: Context, store: AgentStore, filter: WebFilter): String {

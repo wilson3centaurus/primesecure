@@ -6,6 +6,7 @@ import { FormMessage } from "@/components/form-message";
 import { SubmitButton } from "@/components/submit-button";
 import { createClient } from "@/lib/supabase/browser";
 import type { Policy } from "@/lib/types";
+import { DOWNLOAD_TOOLS,type DownloadEvent } from "@/lib/download-rules";
 
 const COMMON_APPS = [
   ["com.android.chrome", "Chrome"],
@@ -39,6 +40,9 @@ export function PolicyEditor({
   const [webMode, setWebMode] = useState(policy?.web_filter ?? "off");
   const [allowedSites,setAllowedSites]=useState((policy?.web_allowlist??[]).join("\n"));
   const [homeUrl,setHomeUrl]=useState(policy?.browser_home_url??"");
+  const [downloadStarts,setDownloadStarts]=useState(Object.fromEntries(DOWNLOAD_TOOLS.map(t=>[t.id,policy?.web_download_rules?.[t.id]?.start_url??t.start_url])));
+  const [downloadEvents,setDownloadEvents]=useState<Record<string,DownloadEvent>>({music:"pages",images:"pages"});
+  const [downloadError,setDownloadError]=useState("");
 
   function addTinkercad(){
     setWebMode('allowlist');setHomeUrl('https://www.tinkercad.com/');
@@ -137,6 +141,27 @@ export function PolicyEditor({
               <button type="button" disabled={!canEdit} className="btn-secondary" onClick={() => addDownloadSite("unsplash.com")}>Add Unsplash images</button>
             </div>
             <p className="mt-2 text-[11px] leading-5 text-muted">Save policy to apply. Remove the entry from Allowed websites to withdraw approval. Keep general browsers blocked in Apps. Public search results are provided by the site and are not individually reviewed by your school.</p>
+            <input type="hidden" name="download_rules_present" value="1"/>
+            <details className="mt-4 border-t border-line pt-3"><summary className="cursor-pointer text-xs font-semibold">Configure URLs by event · agent 0.8.8+</summary>
+              <p className="mt-2 text-xs leading-5 text-muted">Approved new tabs and redirect pages open in the same PrimeSecure window. Keep page URLs separate from actual media-file URLs. These entries do not unblock a general browser. The start website must also be in Allowed websites.</p>
+              <div className="mt-3 grid gap-4 md:grid-cols-2">{DOWNLOAD_TOOLS.map(tool=><section key={tool.id} className="rounded-lg border border-line p-3">
+                <h4 className="mb-3 text-sm font-semibold">{tool.title}</h4>
+                <label className="label" htmlFor={`download_${tool.id}_start_url`}>Start / search page</label>
+                <input id={`download_${tool.id}_start_url`} name={`download_${tool.id}_start_url`} type="url" maxLength={1000} disabled={!canEdit} className="input mt-1 text-xs" value={downloadStarts[tool.id]} onChange={e=>setDownloadStarts(previous=>({...previous,[tool.id]:e.target.value}))}/>
+                <button type="button" className="btn-secondary mt-2" disabled={!canEdit} onClick={()=>{try{const u=new URL(downloadStarts[tool.id]);if(u.protocol!=="https:"||u.username||u.password)throw Error();addDownloadSite(u.hostname);setDownloadError("")}catch{setDownloadError("Enter a valid HTTPS start website first.")}}}>Approve this start website</button>
+                <label className="label mt-4" htmlFor={`download_${tool.id}_event`}>Event</label>
+                <select id={`download_${tool.id}_event`} className="input mt-1" value={downloadEvents[tool.id]} onChange={e=>setDownloadEvents(previous=>({...previous,[tool.id]:e.target.value as DownloadEvent}))}>
+                  <option value="pages">New tab / redirect / preview page</option><option value="resources">Supporting scripts, images &amp; services</option><option value="downloads">Actual music, video or image file</option>
+                </select>
+                {(["pages","resources","downloads"] as const).map(event=><div key={event} className={downloadEvents[tool.id]===event?"mt-2":"hidden"}>
+                  <label className="sr-only" htmlFor={`download_${tool.id}_${event}`}>{tool.title}: {event} URLs</label>
+                  <textarea id={`download_${tool.id}_${event}`} name={`download_${tool.id}_${event}`} rows={4} maxLength={8000} disabled={!canEdit} className="input font-mono text-xs" defaultValue={(policy?.web_download_rules?.[tool.id]?.[event]??tool[event]).join('\n')} placeholder={event==="pages"?"https://converter.example.org/preview":event==="downloads"?"media.example.org":"static.example.org"}/>
+                </div>)}
+                <p className="mt-2 text-[11px] leading-5 text-muted">One entry per line. Domains include subdomains; full HTTPS URLs restrict the exact host and path prefix. Query parameters are ignored. The start host is included automatically. Empty event lists remove the extra permissions.</p>
+              </section>)}</div>
+              <p className="mt-3 text-[11px] leading-5 text-muted">Do not add ad redirects such as omg10.com or extroverted-roll.com. For blocked legitimate links, review Device diagnostics → web_event_blocked: it identifies pages, resources or downloads and omits query tokens.</p>
+              {downloadError&&<p role="alert" className="mt-2 text-xs text-red-600">{downloadError}</p>}
+            </details>
           </div>
           <div className="flex flex-wrap gap-4 text-sm">
             {([["off", "No filtering"], ["blocklist", "Block listed sites"], ["allowlist", "Only allow listed sites"]] as const).map(([v, l]) => (

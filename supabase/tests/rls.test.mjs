@@ -1052,3 +1052,23 @@ test('settings lockdown stays school-scoped and cannot be changed by a device',a
  await rejects(as(communication.user,'select device_hub_settings_lockdown_base()'),/permission/);
  await rejects(as(null,'select device_hub()'),/permission/);
 });
+
+
+test('download event rules follow school/device policy isolation and cannot be written by students',async()=>{
+ const rules={music:{start_url:'https://v4.mp3juices.africa.com/',pages:['https://preview.example.org/convert'],resources:['static.example.org'],downloads:['cdn.example.org']}};
+ await as(ids.adminA,'delete from policies where device_id=$1',[communication.device]);
+ const rows=await as(ids.adminA,'select id from policies where school_id=$1 and device_id is null',[ids.schoolA]);
+ if(rows.length)await as(ids.adminA,'update policies set web_download_rules=$1 where id=$2',[rules,rows[0].id]);
+ else await as(ids.adminA,'insert into policies(school_id,web_download_rules) values($1,$2)',[ids.schoolA,rules]);
+ let response=(await as(communication.user,'select device_check_in() value'))[0].value;
+ assert.deepEqual(response.policy.web_download_rules,rules);
+ assert.deepEqual((await as(ids.devB,'select device_check_in() value'))[0].value.policy.web_download_rules??{},{});
+ const override={music:{...rules.music,pages:['https://other.example.org/preview']}};
+ const own=(await as(ids.adminA,'insert into policies(school_id,device_id,web_download_rules) values($1,$2,$3) returning id',[ids.schoolA,communication.device,override]))[0];
+ response=(await as(communication.user,'select device_check_in() value'))[0].value;assert.deepEqual(response.policy.web_download_rules,override);
+ assert.equal((await as(communication.user,'update policies set web_download_rules=$1 where id=$2 returning id',[{},own.id])).length,0);
+ await rejects(as(ids.adminB,'insert into policies(school_id,web_download_rules) values($1,$2)',[ids.schoolA,rules]),/row-level|permission|duplicate/);
+ await rejects(as(ids.adminA,'update policies set web_download_rules=$1 where id=$2',[[],own.id]),/check constraint/);
+ await rejects(as(communication.user,'select effective_policy($1)',[communication.device]),/permission/);
+ await rejects(as(communication.user,'select effective_policy_media_base($1)',[communication.device]),/permission/);
+});

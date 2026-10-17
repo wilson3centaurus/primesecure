@@ -5,6 +5,7 @@ import { canManage, requireStaff } from "@/lib/auth";
 import { SUPABASE_URL } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 import type { FormState } from "@/lib/types";
+import { parseDownloadRules } from "@/lib/download-rules";
 
 const PACKAGE = /^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z0-9_]+)+$/;
 const SITE = /^(\*|(\*\.)?[a-z0-9-]+(\.[a-z0-9-]+)*)$/;
@@ -73,6 +74,8 @@ export async function savePolicy(_prev: FormState, formData: FormData): Promise<
   if (home && !/^https?:\/\/\S+$/.test(home)) return { error: "Home page must start with http:// or https://" };
 
   const existing = t.existing;
+  const downloadConfig=formData.get("download_rules_present")==="1"?parseDownloadRules(formData):{rules:existing?.web_download_rules??{}};
+  if("error" in downloadConfig && downloadConfig.error)return {error:downloadConfig.error};
   const row = {
     wallpaper_url: wallpaper,
     lock_wallpaper: formData.get("lock_wallpaper") === "on",
@@ -83,6 +86,7 @@ export async function savePolicy(_prev: FormState, formData: FormData): Promise<
     web_filter: webFilter,
     web_blocklist: blocklist,
     web_allowlist: allowlist,
+    web_download_rules: downloadConfig.rules,
     safe_search: formData.get("safe_search") === "on",
     browser_home_url: home,
     ...(formData.get("editor_mode")==="web"?{

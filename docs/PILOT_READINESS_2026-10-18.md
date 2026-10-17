@@ -2,9 +2,9 @@
 
 **Prepared 17 October 2026 · Pilot: 18 October · School: Rusununguko ZIMFEP**
 
-**Decision: controlled pilot, not yet a 300-device security sign-off.** Android controls need Device Owner. A saved dashboard switch is a request; confirm the device's reported result and test the behaviour. New settings hardening requires **0.8.7 (24)**, initially published paused.
+**Decision: controlled pilot, not yet a 300-device security sign-off.** Android controls need Device Owner. A saved dashboard switch is a request; confirm the device's reported result and test the behaviour. New settings hardening requires 0.8.7+. Current candidate: **0.8.8 (25), published paused**, adding controlled download-page popups and per-event URL settings.
 
-**Pilot configuration:** school settings lockdown requested ON; debugging restriction and Wi-Fi configuration lock OFF until provisioning/recovery checks pass. Older agents ignore the new controls. Automated checks: **65 native tests, 79 database/isolation tests**, release/lint checks and guide browser checks; physical pilot gates below remain open.
+**Pilot configuration:** school settings lockdown requested ON; debugging restriction and Wi-Fi configuration lock OFF until provisioning/recovery checks pass. Older agents ignore the new controls. Automated checks: **69 native tests, 80 database/isolation tests**, four URL-validation tests, release/lint checks and guide browser checks; physical pilot gates below remain open.
 
 ## Problems, changes and remaining checks
 
@@ -68,6 +68,7 @@ flowchart LR
 - [ ] Reboot at least three times; log in; test loss/reconnection of Wi-Fi and before-first-unlock reachability.
 - [ ] Test USB drive, SD card, USB transfer, inbound/outbound Bluetooth and guest/new-user entry points.
 - [ ] Test required-app install, optional install/removal, PDF/media viewing, wallpaper, offline notes and queued support/replies.
+- [ ] Test a real download through an approved popup/redirect; verify ads/outside hosts stay blocked and URL withdrawal takes effect.
 - [ ] Test a one-device update, hold and emergency safe-mode release. Enable debugging restriction last; verify an admin can release it while online.
 - [ ] Record device/model, build, result and unresolved failures. **Any login loop, broken recovery or unenforced critical restriction blocks fleet rollout.**
 

@@ -82,6 +82,7 @@ export type Policy = {
   web_filter: "off" | "blocklist" | "allowlist";
   web_blocklist: string[];
   web_allowlist: string[];
+  web_download_rules?: import("./download-rules").DownloadRules;
   safe_search: boolean;
   browser_home_url: string | null;
   updated_at: string;

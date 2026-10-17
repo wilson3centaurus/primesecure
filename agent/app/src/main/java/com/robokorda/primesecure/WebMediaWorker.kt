@@ -27,12 +27,14 @@ class WebMediaWorker(context:Context,params:WorkerParameters):CoroutineWorker(co
         if(task.optString("status") in setOf("done","failed","superseded"))return@withContext Result.success()
         val store=AgentStore(applicationContext);val device=store.deviceId
         val payload=task.getJSONObject("payload")
-        val tool=SchoolWebTools.find(payload.optString("site")) ?: run { tasks.update(id,"failed",error="This download website is no longer available.");return@withContext Result.success() }
+        val tool=SchoolWebTools.configured(applicationContext,payload.optString("site")) ?: run { tasks.update(id,"failed",error="This download website is no longer available.");return@withContext Result.success() }
         val directory=File(applicationContext.cacheDir,"school-media").apply { mkdirs() }
         val part=File(directory,"$id.part");val info=File(directory,"$id.json")
-        fun permitted() {
+        var lastDownloadUrl=payload.optString("url")
+        fun permitted(url:String=payload.optString("url")) {
             check(store.isEnrolled&&store.deviceId==device&&store.lastStatus=="active") { "Downloads are available only on an active school device." }
-            check(ApprovedWebApps.rules(applicationContext).allows(tool.startUrl)) { "Your school has not approved this download website." }
+            val current=SchoolWebTools.configured(applicationContext,tool.id) ?: error("This download website is no longer available.")
+            check(ApprovedWebApps.rules(applicationContext).allows(current.startUrl)&&current.allowsDownload(payload.optString("url"),ApprovedWebApps.rules(applicationContext))&&current.allowsDownload(url,ApprovedWebApps.rules(applicationContext))) { "Your school has not approved this download URL." }
         }
         try {
             permitted();tasks.update(id,"downloading",bytes=part.length())
@@ -43,8 +45,8 @@ class WebMediaWorker(context:Context,params:WorkerParameters):CoroutineWorker(co
             if(offset==0L&&part.exists())part.delete()
             var url=source;var response:Response?=null
             for(hop in 0..5) {
-                permitted()
-                check(tool.allowsDownload(url,ApprovedWebApps.rules(applicationContext))) { "The website redirected to an unapproved download host." }
+                lastDownloadUrl=url
+                permitted(url)
                 val builder=Request.Builder().url(url).header("Referer",tool.startUrl)
                 payload.optString("agent").takeIf { it.length in 1..500&&it.none { c->c<' '||c=='\u007f' } }?.let { builder.header("User-Agent",it) }
                 CookieManager.getInstance().getCookie(url)?.let { builder.header("Cookie",it) }
@@ -84,7 +86,7 @@ class WebMediaWorker(context:Context,params:WorkerParameters):CoroutineWorker(co
                             bytes+=n;check(bytes<=limit) { "This file exceeds the school download size limit." };output.write(buffer,0,n)
                             val now=System.currentTimeMillis()
                             if(now-lastUpdate>=750) {
-                                permitted();check(directory.usableSpace>20_000_000L) { "Your Primebook needs more free space to finish this download." };tasks.update(id,"downloading",bytes,total,(bytes-lastBytes)*1000/maxOf(1,now-lastUpdate));lastBytes=bytes;lastUpdate=now
+                                permitted(url);check(directory.usableSpace>20_000_000L) { "Your Primebook needs more free space to finish this download." };tasks.update(id,"downloading",bytes,total,(bytes-lastBytes)*1000/maxOf(1,now-lastUpdate));lastBytes=bytes;lastUpdate=now
                             }
                         }
                     }
@@ -93,7 +95,7 @@ class WebMediaWorker(context:Context,params:WorkerParameters):CoroutineWorker(co
                     detected
                 }
             }
-            permitted();currentCoroutineContext().ensureActive()
+            permitted(url);currentCoroutineContext().ensureActive()
             if(format.mime.startsWith("image/")) {
                 val bounds=android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds=true }
                 android.graphics.BitmapFactory.decodeFile(part.path,bounds)
@@ -109,7 +111,13 @@ class WebMediaWorker(context:Context,params:WorkerParameters):CoroutineWorker(co
         } catch(e:CancellationException) { throw e }
         catch(e:Exception) {
             if(e is IOException) { tasks.update(id,"waiting",bytes=part.length(),error=Connectivity.message(e));Result.retry() }
-            else { part.delete();info.delete();tasks.update(id,"failed",error=e.message ?: "This download could not be saved.");DeviceLog.event(applicationContext,"info","download","school_web_download_blocked");Result.success() }
+            else {
+                part.delete();info.delete();tasks.update(id,"failed",error=e.message ?: "This download could not be saved.")
+                val uri=runCatching { java.net.URI(lastDownloadUrl) }.getOrNull()
+                val clean=runCatching { java.net.URI(uri?.scheme,null,uri?.host,uri?.port ?: -1,uri?.path,null,null).toString().take(500) }.getOrDefault("")
+                DeviceLog.event(applicationContext,"info","download","school_web_download_blocked",details=JSONObject().put("site",tool.id).put("host",uri?.host ?: "").put("url_without_query",clean))
+                Result.success()
+            }
         }
     }
     private fun saveMedia(file:File,name:String,mime:String) {
