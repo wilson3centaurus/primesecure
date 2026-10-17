@@ -25,6 +25,7 @@ class HubActivity : Activity() {
     private var attachmentDevice:String?=null
     private var refreshing=false
     private var wallpaperBusy=false
+    private val mediaCoverPaths=java.util.concurrent.ConcurrentHashMap<String,String>()
     private var cachedRuntime: JSONObject?=null
     private var cachedDevice: JSONObject?=null
     private var cachedAppCount=0
@@ -56,6 +57,11 @@ class HubActivity : Activity() {
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse {
                 val uri=request.url
                 val name=uri.path?.removePrefix("/") ?: ""
+                if(uri.scheme=="https"&&uri.host=="student.primesecure.local"&&uri.port==-1&&name.matches(Regex("local-media-cover/[0-9a-f]{64}\\.jpg"))) {
+                    val key=name.substringAfter('/').removeSuffix(".jpg")
+                    val bytes=mediaCoverPaths[key]?.let { LocalMediaCovers.read(this@HubActivity,it,key) }
+                    return WebResourceResponse("image/jpeg",null,if(bytes!=null)200 else 404,if(bytes!=null)"OK" else "Unavailable",mapOf("Cache-Control" to "no-store"),java.io.ByteArrayInputStream(bytes ?: ByteArray(0)))
+                }
                 if(uri.scheme=="https"&&uri.host=="student.primesecure.local"&&uri.port==-1&&name.matches(Regex("prime-media-cover/[A-Za-z0-9_-]{11}\\.jpg"))) {
                     val cover=PrimeMediaCovers.read(this@HubActivity,name.substringAfter('/').removeSuffix(".jpg"))
                     return WebResourceResponse("image/jpeg",null,if(cover!=null)200 else 404,if(cover!=null)"OK" else "Unavailable",mapOf("Cache-Control" to "private, max-age=300"),java.io.ByteArrayInputStream(cover ?: ByteArray(0)))
@@ -132,6 +138,7 @@ class HubActivity : Activity() {
                 catalog.put("items",JSONArray(items)).put("messages",JSONArray(hub.messages()))
                     .put("tasks",HubTasks(this@HubActivity).publicList()).put("online",Connectivity.online(this@HubActivity))
                     .put("runtime",cachedRuntime).put("agent_version",BuildConfig.VERSION_NAME).put("ui_version",uiDirectory?.name?.drop(1)?.toIntOrNull() ?: StudentUiUpdates.BUNDLED_VERSION)
+                    .put("media_view",getSharedPreferences("student-display",MODE_PRIVATE).getString("media_view","grid"))
                     .put("capabilities",JSONObject().put("resource_requests",true).put("open_approved_apps",true).put("uninstall_optional_apps",true).put("usage_access_setup",true).put("support_photo",true).put("theme_preferences",true).put("communication_inbox",true).put("controlled_downloads",true).put("prime_media",true).put("prime_media_covers",true))
                     .put("download_sites",JSONArray(SchoolWebTools.all.mapNotNull { SchoolWebTools.configured(this@HubActivity,it.id) }.map { tool -> JSONObject().put("id",tool.id).put("title",tool.title).put("url",tool.startUrl).put("allowed",ApprovedWebApps.rules(this@HubActivity).allows(tool.startUrl)) }))
                     .put("ui_theme",StudentTheme.preference(this@HubActivity))
@@ -185,6 +192,7 @@ class HubActivity : Activity() {
                 try {
                     val a=JSONObject(raw)
                     when(a.getString("action")) {
+                        "media_view" -> { val value=a.optString("value");if(value in setOf("grid","list"))getSharedPreferences("student-display",MODE_PRIVATE).edit().putString("media_view",value).apply() }
                         "ui_ready" -> if (!uiConfirmed) { uiConfirmed=true; web.removeCallbacks(uiTimeout); StudentUiUpdates.accept(this@HubActivity) }
                         "refresh" -> refresh()
                         "theme" -> {
@@ -317,7 +325,14 @@ class HubActivity : Activity() {
                                         File("/storage").listFiles()?.filter { it.isDirectory&&it.name.matches(Regex("[0-9a-fA-F]{4}-[0-9a-fA-F]{4}")) }?.forEach { roots[it.canonicalFile]="@usb/${it.name}" }
                                     val result=MediaDiscovery.scan(roots)
                                     val entries=JSONArray()
-                                    result.files.forEach { (path,file)->entries.put(JSONObject().put("path",path).put("name",file.name).put("dir",false).put("size",file.length()).put("modified",file.lastModified())) }
+                                    mediaCoverPaths.clear()
+                                    result.files.forEach { (path,file)->
+                                        val entry=JSONObject().put("path",path).put("name",file.name).put("dir",false).put("size",file.length()).put("modified",file.lastModified())
+                                        if(file.extension.lowercase() !in setOf("doc","docx","odt","rtf","txt","epub","xls","xlsx","ppt","pptx")) {
+                                            val key=LocalMediaCovers.token(AgentStore(this@HubActivity).deviceId,path,file);mediaCoverPaths[key]=path;entry.put("cover_key",key)
+                                        }
+                                        entries.put(entry)
+                                    }
                                     JSONObject().put("path","").put("entries",entries).put("truncated",result.truncated).put("inaccessible_folders",result.inaccessible)
                                 }
                             }
