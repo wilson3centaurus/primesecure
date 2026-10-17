@@ -15,7 +15,7 @@ export async function bulkNotes(input:Input):Promise<{ok?:string;error?:string;c
  if(!['move','copy','enable','disable','publish','withdraw','delete'].includes(input.action))return fail('Choose a bulk action.');
  if(input.action==='delete'&&input.confirmedDelete!==true)return fail('Confirm permanent deletion first.');
  const ids=[...new Set(input.ids)],target=input.target;
- if(['move','copy'].includes(input.action)&&(!Array.isArray(target)||target.length!==3||target.some((v,n)=>typeof v!=='string'||!v.trim()||v.length>(n===1?100:80)||/[\\/]/.test(v))))return fail('Choose a destination form, subject and resource folder.');
+ if(['move','copy'].includes(input.action)&&(!Array.isArray(target)||(target.length<1||target.length>3)||target.some((v,n)=>typeof v!=='string'||!v.trim()||v.length>(n===1?100:80)||/[\\/]/.test(v))))return fail('Choose a destination folder.');
  const db=await createClient();
  type Row={id:string;school_id:string|null;storage_path:string;title:string;description:string;mime_type:string;size:number;published:boolean};
  const rows:Row[]=[];
@@ -55,7 +55,7 @@ export async function bulkNotes(input:Input):Promise<{ok?:string;error?:string;c
     try {
      const {error:copyError}=await db.storage.from('primesecure-hub').copy(row.storage_path,path);
      if(copyError){failure=copyError.message;return;}
-     const {error}=await db.from('hub_items').insert({id,school_id:school.id,kind:'resource',title:row.title,description:row.description,form_level:target![0],subject:target![1],category:target![2],storage_path:path,mime_type:row.mime_type,size:row.size,published:row.published});
+     const {error}=await db.from('hub_items').insert({id,school_id:school.id,kind:'resource',title:row.title,description:row.description,form_level:target![0],subject:target![1]??'',category:target![2]??'',storage_path:path,mime_type:row.mime_type,size:row.size,published:row.published});
      if(error){await db.storage.from('primesecure-hub').remove([path]);failure=error.message;return;}
      completed.push(row.id);
     } catch { failure='A file could not be copied. Check the library before retrying.'; }
@@ -68,7 +68,7 @@ export async function bulkNotes(input:Input):Promise<{ok?:string;error?:string;c
    const result=input.action==='enable'
     ?await db.from('hub_access').upsert(batch.map(item_id=>({item_id,school_id:school.id})))
     :input.action==='disable'?await db.from('hub_access').delete().eq('school_id',school.id).in('item_id',batch)
-    :await db.from('hub_items').update(input.action==='move'?{form_level:target![0],subject:target![1],category:target![2]}:{published:input.action==='publish'}).eq('kind','resource').in('id',batch).or(`school_id.is.null,school_id.eq.${school.id}`).select('id');
+    :await db.from('hub_items').update(input.action==='move'?{form_level:target![0],subject:target![1]??'',category:target![2]??''}:{published:input.action==='publish'}).eq('kind','resource').in('id',batch).or(`school_id.is.null,school_id.eq.${school.id}`).select('id');
    if(result.error){failure=result.error.message;break;}
    if(['move','publish','withdraw'].includes(input.action)){const changed=(result.data||[]).map((row:{id:string})=>row.id);completed.push(...changed);if(changed.length!==batch.length){failure='Some files changed or became unavailable. Refresh the library.';break;}}else completed.push(...batch);
   }

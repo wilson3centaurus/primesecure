@@ -120,8 +120,8 @@ export async function organiseNoteFile(_prev: FormState, form: FormData): Promis
  if(!school||!canManage(staff,school.id))return {error:'Administrator access required.'};
  const action=String(form.get('action')),id=String(form.get('id'));
  let target:unknown;try{target=JSON.parse(String(form.get('target')||'[]'));}catch{return {error:'Choose a destination folder.'};}
- if(!Array.isArray(target)||target.length!==3||target.some((v,n)=>typeof v!=='string'||!v.trim()||v.length>(n===1?100:80)||/[\\/]/.test(v)))return {error:'Choose a form, subject and resource folder.'};
- const [form_level,subject,category]=target as string[];
+ if(!Array.isArray(target)||(target.length<1||target.length>3)||target.some((v,n)=>typeof v!=='string'||!v.trim()||v.length>(n===1?100:80)||/[\\/]/.test(v)))return {error:'Choose a destination folder.'};
+ const [form_level,subject='',category='']=target as string[];
  const db=await createClient();
  const {data:item,error:readError}=await db.from('hub_items').select('*').eq('id',id).eq('kind','resource').maybeSingle();
  if(readError||!item)return {error:readError?.message||'Resource not found.'};
