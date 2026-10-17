@@ -104,7 +104,14 @@ export async function manageNotesFolder(_prev: FormState, form: FormData): Promi
  if(!Array.isArray(path)||path.some(p=>typeof p!=='string'))return {error:'Invalid folder.'};
  if(form.get('action')==='create')path[path.length-1]=String(form.get('name')||'').trim();
  const db=await createClient();
- const {error}=await db.rpc('staff_library_folder',{p_school:school.id,p_shared:form.get('shared')==='on',p_action:String(form.get('action')),p_path:path,p_name:String(form.get('name')||'')});
+ let target:unknown;
+ if(form.get('action')==='move'){
+  try{target=JSON.parse(String(form.get('target')||'[]'));}catch{return {error:'Choose a destination folder.'};}
+  if(!Array.isArray(target)||target.length!==path.length||target.some(v=>typeof v!=='string'))return {error:'Choose a destination at the same folder level.'};
+ }
+ const {error}=form.get('action')==='move'
+  ?await db.rpc('staff_move_library_folder',{p_school:school.id,p_shared:form.get('shared')==='on',p_path:path,p_target:target})
+  :await db.rpc('staff_library_folder',{p_school:school.id,p_shared:form.get('shared')==='on',p_action:String(form.get('action')),p_path:path,p_name:String(form.get('name')||'')});
  if(error)return {error:error.message};revalidatePath('/library');return {ok:'Folder saved.'};
 }
 

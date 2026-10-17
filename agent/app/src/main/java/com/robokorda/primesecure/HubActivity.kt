@@ -78,7 +78,7 @@ class HubActivity : Activity() {
     override fun onResume() {
         super.onResume(); if (!::hub.isInitialized) return
         if (AgentStore(this).lastStatus == "locked") { startActivity(LockActivity.intent(this)); return }
-        MessageActivity.showPending(this); if (ready) refresh()
+        MessageActivity.showPending(this); if (ready) { refresh();web.evaluateJavascript("window.refreshVisibleMedia?.()",null) }
         poll=scope.launch { var tick=0;while(true) {
             delay(1000)
             if(ready) {
@@ -309,9 +309,17 @@ class HubActivity : Activity() {
                         }
                         "media" -> {
                             val listing=withContext(Dispatchers.IO) {
-                                val cached=File(filesDir,"file-inventory.json")
-                                val snapshot=if(cached.exists()) JSONObject(cached.readText()) else TelemetryWorker.snapshot(this@HubActivity)
-                                snapshot.put("path","")
+                                if(!FileManager.hasAccess()) JSONObject().put("entries",JSONArray()).put("error","Media access is not enabled. Ask your school administrator to enable PrimeSecure all-files access.")
+                                else {
+                                    val root=android.os.Environment.getExternalStorageDirectory().canonicalFile
+                                    val roots=mutableMapOf(root to "")
+                                    if(hub.catalog.optJSONObject("management")?.optBoolean("block_usb_storage")!=true)
+                                        File("/storage").listFiles()?.filter { it.isDirectory&&it.name.matches(Regex("[0-9a-fA-F]{4}-[0-9a-fA-F]{4}")) }?.forEach { roots[it.canonicalFile]="@usb/${it.name}" }
+                                    val result=MediaDiscovery.scan(roots)
+                                    val entries=JSONArray()
+                                    result.files.forEach { (path,file)->entries.put(JSONObject().put("path",path).put("name",file.name).put("dir",false).put("size",file.length()).put("modified",file.lastModified())) }
+                                    JSONObject().put("path","").put("entries",entries).put("truncated",result.truncated).put("inaccessible_folders",result.inaccessible)
+                                }
                             }
                             web.evaluateJavascript("window.receiveFiles(${JSONObject.quote(listing.toString())})",null)
                         }
