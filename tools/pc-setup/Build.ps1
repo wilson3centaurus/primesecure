@@ -1,11 +1,12 @@
-param([string]$PlatformTools = "$env:LOCALAPPDATA\Android\Sdk\platform-tools")
+param([string]$PlatformTools = "$env:LOCALAPPDATA\Android\Sdk\platform-tools", [string]$VersionName = "0.8.13", [int]$VersionCode = 30)
+if ($VersionName -notmatch '^\d+\.\d+\.\d+$' -or $VersionCode -lt 1) { throw 'Invalid release version.' }
 $ErrorActionPreference = 'Stop'
 $SetupRepo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$SetupOutput = Join-Path $SetupRepo 'artifacts\PrimeSecure-PC-Setup-0.8.5'
+$SetupOutput = Join-Path $SetupRepo "artifacts\PrimeSecure-PC-Setup-$VersionName"
 $SetupCompiler = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-$SetupProof = Get-Content -LiteralPath (Join-Path $SetupRepo 'artifacts\verification-0.8.5-native.json') -Raw | ConvertFrom-Json
-$SetupApk = Join-Path $SetupRepo 'artifacts\primesecure-0.8.5-22.apk'
-if (!$SetupProof.signature_verified -or !$SetupProof.same_installed_fleet_signer -or $SetupProof.test_only -or $SetupProof.version_code -ne 22) { throw 'The verified non-test-only APK is required.' }
+$SetupProof = Get-Content -LiteralPath (Join-Path $SetupRepo "artifacts\verification-$VersionName-native.json") -Raw | ConvertFrom-Json
+$SetupApk = Join-Path $SetupRepo "artifacts\primesecure-$VersionName-$VersionCode.apk"
+if (!$SetupProof.signature_verified -or !$SetupProof.same_installed_fleet_signer -or $SetupProof.test_only -or $SetupProof.version_code -ne $VersionCode -or $SetupProof.version_name -ne $VersionName -or $SetupProof.debuggable) { throw 'The verified non-test-only APK is required.' }
 if ((Get-FileHash -Algorithm SHA256 -LiteralPath $SetupApk).Hash.ToLowerInvariant() -ne $SetupProof.sha256) { throw 'APK differs from verification evidence.' }
 New-Item -ItemType Directory -Path $SetupOutput,(Join-Path $SetupOutput 'tools'),(Join-Path $SetupOutput 'brand') -Force | Out-Null
 Copy-Item -LiteralPath $SetupApk -Destination (Join-Path $SetupOutput 'PrimeSecure.apk') -Force
@@ -26,8 +27,8 @@ $SetupVersion=@"
 using System.Collections.Generic;
 namespace PrimeSecureSetup {
     public static class Kit {
-        public const string VersionName="0.8.5";
-        public const int VersionCode=22;
+        public const string VersionName="$VersionName";
+        public const int VersionCode=$VersionCode;
         public const string ApkFile="PrimeSecure.apk";
         public const string ApkSha256="$($SetupProof.sha256)";
         public static readonly Dictionary<string,string> Files=new Dictionary<string,string> {
@@ -44,7 +45,7 @@ if($LASTEXITCODE -ne 0){ throw 'Setup app compilation failed.' }
 if($LASTEXITCODE -ne 0){ throw 'Setup test compilation failed.' }
 & (Join-Path $SetupRepo 'artifacts\PcSetupTests.exe') $SetupOutput
 if($LASTEXITCODE -ne 0){ throw 'Setup regression checks failed.' }
-$SetupZip=Join-Path $SetupRepo 'artifacts\PrimeSecure-PC-Setup-0.8.5.zip'
+$SetupZip=Join-Path $SetupRepo "artifacts\PrimeSecure-PC-Setup-$VersionName.zip"
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 if(Test-Path -LiteralPath $SetupZip){Remove-Item -LiteralPath $SetupZip -Force}
