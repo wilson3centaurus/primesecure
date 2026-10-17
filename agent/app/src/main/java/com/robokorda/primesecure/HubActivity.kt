@@ -25,6 +25,9 @@ class HubActivity : Activity() {
     private var attachmentDevice:String?=null
     private var refreshing=false
     private var wallpaperBusy=false
+    private var deletingMedia=false
+    private var mediaIndexedDevice:String?=null
+    private val mediaDeletionEntries=java.util.concurrent.ConcurrentHashMap<String,MediaDeletion.Snapshot>()
     private val mediaCoverPaths=java.util.concurrent.ConcurrentHashMap<String,String>()
     private var cachedRuntime: JSONObject?=null
     private var cachedDevice: JSONObject?=null
@@ -139,7 +142,7 @@ class HubActivity : Activity() {
                     .put("tasks",HubTasks(this@HubActivity).publicList()).put("online",Connectivity.online(this@HubActivity))
                     .put("runtime",cachedRuntime).put("agent_version",BuildConfig.VERSION_NAME).put("ui_version",uiDirectory?.name?.drop(1)?.toIntOrNull() ?: StudentUiUpdates.BUNDLED_VERSION)
                     .put("media_view",getSharedPreferences("student-display",MODE_PRIVATE).getString("media_view","grid"))
-                    .put("capabilities",JSONObject().put("resource_requests",true).put("open_approved_apps",true).put("uninstall_optional_apps",true).put("usage_access_setup",true).put("support_photo",true).put("theme_preferences",true).put("communication_inbox",true).put("controlled_downloads",true).put("prime_media",true).put("prime_media_covers",true))
+                    .put("capabilities",JSONObject().put("delete_personal_media",true).put("resource_requests",true).put("open_approved_apps",true).put("uninstall_optional_apps",true).put("usage_access_setup",true).put("support_photo",true).put("theme_preferences",true).put("communication_inbox",true).put("controlled_downloads",true).put("prime_media",true).put("prime_media_covers",true))
                     .put("download_sites",JSONArray(SchoolWebTools.all.mapNotNull { SchoolWebTools.configured(this@HubActivity,it.id) }.map { tool -> JSONObject().put("id",tool.id).put("title",tool.title).put("url",tool.startUrl).put("allowed",ApprovedWebApps.rules(this@HubActivity).allows(tool.startUrl)) }))
                     .put("ui_theme",StudentTheme.preference(this@HubActivity))
                     .put("hidden_keys",JSONArray(hub.hiddenKeys())).put("sync_error",hub.syncError ?: JSONObject.NULL)
@@ -325,8 +328,9 @@ class HubActivity : Activity() {
                                         File("/storage").listFiles()?.filter { it.isDirectory&&it.name.matches(Regex("[0-9a-fA-F]{4}-[0-9a-fA-F]{4}")) }?.forEach { roots[it.canonicalFile]="@usb/${it.name}" }
                                     val result=MediaDiscovery.scan(roots)
                                     val entries=JSONArray()
-                                    mediaCoverPaths.clear()
+                                    mediaCoverPaths.clear();mediaDeletionEntries.clear();mediaIndexedDevice=AgentStore(this@HubActivity).deviceId
                                     result.files.forEach { (path,file)->
+                                        mediaDeletionEntries[path]=MediaDeletion.snapshot(file)
                                         val entry=JSONObject().put("path",path).put("name",file.name).put("dir",false).put("size",file.length()).put("modified",file.lastModified())
                                         if(file.extension.lowercase() !in setOf("doc","docx","odt","rtf","txt","epub","xls","xlsx","ppt","pptx")) {
                                             val key=LocalMediaCovers.token(AgentStore(this@HubActivity).deviceId,path,file);mediaCoverPaths[key]=path;entry.put("cover_key",key)
@@ -338,6 +342,7 @@ class HubActivity : Activity() {
                             }
                             web.evaluateJavascript("window.receiveFiles(${JSONObject.quote(listing.toString())})",null)
                         }
+                        "delete_media" -> confirmMediaDeletion(a.getString("path"))
                         "open_file" -> { val file=FileManager(AgentStore(this@HubActivity),this@HubActivity).checkedFile(a.getString("path")); openFile(file,MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase()) ?: "application/octet-stream") }
                     }
                 } catch(e:Exception) {
@@ -347,6 +352,36 @@ class HubActivity : Activity() {
                 }
             }
         }
+    }
+    private fun confirmMediaDeletion(path:String) {
+        if(deletingMedia)return
+        val device=AgentStore(this).deviceId
+        check(device!=null&&mediaIndexedDevice==device&&AgentStore(this).lastStatus=="active") { "Refresh Media before deleting a file." }
+        val expected=mediaDeletionEntries[path] ?: error("Only personal files listed in Media can be deleted. Refresh Media.")
+        deletingMedia=true
+        android.app.AlertDialog.Builder(this).setTitle("Delete file?")
+            .setMessage("Permanently delete ${File(expected.canonicalPath).name}? This cannot be undone.")
+            .setNegativeButton("Cancel") { _,_ -> deletingMedia=false }
+            .setOnCancelListener { deletingMedia=false }
+            .setPositiveButton("Delete") { _,_ ->
+                scope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            val store=AgentStore(this@HubActivity)
+                            check(store.isEnrolled&&store.deviceId==device&&store.lastStatus=="active") { "This device is no longer available." }
+                            val file=FileManager(store,this@HubActivity).checkedFile(path)
+                            MediaDeletion.delete(file,expected)
+                            mediaDeletionEntries.remove(path);mediaCoverPaths.entries.removeAll { it.value==path }
+                            android.media.MediaScannerConnection.scanFile(this@HubActivity,arrayOf(file.path),null,null)
+                        }
+                        web.evaluateJavascript("window.mediaFileDeleted?.(${JSONObject.quote(path)})",null)
+                        toast("File deleted.")
+                    } catch(e:Exception) {
+                        if(e is CancellationException)throw e
+                        toast(Connectivity.message(e))
+                    } finally { deletingMedia=false }
+                }
+            }.show()
     }
     private fun openFile(file:File,mime:String) {
         val extension=file.extension.lowercase()
