@@ -53,15 +53,16 @@ export async function publishItem(input: { kind: string; title: string; descript
     return { error: error.message };
   }
   revalidatePath("/library"); revalidatePath("/wallpapers"); revalidatePath("/apps");
-  return { ok: input.shared ? "Published to RoboKorda library. Enable it for the schools that should receive it." : "Published. Devices download content on their next online sync." };
+  return { ok: input.kind === "wallpaper" ? "Wallpaper uploaded and available automatically. Devices receive it at their next sync." : input.shared ? "Published to RoboKorda library. Enable it for the schools that should receive it." : "Published. Devices download content on their next online sync." };
 }
 
 export async function changeLibraryItem(_prev: FormState, form: FormData): Promise<FormState> {
   const staff = await requireStaff(); const school = await getCurrentSchool();
   if (!school || !canManage(staff, school.id)) return { error: "Administrator access required." };
   const supabase = await createClient(); const id = String(form.get("id")); const action = String(form.get("action"));
-  const { data: item } = await supabase.from("hub_items").select("id,school_id,published").eq("id", id).maybeSingle();
+  const { data: item } = await supabase.from("hub_items").select("id,school_id,published,kind").eq("id", id).maybeSingle();
   if (!item) return { error: "Item not found." };
+  if (item.kind === "wallpaper") return { error: "Wallpapers are available automatically. Use the wallpaper delete control to remove one." };
   let error;
   if (action === "enable" && item.school_id === null) ({ error } = await supabase.from("hub_access").upsert({ item_id: id, school_id: school.id }));
   else if (action === "disable" && item.school_id === null) ({ error } = await supabase.from("hub_access").delete().eq("item_id", id).eq("school_id", school.id));
