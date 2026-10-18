@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { FormState } from "@/lib/types";
 import {MEDIA_MIMES} from "@/lib/prime-media";
 import { inspectApk } from "@/lib/apk";
+import { APK_MAX_BYTES, LIBRARY_MAX_BYTES } from "@/lib/upload-limits";
 
 export async function publishItem(input: { kind: string; title: string; description: string; form: string; subject: string; category: string; path: string; mime: string; size: number; packageName?: string; shared: boolean; preinstall: boolean; schoolId?:string;uploadId?:string }): Promise<FormState> {
   const staff = await requireStaff();
@@ -16,7 +17,10 @@ export async function publishItem(input: { kind: string; title: string; descript
   if (!input.path.startsWith(`${prefix}/`) || input.path.includes("..") || !["resource", "wallpaper", "app", "media"].includes(input.kind)) return { error: "Invalid upload." };
   if ((!input.title.trim() && input.kind!=="app") || input.title.length > 160 || input.description.length > 2000) return { error: "Enter a title of up to 160 characters and description of up to 2,000." };
   if (input.kind === "wallpaper" && !["image/jpeg", "image/png", "image/webp"].includes(input.mime)) return { error: "Wallpapers must be JPG, PNG or WebP." };
-  if(input.kind==="media"&&(!MEDIA_MIMES.includes(input.mime)||input.size>250_000_000))return {error:"Choose MP3, M4A, OGG, WAV, MP4 or WebM smaller than 250 MB."};
+  if(!Number.isSafeInteger(input.size)||input.size<=0||input.size>LIBRARY_MAX_BYTES)return {error:"Choose a file of 500 MB or less."};
+  if(input.kind==="wallpaper"&&input.size>8_000_000)return {error:"Choose a wallpaper of 8 MB or less."};
+  if(input.kind==="media"&&!MEDIA_MIMES.includes(input.mime))return {error:"Choose MP3, M4A, OGG, WAV, MP4 or WebM of 500 MB or less."};
+  if(input.kind==='resource'&&[input.form,input.subject,input.category].some((part,n)=>part.length>(n===1?100:80)||/[\\/\u0000-\u001f]/.test(part)))return {error:'Choose valid folder names.'};
   const supabase = await createClient();
   const matches=(row:{storage_path:string;school_id:string|null;kind:string})=>row.storage_path===input.path&&row.school_id===(input.shared?null:school.id)&&row.kind===input.kind;
   if(input.uploadId){
@@ -31,7 +35,7 @@ export async function publishItem(input: { kind: string; title: string; descript
   if (fileError || !uploaded || Number(uploaded.metadata?.size) !== input.size) return { error: "Upload could not be verified. Please upload again." };
   let apk: Awaited<ReturnType<typeof inspectApk>> | undefined;
   if(input.kind==="app") {
-    if(input.size>250_000_000)return {error:"Choose an APK smaller than 250 MB."};
+    if(input.size>APK_MAX_BYTES)return {error:"Choose an APK of 500 MB or less."};
     const {data:blob,error:downloadError}=await supabase.storage.from("primesecure-hub").download(input.path);
     if(downloadError || !blob)return {error:downloadError?.message||"Could not read APK."};
     try { apk=await inspectApk(Buffer.from(await blob.arrayBuffer()),input.path.slice(slash+1)); }
@@ -60,9 +64,17 @@ export async function changeLibraryItem(_prev: FormState, form: FormData): Promi
   const staff = await requireStaff(); const school = await getCurrentSchool();
   if (!school || !canManage(staff, school.id)) return { error: "Administrator access required." };
   const supabase = await createClient(); const id = String(form.get("id")); const action = String(form.get("action"));
-  const { data: item } = await supabase.from("hub_items").select("id,school_id,published,kind").eq("id", id).maybeSingle();
+  const { data: item } = await supabase.from("hub_items").select("id,school_id,published,kind,storage_path").eq("id", id).maybeSingle();
   if (!item) return { error: "Item not found." };
   if (item.kind === "wallpaper") return { error: "Wallpapers are available automatically. Use the wallpaper delete control to remove one." };
+  if (action === "delete") {
+    if (item.kind !== "app" || (item.school_id === null ? staff.role !== "super_admin" : !canManage(staff, item.school_id))) return { error: "Only an administrator can delete this app." };
+    const { error } = await supabase.from("hub_items").delete().eq("id", id);
+    if (error) return { error: error.message };
+    const { error: storageError } = await supabase.storage.from("primesecure-hub").remove([item.storage_path]);
+    revalidatePath("/library"); revalidatePath("/wallpapers"); revalidatePath("/apps");
+    return storageError ? { ok: "App deleted from the store; stored-file cleanup needs attention." } : { ok: "App deleted from the store." };
+  }
   let error;
   if (action === "enable" && item.school_id === null) ({ error } = await supabase.from("hub_access").upsert({ item_id: id, school_id: school.id }));
   else if (action === "disable" && item.school_id === null) ({ error } = await supabase.from("hub_access").delete().eq("item_id", id).eq("school_id", school.id));
@@ -103,6 +115,7 @@ export async function manageNotesFolder(_prev: FormState, form: FormData): Promi
  if(!school||!canManage(staff,school.id))return {error:'Administrator access required.'};
  let path:unknown;try{path=JSON.parse(String(form.get('path')||'[]'));}catch{return {error:'Invalid folder.'};}
  if(!Array.isArray(path)||path.some(p=>typeof p!=='string'))return {error:'Invalid folder.'};
+ if(form.get('action')==='delete')return deleteNotesFolders(undefined,form);
  if(form.get('action')==='create')path[path.length-1]=String(form.get('name')||'').trim();
  const db=await createClient();
  let target:unknown;
@@ -114,6 +127,25 @@ export async function manageNotesFolder(_prev: FormState, form: FormData): Promi
   ?await db.rpc('staff_move_library_folder',{p_school:school.id,p_shared:form.get('shared')==='on',p_path:path,p_target:target})
   :await db.rpc('staff_library_folder',{p_school:school.id,p_shared:form.get('shared')==='on',p_action:String(form.get('action')),p_path:path,p_name:String(form.get('name')||'')});
  if(error)return {error:error.message};revalidatePath('/library');return {ok:'Folder saved.'};
+}
+
+export async function deleteNotesFolders(_prev: FormState, form: FormData): Promise<FormState> {
+ const staff=await requireStaff(),school=await getCurrentSchool();
+ const shared=form.get('shared')==='on';
+ if(!school||!canManage(staff,school.id)||(shared&&staff.role!=='super_admin'))return {error:'Administrator access required.'};
+ let paths:unknown;
+ try{paths=form.has('paths')?JSON.parse(String(form.get('paths'))):[JSON.parse(String(form.get('path')||'[]'))];}catch{return {error:'Invalid folders.'};}
+ if(!Array.isArray(paths)||!paths.length||paths.length>100||paths.some(p=>!Array.isArray(p)||p.length<1||p.length>3||p.some((v,n)=>typeof v!=='string'||!v.trim()||v.length>(n===1?100:80)||/[\\/\u0000-\u001f]/.test(v))))return {error:'Choose between 1 and 100 valid folders.'};
+ const db=await createClient();
+ const {data,error}=await db.rpc('staff_delete_library_folders',{p_school:school.id,p_shared:shared,p_paths:paths});
+ if(error)return {error:error.message};
+ const removed=(data?.storage_paths||[]) as string[];let cleanupFailed=false;
+ for(let offset=0;offset<removed.length;offset+=100){
+  const {error:cleanup}=await db.storage.from('primesecure-hub').remove(removed.slice(offset,offset+100));
+  if(cleanup)cleanupFailed=true;
+ }
+ revalidatePath('/library');
+ return {ok:`Deleted ${data?.files||0} files and ${data?.folders||0} folders.${cleanupFailed?' Stored-file cleanup needs attention; the library entries are deleted.':''}`};
 }
 
 export async function organiseNoteFile(_prev: FormState, form: FormData): Promise<FormState> {

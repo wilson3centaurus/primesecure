@@ -8,6 +8,8 @@ import { BrowserUploadRepository } from '@/lib/upload-repository';
 import { transferUpload,publishUpload } from '@/lib/upload-transfer';
 import {mediaMime,MEDIA_MIMES} from '@/lib/prime-media';
 import { createClient } from '@/lib/supabase/browser';
+import { APK_MAX_BYTES, MAX_UPLOAD_SELECTION, LIBRARY_MAX_BYTES } from '@/lib/upload-limits';
+import { folderUploadOptions } from '@/lib/folder-upload';
 
 type UploadContext={jobs:UploadJob[];ready:boolean;leader:boolean;open:boolean;setOpen:(open:boolean)=>void;enqueue:(files:File[],schoolId:string,options:UploadOptions)=>Promise<void>;pause:(id:string)=>void;retry:(id:string)=>void;remove:(id:string)=>void;error?:string};
 const Context=createContext<UploadContext|null>(null);
@@ -46,17 +48,19 @@ export function UploadQueueProvider({userId,schools,children}:{userId:string;sch
  const value=useMemo<UploadContext>(()=>({jobs,ready,leader,open,setOpen,error,
   enqueue:async(files,schoolId,options)=>{
    if(!ready||!engine.current)throw new Error('The upload queue is starting. Please try again.');
-   if(!files.length||files.length>50)throw new Error('Choose between 1 and 50 files.');
-   if(options.kind==='app'&&files.some(f=>!f.name.toLowerCase().endsWith('.apk')||f.size>250_000_000))throw new Error('Choose .apk files smaller than 250 MB.');
+   const maxFiles=MAX_UPLOAD_SELECTION;
+   if(!files.length||files.length>maxFiles)throw new Error(`Choose between 1 and ${maxFiles} ${options.kind==='app'?'apps':'files'}.`);
+   if(options.kind==='app'&&files.some(f=>!f.name.toLowerCase().endsWith('.apk')||f.size>APK_MAX_BYTES))throw new Error('Choose .apk files of 500 MB or less.');
    if(options.kind==='wallpaper'&&files.some(f=>f.size>8_000_000||!['image/png','image/jpeg','image/webp'].includes(f.type)))throw new Error('Choose JPG, PNG or WebP wallpapers smaller than 8 MB.');
-   if(options.kind==='media'&&files.some(f=>f.size>250_000_000||!MEDIA_MIMES.includes(mediaMime(f.name,f.type))))throw new Error('Choose MP3, M4A, OGG, WAV, MP4 or WebM smaller than 250 MB.');
+   if(files.some(f=>f.size>LIBRARY_MAX_BYTES))throw new Error('Choose files of 500 MB or less.');
+   if(options.kind==='media'&&files.some(f=>!MEDIA_MIMES.includes(mediaMime(f.name,f.type))))throw new Error('Choose MP3, M4A, OGG, WAV, MP4 or WebM of 500 MB or less.');
    if(files.some(f=>!f.size))throw new Error('Empty files cannot be uploaded.');
    const estimate=await navigator.storage?.estimate?.();
    if(estimate?.quota&&Number(estimate.usage||0)+files.reduce((n,f)=>n+f.size,0)>estimate.quota)throw new Error('Not enough browser storage to queue these files. Select fewer files or clear completed uploads.');
    const entries:UploadEntry[]=files.map(file=>{
     const id=crypto.randomUUID();const name=file.name.replace(/[^a-zA-Z0-9._-]/g,'_').slice(-180);
     return {file,job:{id,ownerId:userId,schoolId,schoolName:schools.find(s=>s.id===schoolId)?.name||'School',name:file.name,mime:options.kind==='app'?'application/vnd.android.package-archive':options.kind==='media'?mediaMime(file.name,file.type):file.type||'application/octet-stream',size:file.size,path:`${options.shared?'shared':schoolId}/${id}/${name}`,createdAt:Date.now(),state:'queued',bytes:0,speed:0,uploaded:false,attempts:0,retryAt:0,
-     options:{...options,title:files.length>1?(options.kind==='app'?'':file.name.slice(0,160)):options.title|| (options.kind==='app'?'':file.name.slice(0,160))}}};
+     options:folderUploadOptions(file,{...options,title:files.length>1?(options.kind==='app'?'':file.name.slice(0,160)):options.title|| (options.kind==='app'?'':file.name.slice(0,160))})}};
    });
    try{await engine.current.enqueue(entries);}catch{throw new Error('Could not save the selected files in browser storage. Select fewer files and try again.');}
    setError(undefined);setOpen(true);
@@ -77,10 +81,12 @@ function UploadPanel(){
  const {jobs,leader,open,setOpen,error,pause,retry,remove}=useUploads();
  if(!open)return null;
  const remaining=jobs.filter(j=>j.state!=='done').length;
+ const group=(job:UploadJob)=>job.state==='uploading'||job.state==='publishing'?0:job.state==='queued'||job.state==='waiting'?1:job.state==='done'?3:2;
+ const ordered=[...jobs].sort((a,b)=>group(a)-group(b)||a.size-b.size||a.createdAt-b.createdAt);
  return <aside id="background-upload-panel" aria-label="Background uploads" className="fixed right-3 bottom-3 z-[80] flex max-h-[75vh] w-[calc(100vw-1.5rem)] max-w-md flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-2xl">
   <div className="flex items-center justify-between gap-3 border-b border-line p-4"><div><h2 className="flex items-center gap-2 text-sm font-semibold"><UploadCloud size={17}/>Background uploads</h2><p className="mt-1 text-[11px] text-muted">{remaining} pending - You can continue using the dashboard.</p></div><button type="button" className="icon-button" aria-label="Close upload panel" onClick={()=>setOpen(false)}><X size={16}/></button></div>
   <div className="overflow-y-auto p-3">{error&&<p role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-xs text-red-700">{error}</p>}{!leader&&jobs.some(j=>j.state!=='done')&&<p className="mb-3 text-xs text-muted">Another dashboard tab manages this queue. Use that tab to pause or retry uploads.</p>}{jobs.length===0&&<p className="p-5 text-center text-xs text-muted">Choose APKs, notes or wallpapers to start an upload.</p>}
-   {[...jobs].reverse().map(job=>{
+   {ordered.map(job=>{
     const percentage=Math.floor(job.bytes/Math.max(1,job.size)*100),publishing=job.state==='publishing';
     const label=job.state==='done'?'Published':publishing?(job.options.kind==='app'?'Reading APK details and publishing...':'Publishing to library...'):job.state==='uploading'?(percentage>=100?'Upload sent - waiting for server':`Uploading - ${percentage}%`):job.state==='queued'?navigator.onLine?'Queued':'Waiting for internet':job.state==='waiting'?navigator.onLine?'Waiting to retry':'Waiting for internet':job.state==='paused'?'Paused':'Needs attention';
     return <article key={job.id} className="mb-2 rounded-xl border border-line bg-panel p-3"><div className="flex items-start gap-2">{job.state==='done'?<CheckCircle2 size={16} className="shrink-0 text-emerald-600"/>:job.state==='failed'?<AlertCircle size={16} className="shrink-0 text-red-600"/>:publishing||job.state==='uploading'?<LoaderCircle size={16} className="shrink-0 animate-spin text-brand-600"/>:<UploadCloud size={16} className="shrink-0 text-muted"/>}<div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold" title={job.name}>{job.name}</p><p className="mt-1 truncate text-[10px] text-muted">{job.options.shared?'RoboKorda shared library':job.schoolName}</p></div></div>
@@ -91,6 +97,6 @@ function UploadPanel(){
      <div className="mt-2 flex justify-end gap-3">{['queued','waiting','uploading'].includes(job.state)&&<button type="button" disabled={!leader} className="inline-flex items-center gap-1 text-[11px] text-muted disabled:opacity-40" onClick={()=>pause(job.id)}><Pause size={11}/>Pause</button>}{['paused','failed','waiting'].includes(job.state)&&<button type="button" disabled={!leader} className="inline-flex items-center gap-1 text-[11px] text-brand-700 disabled:opacity-40" onClick={()=>retry(job.id)}>{job.state==='paused'?<Play size={11}/>:<RotateCcw size={11}/>}{job.state==='paused'?'Resume':'Retry'}</button>}{['done','failed','paused'].includes(job.state)&&<button type="button" disabled={!leader} className="text-[11px] text-muted disabled:opacity-40" onClick={()=>remove(job.id)}>Remove from queue</button>}</div>
     </article>;
    })}
-  </div><p className="border-t border-line px-4 py-3 text-[10px] leading-4 text-muted">Keep a dashboard tab open for transfers. If you close it, saved jobs continue when you return. An interrupted file may upload again; published files are not duplicated. Removing a queue entry does not delete a library item.</p>
+  </div><p className="border-t border-line px-4 py-3 text-[10px] leading-4 text-muted">Waiting files upload from smallest to largest. Uploads already in progress finish first. Keep a dashboard tab open for transfers. If you close it, saved jobs continue when you return. An interrupted file may upload again; published files are not duplicated. Removing a queue entry does not delete a library item.</p>
  </aside>;
 }

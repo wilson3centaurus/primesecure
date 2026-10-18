@@ -30,6 +30,8 @@
     <!-- Realtime connection for instant commands (AgentService). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
@@ -62,6 +64,14 @@
             android:theme="@android:style/Theme.Material.Light.NoActionBar" />
         <activity android:name=".SupportCaptureActivity" android:exported="false"
             android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name=".RemoteAlarmActivity" android:exported="false"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name=".RemoteCaptureActivity" android:exported="false"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <service android:name=".RemoteAlarmService" android:exported="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Visible school-requested audible alert with student stop control and maximum 30-second duration" />
+        </service>
+        <service android:name=".RemoteScreenCaptureService" android:exported="false" android:foregroundServiceType="mediaProjection" />
         <activity android:name=".HubActivity" android:exported="true" android:launchMode="singleTask"
             android:theme="@android:style/Theme.Material.Light.NoActionBar">
             <intent-filter>

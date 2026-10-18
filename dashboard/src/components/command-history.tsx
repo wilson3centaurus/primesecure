@@ -32,11 +32,12 @@ export function CommandHistory({ commands, canCancel }: { commands: Row[]; canCa
               <div className="font-medium">{COMMAND_LABEL[c.type]}</div>
               {commandSummary(c.type, c.payload) && <div className="truncate text-slate-600">{commandSummary(c.type, c.payload)}</div>}
               {error && <div className="text-red-600">{error}</div>}
+              {(c.type === "alarm" || c.type === "request_capture") && typeof c.result?.note === "string" && <div className="text-xs text-slate-500">{c.result.note}</div>}
               {c.type === "message" && <div className={`text-xs ${c.acknowledged_at ? "text-emerald-700" : "text-amber-700"}`}>{c.acknowledged_at ? `Acknowledged ${new Date(c.acknowledged_at).toLocaleString()}` : c.payload.require_ack ? "Awaiting student acknowledgement" : "Inbox message"}</div>}
               <div className="text-xs text-slate-400">{c.when}{c.sender && ` · ${c.sender}`}</div>
             </div>
             <div className="flex items-center gap-2">
-              <span className={`rounded-full px-2 py-0.5 text-xs ${COMMAND_STATUS_STYLE[c.status]}`}>{COMMAND_STATUS_LABEL[c.status]}</span>
+              <span className={`rounded-full px-2 py-0.5 text-xs ${COMMAND_STATUS_STYLE[c.status]}`}>{c.status === "succeeded" && (c.type === "alarm" || c.type === "request_capture") ? "Request handled" : COMMAND_STATUS_LABEL[c.status]}</span>
               {canCancel && c.status === "pending" && <CancelButton id={c.id} />}
             </div>
           </li>

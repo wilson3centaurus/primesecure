@@ -22,6 +22,47 @@ function entry(id,owner='owner'){return {job:{id,ownerId:owner,schoolId:'school-
 function setup(t,overrides={},repository=new Repository(),owner='owner'){
  let view=[];const q=new UploadQueue(owner,{repository,online:()=>true,transfer:async(_j,_f,_s,p)=>p(100,100),publish:async()=>{},completed:()=>{},changed:jobs=>{view=jobs},...overrides});t.after(()=>q.stop());return {q,repository,get view(){return view}};
 }
+
+function sizedEntry(id,size,createdAt=1){const item=entry(id);item.job.size=size;item.job.createdAt=createdAt;return item;}
+test('saved waiting uploads start smallest first, with older files first for equal sizes',async t=>{
+ const repository=new Repository(),started=[],gate=deferred();
+ const entries=[sizedEntry('large',500),sizedEntry('medium',200),sizedEntry('small-newer',50,2),sizedEntry('small-older',50,1)];
+ entries[1].job.state='waiting';
+ await repository.add(entries);
+ const state=setup(t,{transfer:async job=>{started.push(job.id);await gate.promise}},repository);
+ await state.q.start(true);await wait(()=>started.length===2);
+ assert.deepEqual(started,['small-older','small-newer']);
+ gate.resolve();await wait(()=>state.view.every(j=>j.state==='done'));
+ assert.deepEqual(started,['small-older','small-newer','medium','large']);
+});
+test('new small files take the next free slot without interrupting running uploads',async t=>{
+ const started=[],gates=new Map(),aborted=[];
+ const state=setup(t,{transfer:async(job,_file,signal)=>{
+  started.push(job.id);signal.addEventListener('abort',()=>aborted.push(job.id));
+  const gate=deferred();gates.set(job.id,gate);await gate.promise;
+ }});
+ await state.q.start(true);await state.q.enqueue([sizedEntry('active-a',300),sizedEntry('active-b',400),sizedEntry('large-waiting',500)]);
+ await wait(()=>started.length===2);
+ await state.q.enqueue([sizedEntry('new-small',10)]);
+ assert.deepEqual(started,['active-a','active-b']);assert.deepEqual(aborted,[]);
+ gates.get('active-a').resolve();await wait(()=>started.length===3);
+ assert.equal(started[2],'new-small');assert.deepEqual(aborted,[]);
+ gates.get('new-small').resolve();await wait(()=>started.length===4);
+ assert.equal(started[3],'large-waiting');
+ gates.get('active-b').resolve();gates.get('large-waiting').resolve();
+ await wait(()=>state.view.every(j=>j.state==='done'));
+ assert.deepEqual(aborted,[]);
+});
+test('small paused, failed, and backoff-delayed files do not block eligible uploads',async t=>{
+ const repository=new Repository(),started=[],gate=deferred();
+ const entries=[sizedEntry('paused',1),sizedEntry('failed',2),sizedEntry('backoff',3),sizedEntry('eligible',400)];
+ entries[0].job.state='paused';entries[1].job.state='failed';entries[2].job.state='waiting';entries[2].job.retryAt=2000;
+ await repository.add(entries);
+ const state=setup(t,{now:()=>1000,transfer:async job=>{started.push(job.id);await gate.promise}},repository);
+ await state.q.start(true);await wait(()=>started.length===1);
+ assert.deepEqual(started,['eligible']);gate.resolve();await wait(()=>state.view.find(j=>j.id==='eligible')?.state==='done');
+ assert.deepEqual(started,['eligible']);
+});
 test('two concurrent uploads report bytes and publish only after the metadata step finishes',async t=>{
  const upload=deferred(),publish=deferred();let active=0,max=0,published=0;
  const state=setup(t,{transfer:async(_j,_f,_s,p)=>{active++;max=Math.max(max,active);p(50,25);await upload.promise;active--;p(100,0)},publish:async()=>{await publish.promise;published++}});
@@ -51,10 +92,10 @@ test('saved jobs are account-scoped and a follower tab cannot execute the queue'
  const repository=new Repository();await repository.add([entry('private','other')]);let transfers=0;const state=setup(t,{transfer:async()=>{transfers++}},repository);await state.q.start(false);assert.deepEqual(state.view,[]);await assert.rejects(state.q.enqueue([entry('wrong','other')]),/account changed/);await state.q.enqueue([entry('follower')]);assert.equal(transfers,0);await state.q.start(true);await wait(()=>state.view[0]?.state==='done');assert.equal(transfers,1);assert.equal(repository.jobs.get('private').state,'queued');
 });
 const owner='11111111-1111-4111-8111-111111111111',school='22222222-2222-4222-8222-222222222222',id='33333333-3333-4333-8333-333333333333';
-function publication({existing=null,duplicate=false,teacher=false}={}){
+function publication({existing=null,duplicate=false,teacher=false,size=100}={}){
  const inserts=[];let row=existing,inspect=0;
- const client={from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:row,error:null})})}),insert:async payload=>{inserts.push(payload);row=payload;return {error:duplicate?{code:'23505',message:'Duplicate'}:null}}}),storage:{from:()=>({list:async()=>({data:[{name:'learning.apk',metadata:{size:100}}],error:null}),download:async()=>({data:new Blob([new Uint8Array(100)]),error:null})})}};
- const actions=load('src/app/(app)/library/actions.ts',{'next/cache':{revalidatePath:()=>{}},'@/lib/auth':{requireStaff:async()=>({id:owner,role:teacher?'teacher':'school_admin',schoolId:school}),canManage:s=>s.role!=='teacher',getCurrentSchool:async()=>({id:'WRONG-CURRENT-WORKSPACE'})},'@/lib/supabase/server':{createClient:async()=>client},'@/lib/apk':{inspectApk:async()=>{inspect++;return {title:'Learning',packageName:'org.school.learning',version:'1.0',icon:null,sha256:'abc'}}}});
+ const client={from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:row,error:null})})}),insert:async payload=>{inserts.push(payload);row=payload;return {error:duplicate?{code:'23505',message:'Duplicate'}:null}}}),storage:{from:()=>({list:async()=>({data:[{name:'learning.apk',metadata:{size}}],error:null}),download:async()=>({data:new Blob([new Uint8Array(100)]),error:null})})}};
+ const actions=load('src/app/(app)/library/actions.ts',{'next/cache':{revalidatePath:()=>{}},'@/lib/auth':{requireStaff:async()=>({id:owner,role:teacher?'teacher':'school_admin',schoolId:school}),canManage:s=>s.role!=='teacher',getCurrentSchool:async()=>({id:'WRONG-CURRENT-WORKSPACE'})},'@/lib/supabase/server':{createClient:async()=>client},'@/lib/apk':{inspectApk:async()=>{inspect++;return {title:'Learning',packageName:'org.school.learning',version:'1.0',icon:null,sha256:'abc'}}},'@/lib/prime-media':{MEDIA_MIMES:new Set()},'@/lib/upload-limits':{APK_MAX_BYTES:500_000_000}});
  return {publish:actions.publishItem,inserts,get inspected(){return inspect}};
 }
 const input={kind:'app',title:'',description:'',form:'',subject:'',category:'Notes',path:`${school}/${id}/learning.apk`,mime:'application/vnd.android.package-archive',size:100,shared:false,preinstall:false,schoolId:school,uploadId:id};
@@ -74,4 +115,14 @@ test('publish endpoint enforces origin, session owner and typed metadata before 
  assert.equal((await route.POST(req({...input,ownerId:'other'}))).status,403);
  assert.equal((await route.POST(req({...input,ownerId:owner,size:'100'}))).status,400);
  assert.equal((await route.POST(req({...input,ownerId:owner}))).status,200);assert.equal((await route.POST(new Request('http://internal:3105/api/library/publish',{method:'POST',headers:{origin:'https://dashboard.test',host:'dashboard.test','Content-Type':'application/json'},body:JSON.stringify({...input,ownerId:owner})}))).status,200);assert.equal(called,2);
+});
+
+test('APK publication accepts exactly 500 MB and rejects one byte over the limit',async()=>{
+ const allowed=publication({size:500_000_000});
+ assert(!(await allowed.publish({...input,size:500_000_000})).error);
+ assert.equal(allowed.inspected,1);
+ const oversized=publication({size:500_000_001});
+ assert.match((await oversized.publish({...input,size:500_000_001})).error,/500 MB/);
+ assert.equal(oversized.inspected,0);
+ assert.equal(oversized.inserts.length,0);
 });

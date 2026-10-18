@@ -11,7 +11,7 @@ internal object PrimeMediaDownloads {
         val fresh=api.rpc("device_hub").put("_sync_revision",revision);hub.catalog=fresh
         check(store.lastStatus=="active"&&fresh.optJSONObject("prime_media")?.optBoolean("enabled")==true) { "Prime Media is no longer available for this device." }
         val item=hub.items().find { it.optString("id")==payload.optString("item_id")&&it.optString("kind")=="media" } ?: error("This file is no longer approved by your school.")
-        val size=item.getLong("size");check(size in 1..250_000_000)
+        val size=item.getLong("size");check(size in 1..500_000_000)
         val target=hub.resourceFile(item);val part=File(target.path+".part")
         if(target.exists()&&target.length()==size) { tasks.update(task,"done",size,size);return }
         if(part.length()>size)part.delete()

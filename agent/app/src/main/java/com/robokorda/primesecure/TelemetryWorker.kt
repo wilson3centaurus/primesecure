@@ -54,7 +54,7 @@ class TelemetryWorker(context:Context,params:WorkerParameters):CoroutineWorker(c
             roots.filterValues { it.isNotEmpty() }.forEach { (volume,path)->entries.put(JSONObject().put("path",path).put("name","Removable drive ${volume.name}").put("parent","").put("dir",true).put("size",0).put("modified",volume.lastModified()).put("kind","folder")) }
             val prior=runCatching { JSONObject(File(context.filesDir,"file-inventory.json").readText()).getJSONArray("entries") }.getOrNull()
             val priorEntries=prior?.let { a->(0 until a.length()).map { a.getJSONObject(it) }.associateBy { it.optString("path") } } ?: emptyMap()
-            var thumbnails=0; var payloadBytes=0; var inaccessible=0; var truncated=false
+            var thumbnails=0; var previewAttempts=0; var payloadBytes=0; var inaccessible=0; var truncated=false
             while(queue.isNotEmpty() && entries.length()<5000) {
                 val (dir,depth)=queue.removeFirst(); val children=dir.listFiles()
                 val base=roots.entries.find { dir==it.key || dir.path.startsWith(it.key.path+File.separator) } ?: continue
@@ -62,32 +62,39 @@ class TelemetryWorker(context:Context,params:WorkerParameters):CoroutineWorker(c
                 if(children==null){inaccessible++;continue}
                 for(f in children.sortedBy { it.name.lowercase() }) {
                     if(entries.length()>=5000){truncated=true;break}
+                    if(f.name.startsWith('.'))continue
                     val canonical=runCatching { f.canonicalFile }.getOrNull() ?: continue
                     if(!canonical.path.startsWith(base.key.path+File.separator) || canonical!=f.absoluteFile) continue
                     val path=relative(canonical)
-                    if(canonical.toRelativeString(base.key) in listOf("Android/data","Android/obb")) { inaccessible++;continue }
+                    if(canonical.toRelativeString(base.key).split(File.separator).firstOrNull().equals("Android",ignoreCase=true)) { inaccessible++;continue }
                     val mime=MimeTypeMap.getSingleton().getMimeTypeFromExtension(f.extension.lowercase()) ?: "application/octet-stream"
                     val kind=when { f.isDirectory->"folder"; mime.startsWith("image/")->"image"; mime.startsWith("video/")->"video"; mime.startsWith("audio/")->"audio"; else->"document" }
                     val entry=JSONObject().put("path",path).put("name",f.name).put("parent",relative(dir)).put("dir",f.isDirectory)
                         .put("size",if(f.isFile) f.length() else 0).put("modified",f.lastModified()).put("mime",mime).put("kind",kind)
-                    if(kind=="image" && thumbnails<24 && payloadBytes<1000000) runCatching {
+                    val previewSupported=kind in setOf("image","video","audio") || f.extension.equals("pdf",true)
+                    if(!f.isDirectory)entry.put("preview_status",if(previewSupported)"budget_limited" else "unsupported")
+                    if(previewSupported && previewAttempts<24 && payloadBytes<1000000) {
+                      previewAttempts++
+                      entry.put("preview_status","unavailable")
+                      runCatching {
                         val cached=priorEntries[path]
-                        if(cached!=null && cached.optLong("size")==f.length() && cached.optLong("modified")==f.lastModified() && cached.has("thumbnail")) {
+                        if(cached!=null && cached.optLong("size")==f.length() && cached.optLong("modified")==f.lastModified() && cached.has("thumbnail") && cached.optString("thumbnail").length<40000) {
                             entry.put("thumbnail",cached.getString("thumbnail")); thumbnails++
+                            entry.put("preview_status","available")
+                        } else if(cached!=null && cached.optLong("size")==f.length() && cached.optLong("modified")==f.lastModified() && cached.optString("preview_status")=="unavailable") {
+                            // Don't repeatedly decode an unchanged PDF/video/album with no usable cover.
                         } else {
-                        val options=BitmapFactory.Options().apply { inJustDecodeBounds=true }; BitmapFactory.decodeFile(f.path,options)
-                        if(options.outWidth>0 && options.outHeight>0) {
-                            options.inJustDecodeBounds=false; options.inSampleSize=maxOf(1,maxOf(options.outWidth,options.outHeight)/120)
-                            val decoded=BitmapFactory.decodeFile(f.path,options)
+                            val cover=LocalMediaCovers.render(f,LocalMediaCovers.token(AgentStore(context).deviceId,path,f))
+                            val decoded=cover?.let { BitmapFactory.decodeByteArray(it,0,it.size) }
                             if(decoded!=null) {
-                                val scale=120.0/maxOf(decoded.width,decoded.height)
+                                val scale=minOf(1.0,120.0/maxOf(decoded.width,decoded.height))
                                 val small=Bitmap.createScaledBitmap(decoded,(decoded.width*scale).toInt().coerceAtLeast(1),(decoded.height*scale).toInt().coerceAtLeast(1),true)
                                 val out=ByteArrayOutputStream(); small.compress(Bitmap.CompressFormat.JPEG,45,out); val bytes=out.toByteArray()
-                                if(bytes.size<25000) { entry.put("thumbnail","data:image/jpeg;base64,"+android.util.Base64.encodeToString(bytes,android.util.Base64.NO_WRAP)); thumbnails++ }
+                                if(bytes.size<25000) { entry.put("thumbnail","data:image/jpeg;base64,"+android.util.Base64.encodeToString(bytes,android.util.Base64.NO_WRAP)); entry.put("preview_status","available"); thumbnails++ }
                                 if(small!==decoded)small.recycle(); decoded.recycle()
                             }
                         }
-                        }
+                      }
                     }
                     payloadBytes+=entry.toString().toByteArray(Charsets.UTF_8).size
                     if(payloadBytes>1750000){truncated=true;queue.clear();break}
@@ -96,6 +103,7 @@ class TelemetryWorker(context:Context,params:WorkerParameters):CoroutineWorker(c
                 }
             }
             return JSONObject().put("entries",entries).put("truncated",truncated || queue.isNotEmpty()).put("inaccessible_folders",inaccessible)
+                .put("preview_count",thumbnails).put("preview_limit",24).put("preview_attempted",previewAttempts)
                 .put("root","/sdcard").put("free_bytes",root.usableSpace).put("total_bytes",root.totalSpace)
         }
     }

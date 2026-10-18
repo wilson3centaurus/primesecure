@@ -7,10 +7,11 @@ import { dateTime } from "@/lib/format";
 import { PageHeader } from "@/components/page-header";
 import { CaseCreate, CaseUpdate } from "@/components/case-update";
 import { ReportExport } from "@/components/report-export";
+import { RemoteControls } from "@/components/remote-controls";
 import { duration } from "../reports/data";
 
 type DeviceOption = { id: string; student_name: string | null; student_id: string | null; prime_id: string | null };
-type DeviceCase = { id: string; device_id: string; school_id: string; category: "unapproved_app" | "manual" | "lost_device"; title: string; package: string; day: string; state: "open" | "observing" | "resolved"; staff_note: string; evidence: { foreground_ms?: number; source?: string }; created_at: string; updated_at: string };
+type DeviceCase = { id: string; device_id: string; school_id: string; category: "unapproved_app" | "manual" | "lost_device"; title: string; package: string; day: string; state: "open" | "observing" | "resolved"; staff_note: string; evidence: { foreground_ms?: number; source?: string; auto_resolution?: string }; created_at: string; updated_at: string };
 const categories = { unapproved_app: "Unapproved app activity", manual: "Staff case", lost_device: "Lost device" };
 const states = { open: "Open", observing: "Observing", resolved: "Resolved" };
 
@@ -39,11 +40,15 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
   if (selectedDevice) query = query.eq("device_id", selectedDevice);
   const { data, error, count } = await query.order("updated_at", { ascending: false }).order("id").range((page - 1) * 50, page * 50 - 1);
   const cases = (data || []) as DeviceCase[];
+  const captures = cases.length ? await db.from("remote_capture_sessions").select("command_id,case_id,kind,state,created_at").eq("school_id", school.id).in("case_id", cases.map(item => item.id)).order("created_at", { ascending: false }).limit(250) : { data: [], error: null };
+  const caseCaptures = new Map<string, NonNullable<typeof captures.data>>();
+  for (const capture of captures.data || []) if (capture.case_id) caseCaptures.set(capture.case_id, [...(caseCaptures.get(capture.case_id) || []), capture]);
   const pages = Math.max(1, Math.ceil((count || 0) / 50));
   const pageLink = (number: number) => "/cases?" + new URLSearchParams({ state, ...(selectedDevice ? { device: selectedDevice } : {}), page: String(number) }).toString();
   return <>
     <PageHeader title="Issues & cases" description="Review app activity that needs attention, record staff findings and track follow-up." />
     <div className="mb-5 rounded-xl border border-slate-200 bg-white/70 p-4 text-xs leading-6 text-slate-500">Automatic cases flag at least 30 seconds of reported foreground use of an unapproved, non-system app. They show app names and aggregate time, not private messages or screen content. A case is a signal to review, not proof of misconduct. <Link href="/reports" className="text-brand-700 underline">View usage reports</Link>.</div>
+    <p className="mb-5 text-xs leading-5 text-slate-500">Known Android/PrimeOS Launcher, Files, Setup Wizard and System Compat packages are excluded from automatic cases, not from usage reports. Capture evidence is optional and requires a visible request, on-device consent and review. No background incident screenshots or live camera feed are enabled.</p>
     <form className="card mb-5 flex flex-wrap items-end gap-3 p-4">
       <label className="label">Review state<select name="state" defaultValue={state} className="input mt-1"><option value="open">Open</option><option value="observing">Observing</option><option value="resolved">Resolved</option><option value="all">All states</option></select></label>
       <label className="label min-w-56 flex-1">Student<select name="device" defaultValue={selectedDevice} className="input mt-1"><option value="">All students</option>{devices.map(device => <option value={device.id} key={device.id}>{device.student_name || "Unnamed student"} · {device.prime_id || device.student_id || "Prime ID pending"}</option>)}</select></label>
@@ -57,8 +62,11 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
       return <article className="card p-5" key={item.id}>
         <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="mb-2 text-xs font-medium text-slate-400">{categories[item.category]} · {item.day}</div><h2 className="font-semibold text-slate-800">{item.title}</h2><Link href={`/devices/${item.device_id}`} className="mt-2 inline-block text-sm text-brand-700">{device?.student_name || "Student"}</Link><span className="ml-3 font-mono text-xs text-slate-400">{device?.prime_id || "Prime ID not reported"}</span></div><span className={`rounded-full px-3 py-1 text-xs font-medium ${item.state === "resolved" ? "bg-emerald-50 text-emerald-700" : item.state === "observing" ? "bg-blue-50 text-blue-700" : "bg-amber-50 text-amber-700"}`}>{states[item.state]}</span></div>
         {item.category === "unapproved_app" && item.package && <p className="mt-3 break-all font-mono text-xs text-slate-400">{item.package}</p>}
+        {item.evidence.auto_resolution && <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-xs text-emerald-800">{item.evidence.auto_resolution}</p>}
+        {(caseCaptures.get(item.id) || []).length > 0 && <div className="mt-3 space-y-1 text-xs">{(caseCaptures.get(item.id) || []).map(capture => <p key={capture.command_id}>{capture.kind} · {capture.state === "completed" ? <Link prefetch={false} className="text-brand-700 underline" href={`/api/remote-capture/${capture.command_id}`} target="_blank" rel="noopener noreferrer">View student-shared image (7-day expiry)</Link> : capture.state} · {dateTime(capture.created_at)}</p>)}</div>}
         <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-xs text-slate-500">{item.evidence.foreground_ms != null && <span>Reported foreground time: <strong>{duration(item.evidence.foreground_ms)}</strong></span>}{item.evidence.source && <span>Source: {String(item.evidence.source).slice(0, 200)}</span>}<span>Updated {dateTime(item.updated_at)}</span></div>
         <details className="mt-4 border-t border-slate-100 pt-4"><summary className="cursor-pointer text-xs font-semibold text-brand-700">Staff notes & review</summary><p className="mt-3 text-xs leading-5 text-slate-500">Observing records a staff review in progress. It does not change app rules or enable camera, microphone or screen capture.</p><CaseUpdate id={item.id} state={item.state} note={item.staff_note} /></details>
+        <details className="mt-4 border-t border-slate-100 pt-4"><summary className="cursor-pointer text-xs font-semibold text-brand-700">Request visible, authorized evidence</summary><div className="mt-3"><RemoteControls deviceId={item.device_id} caseId={item.id} /></div></details>
       </article>;
     })}</div>
     {!cases.length && <div className="card flex flex-col items-center gap-3 px-6 py-14 text-center"><ClipboardList size={30} className="text-slate-300" /><h2 className="font-medium">No cases in this view</h2><p className="max-w-md text-sm text-slate-500">Change the filters or open a staff case. Automatic app cases require usage reporting and Android Usage Access on the Primebook.</p></div>}

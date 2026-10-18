@@ -8,7 +8,7 @@ function setup({shared=false,manager=true,insertFails=false}={}){
  const calls=[];const item={id:'source',school_id:shared?null:'school-a',kind:'resource',title:'Chemistry',description:'Notes',storage_path:(shared?'shared':'school-a')+'/original.pdf',size:20,mime_type:'application/pdf',published:true};
  const storage={copy:async(a,b)=>{calls.push(['copy',a,b]);return {}},remove:async paths=>{calls.push(['remove',paths]);return {}}};
  const query={select:()=>query,eq:()=>query,maybeSingle:async()=>({data:item}),update:()=>{calls.push(['move']);return query},single:async()=>({data:{id:'source'}}),insert:async data=>{calls.push(['insert',data]);return insertFails?{error:{message:'Insert failed'}}:{}}};
- const imports={'next/cache':{revalidatePath:p=>calls.push(['revalidate',p])},'@/lib/auth':{requireStaff:async()=>({role:'school_admin'}),getCurrentSchool:async()=>({id:'school-a'}),canManage:()=>manager},'@/lib/supabase/server':{createClient:async()=>({from:()=>query,storage:{from:()=>storage}})},'@/lib/apk':{}};
+ const imports={'next/cache':{revalidatePath:p=>calls.push(['revalidate',p])},'@/lib/auth':{requireStaff:async()=>({role:'school_admin'}),getCurrentSchool:async()=>({id:'school-a'}),canManage:()=>manager},'@/lib/supabase/server':{createClient:async()=>({from:()=>query,storage:{from:()=>storage}})},'@/lib/prime-media':{MEDIA_MIMES:[]},'@/lib/upload-limits':{APK_MAX_BYTES:500_000_000,LIBRARY_MAX_BYTES:500_000_000},'@/lib/apk':{}};
  const mod={exports:{}};new Function('require','module','exports','crypto',ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText)(name=>{if(name in imports)return imports[name];throw Error(name)},mod,mod.exports,webcrypto);
  const form=new FormData();form.set('id','source');form.set('target',JSON.stringify(['Form 4','Chemistry','Past exam papers']));form.set('action','copy');return {run:()=>mod.exports.organiseNoteFile(undefined,form),calls,form};
 }
@@ -22,5 +22,5 @@ test('failed publish cleans up only the new copy and leaves source untouched',as
  const x=setup({insertFails:true});assert((await x.run()).error);const copy=x.calls.find(c=>c[0]==='copy'),removed=x.calls.find(c=>c[0]==='remove');assert.deepEqual(removed[1],[copy[2]]);assert.notEqual(copy[1],copy[2]);
 });
 test('malformed destinations cannot reach storage or metadata updates',async()=>{
- for(const path of [[],['one','two'],['one','two','bad/path']]){const x=setup();x.form.set('target',JSON.stringify(path));assert((await x.run()).error);assert.equal(x.calls.length,0);}
+ for(const path of [[],['one',null],['one','two','bad/path']]){const x=setup();x.form.set('target',JSON.stringify(path));assert((await x.run()).error);assert.equal(x.calls.length,0);}
 });

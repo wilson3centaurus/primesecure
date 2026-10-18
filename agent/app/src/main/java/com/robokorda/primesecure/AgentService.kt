@@ -52,7 +52,7 @@ class AgentService : Service() {
         if (realtime == null) {
             realtime = RealtimeClient(
                 store, scope,
-                onConnected = { checkInSoon() }, // catch up on anything missed while disconnected
+                onConnected = { urgentCommands(store);checkInSoon() }, // catch up on missed requests without waiting for bulk downloads
                 onChange = { table, record -> onChange(store, table, record) },
             ).also { it.start() }
             val cm=getSystemService(android.net.ConnectivityManager::class.java)
@@ -86,6 +86,7 @@ class AgentService : Service() {
                 scheduleSafely("usage_sample") { UsageReporter.sample(this@AgentService) }
                 delay(30_000L); tick++
                 if(Connectivity.online(this@AgentService)) {
+                    urgentCommands(store)
                     try {
                         if(SettingsSync.observe(this@AgentService,SupabaseApi(store).rpc("device_sync_state")))checkInSoon()
                     } catch(e:Exception) { if(e is CancellationException)throw e }
@@ -102,7 +103,11 @@ class AgentService : Service() {
 
     private fun onChange(store: AgentStore, table: String, record: JSONObject?) {
         when (table) {
-            "commands", "policies" -> checkInSoon()
+            "commands" -> {
+                if(record?.optString("type") in setOf("alarm","request_capture")) urgentCommands(store)
+                checkInSoon()
+            }
+            "policies" -> checkInSoon()
             "hub_items", "hub_access", "hub_settings", "support_messages" -> {
                 checkInSoon();scheduleSafely("realtime_hub") { HubSync.schedule(this) }
             }
@@ -115,6 +120,16 @@ class AgentService : Service() {
     /** Coalesces bursts (e.g. a message sent to the whole school) into one check-in. */
     private fun checkInSoon() {
         checkIns.request()
+    }
+
+    private fun urgentCommands(store:AgentStore) {
+        scope.launch {
+            try { CommandRunner(this@AgentService,store).runUrgentPending() }
+            catch(e:Exception) {
+                if(e is CancellationException)throw e
+                DeviceLog.event(this@AgentService,"warning","command","urgent_control_fetch_failed",e)
+            }
+        }
     }
 
     private fun scheduleSafely(phase:String, block:()->Unit) {

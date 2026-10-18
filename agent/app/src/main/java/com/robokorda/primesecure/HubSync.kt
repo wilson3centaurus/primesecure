@@ -4,16 +4,31 @@ import android.content.Context
 import androidx.work.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.io.File
 
 class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = coroutineScope {
+        val reporting = launch { while (isActive) { SetupProgress.reportSoon(applicationContext); delay(15_000) } }
+        try { transfers.withLock { sync() } } finally { reporting.cancel() }
+    }
+
+    private suspend fun sync(): Result {
         val store = AgentStore(applicationContext)
         if (!store.isEnrolled || store.lastStatus == "retired") return Result.success()
         StudentUiUpdates.check(applicationContext)
         val hub = HubStore(applicationContext); val tasks = HubTasks(applicationContext)
         val device = store.deviceId; val api = SupabaseApi(store)
+        // Outbox work must not wait behind a large catalogue transfer or a broken wallpaper.
+        if (tasks.pending().any { it.optString("action") !in setOf("install", "download", "web_download", "admin_command") })
+            OfflineWorker.schedule(applicationContext)
         return try {
             val revision=api.rpc("device_sync_state").optLong("revision")
             hub.catalog = api.rpc("device_hub").put("_sync_revision",revision)
@@ -54,25 +69,55 @@ class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(cont
                 }
             }
             InitialSetup(applicationContext).catalogReceived()
-            if (tasks.pending().any { it.optString("action") !in setOf("download","web_download") }) OfflineWorker.schedule(applicationContext)
-            var failed = false
-            val starter = InitialSetup.starterIds(hub.items())
-            val defaultWallpaper = hub.catalog.optJSONObject("wallpaper")?.optString("id")
-            val downloads = hub.items().filter { it.optString("kind") in setOf("resource", "wallpaper") }
-                .sortedBy { when { it.optString("id") == defaultWallpaper -> 0; it.optString("id") in starter -> 1; else -> 2 } }
-            for (item in downloads) {
-                if (store.deviceId != device) return Result.success()
+            SetupProgress(applicationContext).snapshot()
+            SetupProgress.reportSoon(applicationContext)
+            val installs = tasks.pending().filter { it.optString("action") == "install" }
+                .associateBy { it.optJSONObject("payload")?.optString("item_id") }
+            val downloads = hub.items().filter { it.optString("kind") in setOf("resource", "wallpaper") ||
+                (store.lastStatus == "active" && it.optString("kind") == "app" && it.optString("id") in installs) }
+                .associateBy { it.getString("id") }
+            // This is the only executor for queued catalogue installs AND school-file transfers.
+            // Failed entries are attempted once per pass; later streams still get their turn.
+            val successful = SetupDownloadOrder.runPass(downloads.values.map { item ->
+                SetupDownload(item.getString("id"), item.optString("kind"), item.optLong("size", -1),
+                    item.optString("title"), item.optString("form_level"), item.optString("subject"),
+                    item.optString("category"), item.optString("mime_type"))
+            }) { planned ->
+                if (store.deviceId != device) throw kotlinx.coroutines.CancellationException("Enrollment changed")
+                val item = downloads.getValue(planned.id)
+                if (planned.kind == "app") {
+                    val task = installs.getValue(planned.id).getString("id")
+                    try {
+                        check(withTimeoutOrNull(15 * 60_000L) {
+                            install(item, task, api, store, hub, tasks); true
+                        } == true) { "App attempt timed out. Later downloads continue; this app can retry." }
+                        SetupProgress.reportSoon(applicationContext)
+                        true
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        DeviceLog.event(applicationContext, "error", "install", "setup_install_failed", e)
+                        tasks.update(task, "waiting", error = Connectivity.message(e))
+                        false
+                    }
+                } else {
                 val target = hub.resourceFile(item)
-                if (target.exists() && target.length() == item.getLong("size")) { if (item.optString("kind") == "wallpaper") preview(item, target); continue }
+                if (target.exists() && target.length() == item.getLong("size")) {
+                    if (item.optString("kind") == "wallpaper") preview(item, target)
+                    return@runPass true
+                }
                 val id = tasks.download(item.getString("id"), item.getString("title"), item.getLong("size"))
                 val temp = File(target.path + ".part")
                 try {
+                    check(item.optLong("size", -1) >= 0) { "The catalogue file size is unknown." }
                     if (target.parentFile!!.usableSpace < (item.getLong("size") - temp.length()).coerceAtLeast(0) + 100L * 1024 * 1024)
                         error("Storage is nearly full. Free some space to continue this download.")
                     if (temp.length() > item.getLong("size")) temp.delete()
-                    if (temp.length() != item.getLong("size")) api.download("/storage/v1/object/primesecure-hub/${item.getString("storage_path")}", temp, resume = true) { bytes, total, speed ->
+                    if (temp.length() != item.getLong("size")) check(withTimeoutOrNull(15 * 60_000L) {
+                        api.download("/storage/v1/object/primesecure-hub/${item.getString("storage_path")}", temp, resume = true) { bytes, total, speed ->
                         tasks.update(id, "downloading", bytes, total, speed)
-                    }
+                        SetupProgress.reportSoon(applicationContext)
+                        }; true
+                    } == true) { "Transfer attempt timed out. Later downloads continue; this file will resume." }
                     check(temp.length() == item.getLong("size")) { "The download is incomplete. It will resume when connected." }
                     item.stringOrNull("sha256")?.let { expected ->
                         val hash = java.security.MessageDigest.getInstance("SHA-256")
@@ -82,23 +127,47 @@ class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(cont
                     check(temp.renameTo(target)) { "Could not save the download." }
                     tasks.update(id, "done", target.length(), target.length())
                     if (item.optString("kind") == "wallpaper") preview(item, target)
+                    SetupProgress.reportSoon(applicationContext)
+                    true
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     DeviceLog.event(applicationContext,"error","download","resource_download_failed",e)
-                    failed = true; tasks.update(id, "waiting", error = Connectivity.message(e))
+                    tasks.update(id, "waiting", error = Connectivity.message(e))
                     hub.syncError = Connectivity.message(e)
+                    false
+                }
                 }
             }
             // Retired items are no longer offered, even if downloaded; do not delete student files.
             val available = hub.items().map { it.getString("id") }.toSet()
             tasks.pending().filter { it.optString("key").startsWith("download:") && it.optJSONObject("payload")?.optString("item_id") !in available }.forEach { tasks.update(it.getString("id"), "superseded") }
-            if (!failed) hub.syncError = null
-            if (failed) Result.retry() else Result.success()
+            installs.filterKeys { id -> hub.items().none { it.optString("id") == id && it.optString("kind") == "app" } }
+                .values.forEach { tasks.update(it.getString("id"), "superseded") }
+            if (successful) hub.syncError = null
+            SetupProgress.reportSoon(applicationContext, final = true)
+            if (successful) Result.success() else Result.retry()
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             DeviceLog.event(applicationContext,"error","download","hub_sync_failed",e)
             hub.syncError = Connectivity.message(e); Result.retry()
         }
+    }
+    private suspend fun install(item: JSONObject, task: String, api: SupabaseApi, store: AgentStore, hub: HubStore, tasks: HubTasks) {
+        val revision = api.rpc("device_sync_state").optLong("revision")
+        val catalog = api.rpc("device_hub").put("_sync_revision", revision)
+        hub.catalog = catalog
+        check(catalog.optString("status", store.lastStatus) == "active") { "App installs require an active school device." }
+        val fresh = catalog.optJSONArray("items") ?: org.json.JSONArray()
+        val approved = (0 until fresh.length()).map { fresh.getJSONObject(it) }.find {
+            it.optString("id") == item.optString("id") && it.optString("kind") == "app"
+        } ?: error("This app is no longer approved for your school.")
+        if (!runCatching { applicationContext.packageManager.getPackageInfo(approved.getString("package_name"), 0) }.isSuccess) {
+            tasks.update(task, "syncing")
+            AppInstaller(applicationContext, store).install(task, JSONObject().put("bucket", "primesecure-hub")
+                .put("storage_path", approved.getString("storage_path")).put("hub_item_id", approved.getString("id"))
+                .put("package", approved.getString("package_name")).put("sha256", approved.optString("sha256")), task)
+        }
+        tasks.update(task, "installed")
     }
     private suspend fun preview(item: JSONObject, target: File) = withContext(Dispatchers.IO) {
         runCatching {
@@ -115,6 +184,7 @@ class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(cont
         Unit
     }
     companion object {
+        private val transfers = Mutex()
         fun schedule(context: Context,followUp:Boolean=false) {
             WorkManager.getInstance(context).enqueueUniqueWork("student-hub-sync", if(followUp) ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.KEEP,
                 OneTimeWorkRequestBuilder<HubSync>().setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build())

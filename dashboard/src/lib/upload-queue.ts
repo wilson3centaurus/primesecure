@@ -57,9 +57,12 @@ export class UploadQueue {
  }
  private pump(){
   if(this.stopped||!this.leader||!this.deps.online())return;
-  for(const job of this.jobs){
+  // Re-evaluate waiting files whenever a slot opens, including restored jobs.
+  // Running uploads keep their slot so a new small file never restarts them.
+  const pending=this.jobs.filter(job=>!this.running.has(job.id)&&['queued','waiting'].includes(job.state)&&job.retryAt<=this.now())
+   .sort((a,b)=>a.size-b.size||a.createdAt-b.createdAt);
+  for(const job of pending){
    if(this.running.size>=2)break;
-   if(this.running.has(job.id)||!['queued','waiting'].includes(job.state)||job.retryAt>this.now())continue;
    const controller=new AbortController();this.running.set(job.id,controller);
    void this.run(job,controller).catch(()=>this.emit('Could not save an upload state. Retry after reloading.')).finally(()=>{this.running.delete(job.id);this.pump();});
   }

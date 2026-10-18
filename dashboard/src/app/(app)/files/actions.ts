@@ -83,3 +83,38 @@ export async function getCommand(id: string): Promise<{ status: CommandStatus; r
   const { data } = await supabase.from("commands").select("status, result").eq("id", id).maybeSingle();
   return data as { status: CommandStatus; result: Record<string, unknown> | null } | null;
 }
+
+// Never sends an original through a Next.js action. This queues an audited
+// device upload; small status responses yield a short-lived, attachment-only URL.
+export async function requestOriginalFile(deviceId: string, path: string, size: number, modified: number): Promise<{ requestId?: string; error?: string }> {
+  if (!Number.isSafeInteger(size) || size < 0 || size > 500_000_000 || !Number.isSafeInteger(modified) || modified < 0)
+    return { error: "Invalid file metadata or file larger than 500 MB." };
+  const clean = cleanPath(path);
+  if (!clean || clean !== path) return { error: "Invalid shared-storage path." };
+  const ctx = await managedDevice(deviceId);
+  if (!ctx) return { error: "Only school admins can request originals." };
+  const { data, error } = await ctx.supabase.rpc("request_device_file", {
+    p_device_id: deviceId, p_path: path, p_size: size, p_modified: modified,
+  });
+  if (error || !data?.request_id) return { error: error?.message ?? "Could not queue the original-file request." };
+  return { requestId: data.request_id };
+}
+
+export type OriginalFileStatus = { status?: string; error?: string; downloadUrl?: string; filename?: string; expiresAt?: string };
+export async function getOriginalFile(requestId: string): Promise<OriginalFileStatus> {
+  await requireStaff();
+  if (!/^[a-f0-9-]{36}$/i.test(requestId)) return { error: "Invalid file request." };
+  const supabase = await createClient();
+  // RPC checks current manager privileges, device school, expiry, and completion.
+  const { data, error } = await supabase.rpc("admin_device_file_transfer", { p_request_id: requestId });
+  if (error || !data) return { error: error?.message ?? "File request unavailable." };
+  if (data.status !== "ready") return { status: data.status, error: data.error ?? undefined, expiresAt: data.expires_at };
+  if (!data.storage_path || Date.parse(data.expires_at) <= Date.now()) return { status: "expired" };
+  const seconds = Math.min(60, Math.floor((Date.parse(data.expires_at) - Date.now()) / 1000));
+  if (seconds < 1) return { status: "expired" };
+  const filename = String(data.filename || "original").replace(/[\x00-\x1f\x7f/\\]/g, "_").slice(0, 255);
+  const { data: signed, error: signingError } = await supabase.storage.from("device-file-originals")
+    .createSignedUrl(data.storage_path, seconds, { download: filename });
+  if (signingError || !signed?.signedUrl) return { error: signingError?.message ?? "Could not create the download link." };
+  return { status: "ready", downloadUrl: signed.signedUrl, filename, expiresAt: data.expires_at };
+}

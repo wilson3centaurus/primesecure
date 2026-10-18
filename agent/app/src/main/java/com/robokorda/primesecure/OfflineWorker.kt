@@ -15,25 +15,16 @@ class OfflineWorker(context: Context, params: WorkerParameters) : CoroutineWorke
         if (!store.isEnrolled || store.lastStatus == "retired") return@withLock Result.success()
         val hub = HubStore(applicationContext); val tasks = HubTasks(applicationContext); val api = SupabaseApi(store)
         val device = store.deviceId
-        for (task in tasks.pending().filter { it.optString("action") !in setOf("download", "admin_command", "web_download") }.sortedBy { if(it.optString("action")=="install")1 else 0 }) {
+        var retry = false
+        // HubSync owns ALL queued catalogue installs, so they cannot race ahead of wallpapers.
+        // The outbox keeps its own executor for urgent replies/profile/wallpaper choices.
+        for (task in tasks.pending().filter { it.optString("action") !in setOf("install", "download", "admin_command", "web_download") }) {
             if (store.deviceId != device) return@withLock Result.success()
             val id = task.getString("id"); val action = task.getString("action"); val payload = task.getJSONObject("payload")
             try {
                 tasks.update(id, "syncing")
                 if(action=="media_download") {
                     PrimeMediaDownloads.download(applicationContext,payload,id)
-                } else if (action == "install") {
-                    val revision=api.rpc("device_sync_state").optLong("revision")
-                    val catalog = api.rpc("device_hub").put("_sync_revision",revision); hub.catalog = catalog
-                    check(catalog.optString("status",store.lastStatus) == "active") { "App installs are available only on active school devices." }
-                    val freshItems=catalog.optJSONArray("items") ?: org.json.JSONArray()
-                    val item = (0 until freshItems.length()).map { freshItems.getJSONObject(it) }.find { it.optString("id") == payload.optString("item_id") && it.optString("kind") == "app" }
-                        ?: error("This app is no longer approved for your school.")
-                    if (!runCatching { applicationContext.packageManager.getPackageInfo(item.getString("package_name"), 0) }.isSuccess) {
-                        AppInstaller(applicationContext, store).install(id, JSONObject().put("bucket", "primesecure-hub").put("storage_path", item.getString("storage_path"))
-                            .put("hub_item_id", item.getString("id")).put("package", item.getString("package_name")).put("sha256", item.optString("sha256")), id)
-                    }
-                    tasks.update(id, "installed")
                 } else if(action == "uninstall") {
                     val revision=api.rpc("device_sync_state").optLong("revision")
                     val catalog=api.rpc("device_hub").put("_sync_revision",revision);hub.catalog=catalog
@@ -70,13 +61,17 @@ class OfflineWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 if (e is CancellationException) throw e
                 DeviceLog.event(applicationContext,"error",if(action=="install")"install" else "command","offline_action_failed",e)
                 if (e is IOException || (e is ApiException && (e.code >= 500 || e.code == 429))) {
-                    tasks.update(id, "waiting", error = Connectivity.message(e)); return@withLock Result.retry()
+                    tasks.update(id, "waiting", error = Connectivity.message(e)); retry = true
+                    continue
                 }
                 tasks.update(id, "failed", error = Connectivity.message(e))
             }
         }
-        HubSync.schedule(applicationContext)
-        Result.success()
+        // A new manual install may have arrived after the running HubSync took its queue snapshot.
+        // Append a follow-up instead of losing that request to KEEP while the transfer is running.
+        HubSync.schedule(applicationContext, followUp = tasks.pending().any { it.optString("action") == "install" })
+        SetupProgress.reportSoon(applicationContext)
+        if (retry) Result.retry() else Result.success()
     }
     companion object {
         private val lock = Mutex()

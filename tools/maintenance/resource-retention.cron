@@ -1,0 +1,2 @@
+# Private student evidence: RLS denies expired content immediately; remove retained bytes every 15 minutes.
+*/15 * * * * root /usr/bin/flock -n /run/primesecure-resource-retention.lock /usr/bin/python3 /root/primesecure-maintenance/resource-retention.py --apply >> /var/log/primesecure-resource-retention.log 2>&1

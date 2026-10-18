@@ -5,6 +5,9 @@ import { MessageForm } from "@/components/message-form";
 import { PageHeader } from "@/components/page-header";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { StudentAvatar } from "@/components/student-avatar";
+import { SetupProgressBars, SchoolSetupSummary } from "@/components/setup-progress";
+import { SetupProgressRefresh } from "@/components/setup-progress-refresh";
+import type { SetupRecord, SetupSummary } from "@/lib/setup-progress";
 import { canManage, getCurrentSchool, requireStaff } from "@/lib/auth";
 import { deviceLabel, isOnline } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
@@ -50,6 +53,11 @@ export default async function DevicesPage({ searchParams }: PageProps<"/devices"
   const requestedPage = typeof sp.page === "string" && /^\d{1,6}$/.test(sp.page) ? Number(sp.page) : 1;
   const page = Math.min(pages, Math.max(1, requestedPage));
   const visible = devices.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const [setupRows, setupAverage] = manager ? await Promise.all([
+    visible.length ? supabase.from("device_setup_progress").select("device_id,reported_at,report").in("device_id", visible.map((d) => d.id)) : Promise.resolve({ data: [], error: null }),
+    supabase.rpc("staff_setup_summary", { p_school: school.id }),
+  ]) : [{ data: [], error: null }, { data: null, error: null }];
+  const setup = new Map<string, SetupRecord>((setupRows.data ?? []).map((row) => [row.device_id, row as SetupRecord]));
   const { data: portraits } = manager && visible.length > 0
     ? await supabase.from("student_records").select("device_id,profile_photo").in("device_id", visible.map((d) => d.id))
     : { data: [] };
@@ -66,6 +74,7 @@ export default async function DevicesPage({ searchParams }: PageProps<"/devices"
     <PageHeader title="Students & devices" description={`Student records and managed Primebooks at ${school.name}.`}>
       <div className="flex flex-wrap gap-2"><MessageForm target="school" collapsible label="Message all devices" />{manager && <AddDevicesForm groups={groups ?? []} />}</div>
     </PageHeader>
+    {manager && <><SetupProgressRefresh /><SchoolSetupSummary summary={setupAverage.data as SetupSummary | null} unavailable={!!setupAverage.error} /></>}
     <div className="mb-4 flex flex-wrap items-center gap-2">
       {FILTERS.map((value) => <Link key={value} href={{ pathname: "/devices", query: { ...query, filter: value } }} className={`rounded-full px-3 py-1.5 text-sm capitalize ring-1 ring-inset ${filter === value ? "bg-slate-900 text-white ring-slate-900" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"}`}>
         {value === "pending" ? "Not enrolled" : value} <span className="opacity-60">{counts[value]}</span>
@@ -86,10 +95,10 @@ export default async function DevicesPage({ searchParams }: PageProps<"/devices"
     <div className="card overflow-x-auto">
       <table className="w-full min-w-[1040px] text-sm">
         <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs tracking-wide text-slate-500 uppercase"><tr>
-          <th className="w-20 px-4 py-3">Photo</th><th className="px-4 py-3">Student / Prime ID</th><th className="px-4 py-3">Class</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Last seen</th><th className="px-4 py-3">Battery</th><th className="px-4 py-3">Model</th><th className="px-4 py-3">Agent</th>
+          <th className="w-20 px-4 py-3">Photo</th><th className="px-4 py-3">Student / Prime ID</th><th className="px-4 py-3">Class</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Last seen</th><th className="px-4 py-3">Battery</th><th className="px-4 py-3">Model</th><th className="px-4 py-3">Agent</th>{manager && <th className="min-w-64 px-4 py-3">Setup streams</th>}
         </tr></thead>
         <tbody className="divide-y divide-slate-100">
-          {visible.length === 0 && <tr><td colSpan={8} className="px-4 py-10 text-center text-slate-500">{error ? "Records unavailable." : "No students match these filters."}</td></tr>}
+          {visible.length === 0 && <tr><td colSpan={manager ? 9 : 8} className="px-4 py-10 text-center text-slate-500">{error ? "Records unavailable." : "No students match these filters."}</td></tr>}
           {visible.map((d) => <tr key={d.id} className="hover:bg-slate-50">
             <td className="px-4 py-3"><StudentAvatar src={photos.get(d.id)} name={deviceLabel(d)} /></td>
             <td className="px-4 py-3"><Link href={`/devices/${d.id}`} className="font-semibold text-brand-700 hover:underline">{deviceLabel(d)}</Link><div className="mt-1 font-mono text-xs text-slate-600">{d.prime_id ? `Prime ID ${d.prime_id}` : "Prime ID not reported"}</div>{d.student_id && <div className="mt-1 text-xs text-slate-400">Student no. {d.student_id}</div>}</td>
@@ -99,6 +108,7 @@ export default async function DevicesPage({ searchParams }: PageProps<"/devices"
             <td className="px-4 py-3"><Battery level={d.battery_level} charging={d.battery_charging} /></td>
             <td className="px-4 py-3 text-slate-600">{d.model ?? "—"}</td>
             <td className="px-4 py-3 font-mono text-xs text-slate-500">{d.agent_version ?? "—"}</td>
+            {manager && <td className="min-w-64 px-4 py-3"><SetupProgressBars record={setup.get(d.id)} compact /></td>}
           </tr>)}
         </tbody>
       </table>

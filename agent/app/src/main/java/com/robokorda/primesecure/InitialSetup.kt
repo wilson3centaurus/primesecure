@@ -17,7 +17,7 @@ internal class InitialSetup(private val context: Context) {
     val policyReady get() = prefs.getBoolean("policy_ready", false)
     val catalogReady get() = prefs.getBoolean("catalog_ready", false)
     val policyError: String? get() = prefs.getString("policy_error", null)
-    fun begin() { check(prefs.edit().putBoolean("required", true).putBoolean("complete", false)
+    fun begin() { SetupProgress(context).reset(); check(prefs.edit().putBoolean("required", true).putBoolean("complete", false)
         .putBoolean("policy_ready", false).putBoolean("catalog_ready", false).remove("policy_error").commit()) }
     fun policyResult(problems: List<String>) {
         check(prefs.edit().putBoolean("policy_ready", problems.isEmpty())

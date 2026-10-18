@@ -156,11 +156,15 @@ class HubActivity : Activity() {
                     .put("download_sites",JSONArray(SchoolWebTools.all.mapNotNull { SchoolWebTools.configured(this@HubActivity,it.id) }.map { tool -> JSONObject().put("id",tool.id).put("title",tool.title).put("url",tool.startUrl).put("allowed",ApprovedWebApps.rules(this@HubActivity).allows(tool.startUrl)) }))
                     .put("ui_theme",StudentTheme.preference(this@HubActivity))
                     .put("hidden_keys",JSONArray(hub.hiddenKeys())).put("sync_error",hub.syncError ?: JSONObject.NULL)
+                    .put("favorite_keys",JSONArray(hub.favoriteKeys())).put("pinned_keys",JSONArray(hub.pinnedKeys()))
+                    .put("setup_progress",SetupProgress(this@HubActivity).snapshot())
+                    .put("current_wallpaper_id",sourceItems.firstOrNull { it.optString("kind")=="wallpaper" && "hub:"+it.optString("storage_path")==AgentStore(this@HubActivity).appliedWallpaperUrl }?.optString("id") ?: JSONObject.NULL)
                     .put("last_sync",AgentStore(this@HubActivity).lastCheckInAt)
                     .put("school_sync",SettingsSync.snapshot(this@HubActivity))
                     .put("device",cachedDevice).put("battery",DeviceInfo.batteryDiagnostics(this@HubActivity))
                     .put("installed_apps_count",cachedAppCount)
                 hub.profileDraft?.let { catalog.put("student_profile",it).put("profile_pending",true) }
+                catalog.getJSONObject("capabilities").put("favorites",true)
                 val pendingActions=HubTasks(this@HubActivity).pending()
                 val localReads=pendingActions.filter { it.optString("action")=="support_read" }.flatMap { task ->
                     val ids=task.getJSONObject("payload").optJSONArray("ids") ?: JSONArray()
@@ -205,6 +209,34 @@ class HubActivity : Activity() {
                 try {
                     val a=JSONObject(raw)
                     when(a.getString("action")) {
+                        "favorite","pin" -> {
+                            check(AgentStore(this@HubActivity).isEnrolled && AgentStore(this@HubActivity).lastStatus=="active") { "This workspace is unavailable." }
+                            val student=a.getString("student_id");val device=a.getString("device_id")
+                            check(student==(hub.catalog.stringOrNull("student_id") ?: "") && device==AgentStore(this@HubActivity).deviceId) { "This enrollment has changed. Reopen your workspace." }
+                            val key=a.getString("key");val value=a.getBoolean("value")
+                            // Removing stale references is allowed; adding requires a current approved/listed item.
+                            if(value) when {
+                                key.startsWith("item:") -> check(hub.items().any { it.optString("id")==key.removePrefix("item:") && it.optString("kind") in setOf("resource","media") }) { "This item is no longer in your library." }
+                                key.startsWith("folder:") -> {
+                                    val path=a.getJSONArray("folder");check(path.length() in 1..3)
+                                    val parts=(0 until path.length()).map { path.getString(it) }
+                                    val expected=when(parts.size) { 1->"form:"+parts[0];2->"subject:"+parts.joinToString(":");else->"category:"+parts.joinToString(":") }
+                                    check(key=="folder:$expected" && hub.items().any { item -> item.optString("kind")=="resource" && parts.withIndex().all { (n,part)->item.optString(listOf("form_level","subject","category")[n],listOf("All levels","General","Notes")[n])==part } }) { "This folder is no longer in your library." }
+                                }
+                                key.startsWith("media:") -> {
+                                    val path=key.removePrefix("media:")
+                                    check(mediaIndexedDevice==AgentStore(this@HubActivity).deviceId) { "Refresh Media first." }
+                                    val expected=mediaDeletionEntries[path] ?: error("Refresh Media first.")
+                                    val file=withContext(Dispatchers.IO) { FileManager(AgentStore(this@HubActivity),this@HubActivity).checkedFile(path) }
+                                    check(MediaDeletion.snapshot(file)==expected) { "This file changed. Refresh Media first." }
+                                }
+                                else -> error("Invalid library reference.")
+                            }
+                            withContext(Dispatchers.IO) { if(a.getString("action")=="favorite")hub.favorite(key,value,student) else hub.pin(key,value,student) }
+                            if(student==(hub.catalog.stringOrNull("student_id") ?: "") && device==AgentStore(this@HubActivity).deviceId)
+                                web.evaluateJavascript("window.receiveLibraryPreferences?.(${JSONObject.quote(JSONObject().put("device_id",device).put("student_id",student).put("favorite_keys",JSONArray(hub.favoriteKeys())).put("pinned_keys",JSONArray(hub.pinnedKeys())).toString())})",null)
+                            refresh()
+                        }
                         "media_view" -> { val value=a.optString("value");if(value in setOf("grid","list"))getSharedPreferences("student-display",MODE_PRIVATE).edit().putString("media_view",value).apply() }
                         "ui_ready" -> if (!uiConfirmed) { uiConfirmed=true; web.removeCallbacks(uiTimeout); StudentUiUpdates.accept(this@HubActivity) }
                         "refresh" -> refresh()
@@ -316,6 +348,7 @@ class HubActivity : Activity() {
                                 AgentStore(this@HubActivity).appliedWallpaperUrl="hub:"+item.getString("storage_path")
                                 withContext(Dispatchers.IO) { hub.localWallpaper=item.getString("id") };enqueue("wallpaper",JSONObject().put("item_id",item.getString("id")),"Wallpaper preference")
                                 toast("Wallpaper applied from your offline library.")
+                                refresh()
                                 } finally { wallpaperBusy=false }
                             } else { HubSync.schedule(this@HubActivity);toast("This wallpaper has not downloaded yet. Check Background tasks, then choose it when ready.") }
                         }
@@ -408,6 +441,7 @@ class HubActivity : Activity() {
                             check(store.isEnrolled&&store.deviceId==device&&store.lastStatus=="active") { "This device is no longer available." }
                             val file=FileManager(store,this@HubActivity).checkedFile(path)
                             MediaDeletion.delete(file,expected)
+                            hub.favorite("media:$path",false);hub.pin("media:$path",false)
                             mediaDeletionEntries.remove(path);mediaCoverPaths.entries.removeAll { it.value==path }
                             runCatching { android.media.MediaScannerConnection.scanFile(this@HubActivity,arrayOf(file.path),null,null) }
                         }

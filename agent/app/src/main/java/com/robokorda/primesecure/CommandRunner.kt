@@ -16,6 +16,12 @@ class CommandRunner(private val context: Context, private val store: AgentStore)
 
     private val api = SupabaseApi(store)
 
+    /** Independent from the bulk-download mutex. Called on authenticated realtime signals. */
+    suspend fun runUrgentPending() = urgentFetchLock.withLock {
+        val commands=api.rpc("device_fetch_remote_controls").optJSONArray("commands") ?: return@withLock
+        for(i in 0 until commands.length()) run(commands.getJSONObject(i))
+    }
+
     suspend fun runPending() = lock.withLock {
         repeat(MAX_BATCHES) {
             val commands = api.rpc("device_fetch_commands", JSONObject().put("p_limit", BATCH))
@@ -26,6 +32,11 @@ class CommandRunner(private val context: Context, private val store: AgentStore)
     }
 
     private suspend fun run(command: JSONObject) {
+        if(command.optString("type") in setOf("alarm","request_capture")) remoteExecutionLock.withLock { executeAndAck(command) }
+        else executeAndAck(command)
+    }
+
+    private suspend fun executeAndAck(command: JSONObject) {
         val id = command.getString("id")
         val type = command.getString("type")
         val payload = command.optJSONObject("payload") ?: JSONObject()
@@ -59,6 +70,8 @@ class CommandRunner(private val context: Context, private val store: AgentStore)
         "list_files" -> FileManager(store).list(payload)
         "push_file" -> FileManager(store).push(payload)
         "delete_file" -> FileManager(store).delete(payload)
+        "alarm", "request_capture" -> RemoteControls.execute(context, id, type, payload)
+        "retrieve_file" -> DeviceFileTransfer(context, store).upload(payload)
         else -> throw UnsupportedCommand(type)
     }
 
@@ -84,5 +97,7 @@ class CommandRunner(private val context: Context, private val store: AgentStore)
         private const val BATCH = 20
         private const val MAX_BATCHES = 5
         private val lock = Mutex()
+        private val urgentFetchLock = Mutex()
+        private val remoteExecutionLock = Mutex()
     }
 }

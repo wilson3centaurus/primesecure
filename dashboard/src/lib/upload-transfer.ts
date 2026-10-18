@@ -2,10 +2,22 @@ import { createClient } from '@/lib/supabase/browser';
 import { SUPABASE_URL,SUPABASE_ANON_KEY } from '@/lib/env';
 import { UploadFailure,type UploadJob } from './upload-queue';
 
+async function uploadSession(ownerId:string,force=false){
+ const client=createClient();
+ let {data:{session}}=await client.auth.getSession();
+ if(!session||session.user.id!==ownerId)throw new UploadFailure('Sign in with the account that queued this upload, then Retry.');
+ if(session&&(force||!session.expires_at||session.expires_at*1000<Date.now()+5*60_000)){
+  const result=await client.auth.refreshSession();
+  if(result.error)throw new UploadFailure('Your session expired. Sign in with the account that queued this upload, then Retry.');
+  session=result.data.session;
+ }
+ if(!session||session.user.id!==ownerId)throw new UploadFailure('Sign in with the account that queued this upload, then Retry.');
+ return session;
+}
+
 export async function transferUpload(job:UploadJob,file:Blob,signal:AbortSignal,progress:(bytes:number,speed:number)=>void){
  if(signal.aborted)throw new DOMException('Paused','AbortError');
- const client=createClient();const {data:{session}}=await client.auth.getSession();
- if(!session||session.user.id!==job.ownerId)throw new UploadFailure('Sign in with the account that queued this upload, then Retry.');
+ const client=createClient();const session=await uploadSession(job.ownerId);
  // A lost response/reload can leave a complete object. Reuse it rather than upload twice.
  const slash=job.path.lastIndexOf('/');
  const existing=await client.storage.from('primesecure-hub').list(job.path.slice(0,slash),{search:job.path.slice(slash+1)});
@@ -27,7 +39,10 @@ export async function transferUpload(job:UploadJob,file:Blob,signal:AbortSignal,
   xhr.onload=()=>{
    if(xhr.status>=200&&xhr.status<300){progress(job.size,0);finish();return;}
    let message='';try{message=JSON.parse(xhr.responseText).message||JSON.parse(xhr.responseText).error||'';}catch{}
-   finish(new UploadFailure(xhr.status===413?'This file exceeds the server upload limit. Ask RoboKorda to increase the storage limit.':xhr.status===401?'Your session expired. Sign in again and Retry.':`Upload failed${message?': '+message:'. Please Retry.'}`,xhr.status===0||xhr.status===429||xhr.status>=500));
+   if(xhr.status===401||/\bexp\b.*claim|jwt.*expired|token.*expired/i.test(message)){
+    void uploadSession(job.ownerId,true).then(()=>finish(new UploadFailure('Session renewed. Retrying the upload automatically.',true)),error=>finish(error));return;
+   }
+   finish(new UploadFailure(xhr.status===413?'This file exceeds the server upload limit. Ask RoboKorda to increase the storage limit.':`Upload failed${message?': '+message:'. Please Retry.'}`,xhr.status===0||xhr.status===429||xhr.status>=500));
   };
   xhr.onerror=()=>finish(new UploadFailure('Connection interrupted. The upload will retry when connected.',true));
   xhr.ontimeout=()=>finish(new UploadFailure('The upload timed out. It will retry.',true));
@@ -38,7 +53,9 @@ export async function transferUpload(job:UploadJob,file:Blob,signal:AbortSignal,
 }
 
 export async function publishUpload(job:UploadJob,signal:AbortSignal){
+ await uploadSession(job.ownerId);
  const response=await fetch('/api/library/publish',{method:'POST',headers:{'Content-Type':'application/json'},signal,body:JSON.stringify({...job.options,uploadId:job.id,ownerId:job.ownerId,schoolId:job.schoolId,path:job.path,mime:job.mime,size:job.size})}).catch(error=>{if(signal.aborted)throw error;throw new UploadFailure('Connection interrupted while publishing. It will retry without uploading the file again.',true);});
  const result=await response.json().catch(()=>({error:'Publishing did not finish. Retry this upload.'}));
+ if(response.status===401){await uploadSession(job.ownerId,true);throw new UploadFailure('Session renewed. Retrying publication without uploading the file again.',true);}
  if(!response.ok||result.error)throw new UploadFailure(result.error||'Could not publish this file.',response.status===429||response.status>=500);
 }

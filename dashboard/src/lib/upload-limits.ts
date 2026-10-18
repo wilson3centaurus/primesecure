@@ -1,0 +1,4 @@
+export const APK_MAX_BYTES = 500_000_000;
+export const MAX_APP_UPLOAD_SELECTION = 100;
+export const LIBRARY_MAX_BYTES = 500_000_000;
+export const MAX_UPLOAD_SELECTION = 100;

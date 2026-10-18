@@ -26,7 +26,7 @@ export default async function DeviceFilesPage({ params }: PageProps<"/devices/[i
       <p className="mt-1 mb-6 text-sm text-slate-500">
         Browse the last synced inventory while the Primebook is offline. Changes and original-file actions need an online device.
       </p>
-      <CachedFiles snapshot={cache?.snapshot as FileSnapshot|null} scannedAt={cache?.scanned_at||null}/>
+      <CachedFiles deviceId={device.id} snapshot={cache?.snapshot as FileSnapshot|null} scannedAt={cache?.scanned_at||null}/>
       <LiveFileTools deviceId={device.id} schoolId={device.school_id}/>
     </>
   );

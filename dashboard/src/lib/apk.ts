@@ -2,6 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { unzipSync } from "fflate";
+import { APK_MAX_BYTES } from "./upload-limits";
 
 type Manifest = { package: string; versionName?: string; versionCode?: number; usesSdk?: {minSdkVersion?: number}; application?: {label?: string; icon?: string} };
 const require = createRequire(import.meta.url);
@@ -53,7 +54,7 @@ function resourceStrings(buffer: Uint8Array): Map<number,string> {
   return result;
 }
 export async function inspectApk(bytes: Buffer,filename: string) {
-  if(bytes.length>250_000_000)throw new Error("This APK exceeds the 250 MB limit.");
+  if(bytes.length>APK_MAX_BYTES)throw new Error("This APK exceeds the 500 MB limit.");
   if(bytes[0]!==0x50 || bytes[1]!==0x4b)throw new Error("This file is not an APK. Choose the original .apk file.");
   const reader=await ApkReader.open(bytes), manifest=await reader.readManifest();
   if(!/^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/.test(manifest.package))throw new Error("APK has no valid application identifier.");

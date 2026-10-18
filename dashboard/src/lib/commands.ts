@@ -14,6 +14,9 @@ export const COMMAND_LABEL: Record<CommandType, string> = {
   unlock: "Unlock",
   retire: "Retire",
   reset_password: "Reset device password",
+  alarm: "Visible high-alert alarm",
+  request_capture: "Visible image request",
+  retrieve_file: "Requested device file upload",
 };
 
 export const COMMAND_STATUS_STYLE: Record<CommandStatus, string> = {
@@ -43,6 +46,9 @@ export function commandSummary(type: CommandType, payload: Record<string, unknow
     case "delete_file":
     case "list_files": return s("path") || "/";
     case "lock": return s("message");
+    case "alarm":
+    case "request_capture": return s("reason");
+    case "retrieve_file": return "Authorized original-file request";
     default: return "";
   }
 }

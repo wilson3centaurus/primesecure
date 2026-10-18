@@ -22,6 +22,10 @@ import { StudentAvatar } from "@/components/student-avatar";
 import { DeviceNetwork } from "@/components/device-network";
 import { LostDeviceControls } from "@/components/lost-device-controls";
 import { PrimeIdForm } from "@/components/prime-id-form";
+import { RemoteControls } from "@/components/remote-controls";
+import { RemoteCaptureResults } from "@/components/remote-capture-results";
+import { DeviceSetupProgress, DeviceWallpaper } from "@/components/setup-progress";
+import { SetupProgressRefresh } from "@/components/setup-progress-refresh";
 
 export const metadata: Metadata = { title: "Device" };
 
@@ -79,6 +83,8 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
         <div className="space-y-3 text-right">{d.status !== "pending" && <OnlineDot device={d} />}{manager && <details className="text-left"><summary className="cursor-pointer text-sm font-medium text-brand-700">Verify / correct Prime ID</summary><div className="mt-3 max-w-sm"><PrimeIdForm deviceId={d.id} value={d.prime_id ?? ""} /></div></details>}</div>
       </section>
 
+      {manager && <><SetupProgressRefresh /><div className="mb-6 grid gap-6 lg:grid-cols-2"><DeviceSetupProgress deviceId={d.id} /><DeviceWallpaper deviceId={d.id} schoolId={d.school_id} /></div></>}
+
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="card p-4">
           <h2 className="mb-2 font-semibold">Device</h2>
@@ -124,6 +130,7 @@ export default async function DevicePage({ params }: PageProps<"/devices/[id]">)
 
         <div className="space-y-6">
           {manager && enrolled && <LostDeviceControls deviceId={d.id} lost={d.lost_mode??false} alarm={d.lost_alarm??false} message={d.lost_message??""} />}
+          {manager && enrolled && <div><RemoteControls deviceId={d.id} /><RemoteCaptureResults deviceId={d.id} /></div>}
           {manager && <DeviceNetwork runtime={runtime} primeId={d.prime_id ?? null} lastIp={d.last_ip} />}
           {manager && <DeviceSync deviceId={d.id} requested={d.sync_revision??0} applied={d.sync_applied_revision??0} requestedLabel={dateTime(d.sync_requested_at)} appliedLabel={dateTime(d.sync_applied_at)} topics={d.sync_topics??[]}/>}
           {manager && <DeviceDiagnostics events={diagnosticEvents} unavailable={Boolean(diagnostics.error)} currentVersion={d.agent_version}/>}

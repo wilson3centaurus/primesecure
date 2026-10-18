@@ -8,6 +8,8 @@ import java.io.File
 /** Student content stays app-private; hiding changes presentation, never deletes files. */
 class HubStore(private val context: Context) {
     private val prefs = context.getSharedPreferences("student-hub", Context.MODE_PRIVATE)
+    private val boundDevice = AgentStore(context).deviceId
+    private val boundEnrollment = enrollmentBinding()
     init {
       synchronized(bindingLock) {
         val device = AgentStore(context).deviceId
@@ -19,14 +21,22 @@ class HubStore(private val context: Context) {
             context.filesDir.listFiles()?.filter { it.name.startsWith("hub-preview-") }?.forEach { it.delete() }
             File(context.filesDir,"file-inventory.json").delete()
         }
+        if(prefs.getString("selection_binding",null)!=boundEnrollment) {
+            prefs.edit().remove("favorites").remove("pinned_keys").putString("selection_binding",boundEnrollment).commit()
+        }
       }
     }
     var catalog: JSONObject
         get() = JSONObject(prefs.getString("catalog", "{}")!!)
         set(value) { synchronized(bindingLock) {
             val previous=JSONObject(prefs.getString("catalog","{}")!!)
-            if(value.optLong("_sync_revision",-1)>=previous.optLong("_sync_revision",-1))
-                prefs.edit().putString("catalog", value.toString()).commit()
+            if(value.optLong("_sync_revision",-1)>=previous.optLong("_sync_revision",-1)) {
+                val edit=prefs.edit().putString("catalog", value.toString())
+                if(previous.optString("student_id")!=value.optString("student_id")) {
+                    edit.remove("favorites").remove("pinned_keys")
+                }
+                edit.commit()
+            }
         } }
     var managementSync:JSONObject
         get()=JSONObject(prefs.getString("management_sync","{}")!!)
@@ -43,6 +53,28 @@ class HubStore(private val context: Context) {
     fun hidden(key: String) = prefs.getBoolean("hidden:$key", false)
     fun hiddenKeys() = prefs.all.keys.filter { it.startsWith("hidden:") && prefs.getBoolean(it,false) }.map { it.removePrefix("hidden:") }
     fun hide(key: String, value: Boolean) { prefs.edit().putBoolean("hidden:$key", value).commit() }
+    /** References only: no school file is copied, moved or removed by these preferences. */
+    fun favoriteKeys(): List<String> = preferenceKeys("favorites")
+    fun pinnedKeys(): List<String> = preferenceKeys("pinned_keys")
+    fun favorite(key: String, value: Boolean, student: String = catalog.stringOrNull("student_id") ?: "") = setPreferenceKey("favorites",key,value,student)
+    fun pin(key: String, value: Boolean, student: String = catalog.stringOrNull("student_id") ?: "") = setPreferenceKey("pinned_keys",key,value,student)
+    private fun preferenceKeys(name: String): List<String> = synchronized(bindingLock) {
+        if(!AgentStore(context).isEnrolled || boundDevice==null || AgentStore(context).deviceId!=boundDevice || enrollmentBinding()!=boundEnrollment || prefs.getString("device",null)!=boundDevice) return@synchronized emptyList()
+        val keys=runCatching { JSONArray(prefs.getString(name,"[]")) }.getOrElse { JSONArray() }
+        (0 until keys.length()).map { keys.optString(it) }.filter { it.isNotBlank() }.distinct()
+    }
+    private fun setPreferenceKey(name: String,key: String,value: Boolean,student: String) = synchronized(bindingLock) {
+        check(boundDevice!=null && AgentStore(context).isEnrolled && AgentStore(context).deviceId==boundDevice && enrollmentBinding()==boundEnrollment && prefs.getString("device",null)==boundDevice) { "This enrollment has changed. Reopen your workspace." }
+        check((catalog.stringOrNull("student_id") ?: "")==student) { "The assigned student has changed. Reopen your workspace." }
+        require(key.length in 1..4096 && (key.startsWith("item:") || key.startsWith("media:") || key.startsWith("folder:"))) { "Invalid library reference." }
+        val keys=preferenceKeys(name).toMutableSet()
+        if(value) { check(keys.size<20000 || key in keys) { "Your saved list is full. Remove an older favorite first." };keys.add(key) } else keys.remove(key)
+        check(prefs.edit().putString(name,JSONArray(keys.toList()).toString()).commit()) { "Could not save your library preference. Try again." }
+    }
+    private fun enrollmentBinding(): String {
+        val store=AgentStore(context)
+        return java.security.MessageDigest.getInstance("SHA-256").digest(listOf(store.deviceId,store.email,store.password).joinToString("\u0000").toByteArray()).joinToString("") { "%02x".format(it) }
+    }
     fun saveMessage(id: String, payload: JSONObject, created: String) {
         if (message(id) != null) return
         prefs.edit().putString("message:$id", JSONObject().put("id", id).put("payload", payload)

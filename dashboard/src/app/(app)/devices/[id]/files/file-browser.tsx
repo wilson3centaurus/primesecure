@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { deleteFile, getCommand, listFiles, pushFile } from "@/app/(app)/files/actions";
 import { uploadMedia } from "@/lib/upload-media";
+import { DeviceOriginalDownload } from "@/components/device-original-download";
 
-type Entry = { name: string; dir: boolean; size: number | null; modified: number };
+type Entry = { name: string; path?: string; dir: boolean; size: number | null; modified: number };
 type Listing = { path: string; entries: Entry[]; truncated: boolean; free_bytes?: number };
 
 function bytes(n: number | null | undefined) {
@@ -106,7 +107,7 @@ export function FileBrowser({ deviceId, schoolId }: { deviceId: string; schoolId
       <ul className="divide-y divide-slate-100 text-sm">
         {listing?.entries.length === 0 && <li className="p-3 text-slate-500">Empty folder.</li>}
         {listing?.entries.map((e) => {
-          const full = [listing.path, e.name].filter(Boolean).join("/");
+          const full = e.path || [listing.path, e.name].filter(Boolean).join("/");
           return (
             <li key={e.name} className="flex items-center justify-between gap-3 px-3 py-2">
               {e.dir ? (
@@ -115,15 +116,16 @@ export function FileBrowser({ deviceId, schoolId }: { deviceId: string; schoolId
               ) : (
                 <span className="truncate">📄 {e.name}</span>
               )}
-              <span className="flex shrink-0 items-center gap-3 text-xs text-slate-500">
+              <div className="flex shrink-0 items-center gap-3 text-xs text-slate-500">
                 {bytes(e.size)}
                 <span>{new Date(e.modified).toLocaleDateString("en-GB")}</span>
+                {!e.dir && e.size != null && <DeviceOriginalDownload key={`${deviceId}:${full}:${e.size}:${e.modified}`} deviceId={deviceId} path={full} size={e.size} modified={e.modified} />}
                 <button className="text-red-600 underline" disabled={busy}
                   onClick={() => {
                     if (!confirm(`Delete ${e.name}${e.dir ? " and everything in it" : ""} from the device?`)) return;
                     run(`Deleting ${e.name}…`, () => deleteFile(deviceId, full, e.dir));
                   }}>Delete</button>
-              </span>
+              </div>
             </li>
           );
         })}
