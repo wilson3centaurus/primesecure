@@ -7,7 +7,13 @@
 - Only managers of that school can read completed, unexpired originals. Teachers, devices and anonymous callers cannot download them. Devices can only insert into their exact pending request, not overwrite or list originals. Attachment URLs last at most 60 seconds, bounded by the request's expiry.
 - Access expires 24h after request creation, including unfinished uploads. Audit records remain, with no original contents. Deleting a device/school revokes access immediately but preserves the cleanup pointer (foreign keys set null rather than cascading the request away). Storage API cleanup also removes partial/unfinalized objects bound to expired requests; it never deletes metadata rows directly from `storage.objects`.
 
-## Integration / release gates (no production changes made here)
+## Integration / release gates
+
+The parent release applied the migration, integrated the `retrieve_file`
+handler, deployed the dashboard and installed/verified the VPS retention job.
+The signed 0.9.0/code 33 APK is ready for manual testing, not fleet activation.
+See `LIBRARY_SETUP_RELEASE_2026-10-19.md` for release evidence. The checklist below
+also applies to future releases; physical-device verification remains outstanding.
 
 1. Apply `20261018232514_device_media_on_demand.sql` with the other approved migrations. It augments rather than replaces the current command-type constraint. Any later migration rebuilding that constraint must preserve `retrieve_file`.
 2. CommandRunner owner must add: `"retrieve_file" -> DeviceFileTransfer(context, store).upload(payload)`.

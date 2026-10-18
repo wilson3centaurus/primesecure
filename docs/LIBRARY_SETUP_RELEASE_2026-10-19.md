@@ -4,6 +4,39 @@ This is a coordinated dashboard, database, and Android change. A dashboard build
 alone does not install native features on a Primebook. Record deployment and
 physical-pilot evidence separately before a fleet rollout.
 
+## Verified release evidence
+
+- Implementation commit: `516db24cba2f173274157953868a727e0814c0ea`.
+- Production dashboard: `https://primesecure-beta.vercel.app`, deployment
+  `dpl_4oYhHH4UJyoAq3aK2d4SC4ehFkJb`, **READY**, Next.js 16.4.0;
+  remote build completed in 20 seconds. Domain promotion verified.
+- Four new migrations applied transactionally. Schema backup:
+  `/root/primesecure-backups/library-release-20261018T234623Z` (UTC filename).
+  No database, authentication, storage, or host restart was performed.
+- Live import verified: 2,116 files; 22 folder records including the retained
+  parent; 769,668,797 bytes. Every stored object was size/SHA-256 verified before
+  publication. Eight previous catalog resources were replaced; their objects
+  remain private for recovery, with catalog backup
+  `/root/primesecure-backups/explore-20261018T234540Z.json` (UTC filename).
+- Live checks: four new RLS-protected tables, anonymous reads/RPC denial,
+  private 500 MB original-file bucket, active owner-only retention cron every
+  15 minutes, and successful first cleanup invocation.
+- Student interface 25141498: hosted signature, tamper/wrong-signer rejection
+  and source parity passed. This is UI evidence, not native device proof.
+- Tests: 62 dashboard, 38 database, 13 workspace tests; release compilation,
+  lint and 94 native unit tests passed. Real Edge browser smoke passed for
+  hearts, pinning, all three streams and Media controls with no page errors.
+- APK: `C:\Users\XO\Desktop\Prime Secure\PrimeSecure-0.9.0-33.apk`, 2,971,909
+  bytes, install code 33, same fleet certificate, non-test-only/non-debuggable.
+  SHA-256: `663f4e5560a1631468eb575553458f2ec8f59e0b9ebf83222f6f22149d12b336`.
+  Frozen native source is commit 516db24. No native fleet release was activated.
+- Production login returned HTTP 200; unauthenticated publication redirected to
+  login. The fresh deployment error query returned no logs; this is limited
+  traffic evidence, not continuous monitoring or an authenticated end-to-end
+  upload/capture test. Drains and long-term monitoring were not verified.
+- Physical three-Primebook pilot remains outstanding. The user requested the
+  APK for manual testing and will decide whether to roll out afterwards.
+
 ## Requested scope and safeguards
 
 - Replace only Rusununguko ZIMFEP High School's **Explore & grow** contents.

@@ -1,6 +1,9 @@
 # Visible remote controls and case classification
 
-Local implementation only. Apply `20261018232234_visible_remote_controls_cases.sql`, deploy the dashboard and distribute a new native agent build before use. No production migration or deployment was run for this work.
+The database migration and dashboard are deployed; the signed 0.9.0/code 33 APK
+is prepared for the user's three-device pilot, without fleet activation.
+See `LIBRARY_SETUP_RELEASE_2026-10-19.md` for exact evidence and outstanding
+physical checks. Native controls require installing that compatible APK.
 
 ## Alarm
 
