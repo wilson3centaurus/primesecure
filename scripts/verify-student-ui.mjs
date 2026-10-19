@@ -4,7 +4,15 @@ import { readFileSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
-const envelope=JSON.parse(process.argv[2]?.startsWith('https:') ? await (await fetch(process.argv[2])).text() : readFileSync(join(root,'dashboard/public/student-ui/release.json'),'utf8'));
+const input=process.argv[2];
+let releaseText;
+if(input?.startsWith('https:')) {
+  const response=await fetch(input,{redirect:'error'});
+  assert(response.ok,`Release HTTP ${response.status}`);
+  assert(response.headers.get('content-type')?.includes('application/json'),'Expected signed release JSON, not a login/protection page');
+  releaseText=await response.text();
+} else releaseText=readFileSync(input?resolve(input):join(root,'dashboard/public/student-ui/release.json'),'utf8');
+const envelope=JSON.parse(releaseText);
 const key=createPublicKey({key:Buffer.from(readFileSync(join(root,'agent/app/src/main/assets/ui-public-key.txt'),'utf8').trim(),'base64'),format:'der',type:'spki'});
 const payload=Buffer.from(envelope.payload,'base64'), signature=Buffer.from(envelope.signature,'base64');
 assert(verify('sha256',payload,key,signature),'Release signature failed');

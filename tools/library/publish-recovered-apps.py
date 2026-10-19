@@ -30,10 +30,12 @@ def publish(plan,approval):
     require(len(set(ids))==len(ids),'Duplicate repair identity')
     id_sql=','.join(literal(str(__import__('uuid').UUID(i)))+'::uuid' for i in ids)
     snapshot_sql=f"""select jsonb_build_object('school_count',(select count(*) from public.schools),
+      'school_id',(select id from public.schools order by id limit 1),
       'items',(select coalesce(jsonb_agg(to_jsonb(i) order by i.id),'[]') from public.hub_items i where i.id in ({id_sql})),
       'access',(select coalesce(jsonb_agg(to_jsonb(a) order by a.item_id,a.school_id),'[]') from public.hub_access a where a.item_id in ({id_sql})),
       'defaults',(select coalesce(jsonb_agg(to_jsonb(d) order by d.item_id,d.school_id),'[]') from public.hub_app_defaults d where d.item_id in ({id_sql})));"""
     snapshot=json.loads(helper.psql(snapshot_sql));require(snapshot['school_count']==1,'Other schools now exist; stop for review')
+    require(snapshot.get('school_id')==SCHOOL,'School identity changed; stop for review')
     expected=json.loads(json.dumps({i['id']:i for i in plan['inventory']['items'] if i['id'] in ids}))
     for item in expected.values():
         for key in ['verified_old_size','verified_old_sha256','object_verification_error']:item.pop(key,None)
@@ -57,7 +59,13 @@ def publish(plan,approval):
     backup.mkdir(mode=0o700)
     for name,value in [('before.json',snapshot),('reviewed-plan.json',plan)]:
         file=backup/name;file.write_text(json.dumps(value,indent=2),encoding='utf-8');file.chmod(0o600)
-    sql=['begin;',"select pg_advisory_xact_lock(hashtext('primesecure-app-package-recovery'));",f'lock table public.hub_items,public.hub_access,public.hub_app_defaults in share row exclusive mode;']
+    # Bound waits before taking any lock; these settings expire at commit/rollback.
+    sql=['begin;',"set local lock_timeout='5s';","set local statement_timeout='60s';",
+         "set local idle_in_transaction_session_timeout='60s';",
+         "select pg_advisory_xact_lock(hashtext('primesecure-app-package-recovery'));",
+         'lock table public.schools in share mode;',
+         f"do $scope$ begin if (select count(*) from public.schools)<>1 or not exists (select 1 from public.schools where id={literal(SCHOOL)}::uuid) then raise exception 'School scope changed; recovery stopped';end if;end $scope$;",
+         'lock table public.hub_items,public.hub_access,public.hub_app_defaults in share row exclusive mode;']
     # Compare all old fields once more under locks, not only an ID or title.
     for item in snapshot['items']:
         sql.append(f"do $guard$ begin if (select to_jsonb(i) from public.hub_items i where id={literal(item['id'])}::uuid) is distinct from {literal(json.dumps(item))}::jsonb then raise exception 'Catalog drift; recovery stopped';end if;end $guard$;")

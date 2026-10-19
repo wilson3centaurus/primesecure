@@ -28,6 +28,7 @@ import time
 import urllib.parse
 import uuid
 import zipfile
+import certifi
 
 SCHOOL = '14eea188-73b1-40bc-8f8d-15afbea27ffa'
 HOST = '178.238.227.229'
@@ -388,12 +389,13 @@ def checked_signed_url(url, path):
 
 
 def stage(plan, approval):
-    rows = approved_plan(plan, approval)
+    rows = sorted(approved_plan(plan, approval), key=lambda row: row['size'])
     # All local packages are revalidated before opening the signer. Fresh hashes
     # alone are insufficient evidence for an edited validation report.
     for row in rows:
         source = Path(row['archive'])
         require(0 < source.stat().st_size == row['size'] <= LIMIT and sha_file(source) == row['sha256'], 'Staged source changed after review')
+    print(json.dumps({'stage': 'local_integrity_checked', 'total': len(rows)}), flush=True)
     client, verified = connect(), []
     try:
         input_stream, output, error = start_remote(client, 'serve')
@@ -417,18 +419,23 @@ def stage(plan, approval):
                         signed = request({'op': 'sign', 'path': row['new_path']})
                         if not signed['exists']:
                             url = checked_signed_url(signed['url'], row['new_path'])
-                            connection = http.client.HTTPSConnection(url.hostname, timeout=180, context=ssl.create_default_context())
+                            connection = http.client.HTTPSConnection(url.hostname, timeout=180, context=ssl.create_default_context(cafile=certifi.where()))
                             try:
                                 connection.request('PUT', url.path + '?' + url.query, body=source, headers={'Content-Type': MIME, 'Content-Length': str(row['size']), 'x-upsert': 'false'})
                                 response = connection.getresponse(); response.read(8192)
-                                require(response.status in (200, 201, 400, 409), 'Signed upload HTTP ' + str(response.status))
+                                require(response.status in (200, 201, 409), 'Signed upload HTTP ' + str(response.status))
                             finally:
                                 connection.close()
                         request({'op': 'verify', 'path': row['new_path']})
                     verified.append({'id': row['id'], 'path': row['new_path'], 'sha256': row['sha256']})
                     print(json.dumps({'staged_verified': len(verified), 'total': len(rows)}), flush=True)
                     break
-                except (OSError, http.client.HTTPException, ValueError):
+                except (OSError, http.client.HTTPException, ValueError) as error:
+                    # Never echo exception messages: HTTP libraries may include
+                    # the one-object signed token. Types and fixed HTTP status
+                    # messages are enough to diagnose transport failures.
+                    detail = str(error) if re.fullmatch(r'Signed upload HTTP \d{3}', str(error)) else type(error).__name__
+                    print(json.dumps({'stage_retry': attempt + 1, 'folder': row['folder'], 'error': detail}), flush=True)
                     if attempt == 2:
                         raise RuntimeError('Staging failed; immutable objects may remain, catalog unchanged') from None
                     time.sleep(2 ** attempt)
@@ -466,7 +473,24 @@ def main(argv=None):
         require(args.plan is not None, '--stage requires a reviewed plan')
         plan = json.loads(args.plan.read_text(encoding='utf-8'))
         approved_plan(plan, args.approved_plan_sha256)
-        fresh = audit(args.source, args.originals, args.sdk, args.java, args.workers)
+        if args.reuse_audit:
+            saved = json.loads(args.reuse_audit.read_text(encoding='utf-8'))
+            require(saved['source'] == str(args.source.resolve()) and saved['originals'] == str(args.originals.resolve()) and saved['sdk'] == str(args.sdk.resolve()), 'Audit cache source/SDK differs')
+            fresh = saved['local']
+            require(saved['audit_sha256'] == hashlib.sha256(canonical(fresh)).hexdigest(), 'Audit cache was edited')
+            # A retry reuses SDK results only when metadata AND all bytes still
+            # equal the explicitly approved plan. It never skips integrity checks.
+            for row in fresh:
+                folder = args.originals / row['folder']
+                require(folder.resolve().parent == args.originals.resolve() and not folder.is_symlink(), 'Cached folder escaped source')
+                require(sha_file(regular(folder / 'base.apk', folder)) == row['base_sha256'], 'Base changed since audit')
+                for part in row['parts']:
+                    path = regular(folder / part['name'], folder)
+                    require(path.stat().st_size == part['size'] and sha_file(path) == part['sha256'], 'Split changed since audit')
+                if row['status'] == 'validated':
+                    require(validate_archive(args.source / archive_name(row['folder']), row['parts']) == {k: row[k] for k in ('archive', 'sha256', 'size')}, 'Archive changed since audit')
+        else:
+            fresh = audit(args.source, args.originals, args.sdk, args.java, args.workers)
         expected = {r['folder']: r for r in plan['local']}
         require(canonical(fresh) == canonical([expected[r['folder']] for r in fresh]), 'Local package validation changed since main review')
         result = {'plan_sha256': plan['plan_sha256'], 'staged': stage(plan, args.approved_plan_sha256), 'catalog_changed': False}

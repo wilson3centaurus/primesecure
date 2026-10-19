@@ -93,6 +93,33 @@ scoped URLs are saved only under ignored artifacts and must never be committed.
 
 ## Verification
 
+### Split APK recovery
+
+For an app exported from Google Play, retain `base.apk` **and every original
+split** in the same app folder. The dashboard's app-folder picker produces a
+`.psapk` containing those unchanged signed APKs; it does not merge or re-sign
+them. Use the new enrollment kit (agent code 37), not an older kit whose agent
+lacks APK-set support.
+
+`recover-app-packages.py` audits local sets with Android SDK tools and creates
+an explicit catalog repair plan. Its optional whole-archive HTTPS staging uses
+Paramiko and Certifi; TLS verification stays enabled. For slow uplinks,
+`stage-recovered-app-deltas.py` instead reuses hash-verified server base objects,
+uploads only the original splits over verified SSH/SFTP, and reconstructs an
+archive that must exactly equal the reviewed local SHA-256. Resume checks hash
+the existing split prefix before appending. `--stage` requires the exact plan
+digest and a new receipt path; staging never changes catalog listings.
+
+Only after all objects pass verification, `publish-recovered-apps.py` separately
+publishes the reviewed batch with a private backup, school-ID and drift guards,
+bounded database locks, unchanged school access/defaults, and original storage
+objects retained. `publish-recovered-apps-test.py` tests these contracts offline;
+the live catalog and native installer must still be checked separately. If a
+network interruption leaves the staging lease held, inspect its exact owning
+process before resuming; never delete the lease or kill an unrelated process.
+
+### Library import checks
+
 `test-import.cjs` runs the generated import SQL in the repository's PGlite test
 engine and checks idempotence, ancestor folders, preservation of an existing app,
 and transaction rollback when the 1GB limit would be exceeded. Live import
