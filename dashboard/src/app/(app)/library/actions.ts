@@ -5,7 +5,7 @@ import { canManage, getCurrentSchool, requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import type { FormState } from "@/lib/types";
 import {MEDIA_MIMES} from "@/lib/prime-media";
-import { inspectApk } from "@/lib/apk";
+import { inspectAppPackage } from "@/lib/apk";
 import { APK_MAX_BYTES, LIBRARY_MAX_BYTES } from "@/lib/upload-limits";
 
 export async function publishItem(input: { kind: string; title: string; description: string; form: string; subject: string; category: string; path: string; mime: string; size: number; packageName?: string; shared: boolean; preinstall: boolean; schoolId?:string;uploadId?:string }): Promise<FormState> {
@@ -33,19 +33,19 @@ export async function publishItem(input: { kind: string; title: string; descript
   const { data: files, error: fileError } = await supabase.storage.from("primesecure-hub").list(input.path.slice(0, slash), { search: input.path.slice(slash + 1) });
   const uploaded = files?.find(f => f.name === input.path.slice(slash + 1));
   if (fileError || !uploaded || Number(uploaded.metadata?.size) !== input.size) return { error: "Upload could not be verified. Please upload again." };
-  let apk: Awaited<ReturnType<typeof inspectApk>> | undefined;
+  let apk: Awaited<ReturnType<typeof inspectAppPackage>> | undefined;
   if(input.kind==="app") {
     if(input.size>APK_MAX_BYTES)return {error:"Choose an APK of 500 MB or less."};
     const {data:blob,error:downloadError}=await supabase.storage.from("primesecure-hub").download(input.path);
     if(downloadError || !blob)return {error:downloadError?.message||"Could not read APK."};
-    try { apk=await inspectApk(Buffer.from(await blob.arrayBuffer()),input.path.slice(slash+1)); }
+    try { apk=await inspectAppPackage(Buffer.from(await blob.arrayBuffer()),input.path.slice(slash+1)); }
     catch(e){return {error:e instanceof Error?e.message:"Could not inspect APK."};}
   }
   const { error } = await supabase.from("hub_items").insert({
     ...(input.uploadId?{id:input.uploadId}:{}),
     school_id: input.shared ? null : school.id, kind: input.kind, title: (input.title.trim()||apk?.title||"App").slice(0,160), description: input.description,
     form_level: input.form.slice(0, 80), subject: input.subject.slice(0, 100), category: input.category.slice(0, 80),
-    storage_path: input.path, mime_type: input.mime, size: input.size,
+    storage_path: input.path, mime_type: apk?.mime || input.mime, size: input.size,
     package_name: apk?.packageName || null, preinstall: input.kind === "app" && input.preinstall,
     version_name:apk?.version,icon_data:apk?.icon,sha256:apk?.sha256,
   });

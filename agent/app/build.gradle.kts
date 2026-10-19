@@ -31,8 +31,8 @@ android {
         minSdk = 26
         targetSdk = 34
         // New native releases must exceed the installed recovery and production codes.
-        versionCode = System.getenv("AGENT_VERSION_CODE")?.toIntOrNull() ?: 33
-        versionName = System.getenv("AGENT_VERSION_NAME") ?: "0.9.0"
+        versionCode = System.getenv("AGENT_VERSION_CODE")?.toIntOrNull() ?: 34
+        versionName = System.getenv("AGENT_VERSION_NAME") ?: "0.9.1"
 
         buildConfigField("String", "SUPABASE_URL", "\"${setting("primesecure.url", "PRIMESECURE_URL")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${setting("primesecure.anonKey", "PRIMESECURE_ANON_KEY")}\"")
@@ -82,6 +82,8 @@ kotlin {
 }
 
 dependencies {
+    // Pinned: ApkSetInspector also uses apksig's binary Android manifest reader.
+    implementation("com.android.tools.build:apksig:8.12.1")
     testImplementation("junit:junit:4.13.2")
     implementation("androidx.work:work-runtime-ktx:2.10.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

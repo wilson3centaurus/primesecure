@@ -3,10 +3,63 @@ import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { unzipSync } from "fflate";
 import { APK_MAX_BYTES } from "./upload-limits";
+import { APK_PART_NAME, APK_SET_MIME, validateApkParts, type ApkPart } from './apk-set-validation';
 
 type Manifest = { package: string; versionName?: string; versionCode?: number; usesSdk?: {minSdkVersion?: number}; application?: {label?: string; icon?: string} };
-const require = createRequire(import.meta.url);
-const ApkReader = require("@devicefarmer/adbkit-apkreader") as {open(buffer: Buffer): Promise<{readManifest(): Promise<Manifest>}>};
+const loadApkModule = createRequire(import.meta.url);
+const ApkReader = loadApkModule("@devicefarmer/adbkit-apkreader") as {open(buffer: Buffer): Promise<{readManifest(): Promise<Manifest>}>};
+type XmlNode = {nodeName:string;attributes:{name:string;typedValue:{value:unknown}}[];childNodes:XmlNode[]};
+const BinaryXml = loadApkModule('@devicefarmer/adbkit-apkreader/lib/apkreader/parser/binaryxml') as new (buffer:Buffer)=>{parse():XmlNode};
+const attrs=(node?:XmlNode):Record<string,unknown>=>Object.fromEntries((node?.attributes||[]).map(a=>[a.name,a.typedValue.value]));
+const types=(value:unknown)=>typeof value==='string'?value.split(',').map(s=>s.trim()).filter(Boolean):[];
+
+function apkPart(bytes:Buffer,name:string):ApkPart {
+  if(!bytes.length || bytes.length>APK_MAX_BYTES)throw new Error('Every APK must be non-empty and 500 MB or less.');
+  let manifestCount=0;
+  const files=unzipSync(bytes,{filter:entry=>{
+    if(entry.name!=='AndroidManifest.xml')return false;
+    if(++manifestCount>1||entry.originalSize>2_000_000)throw new Error('APK manifest is duplicated or too large.');
+    return true;
+  }});
+  if(!files['AndroidManifest.xml'])throw new Error('APK has no AndroidManifest.xml.');
+  const root=new BinaryXml(Buffer.from(files['AndroidManifest.xml'])).parse(),a=attrs(root);
+  const app=root.childNodes.find(n=>n.nodeName==='application'), sdk=attrs(root.childNodes.find(n=>n.nodeName==='uses-sdk'));
+  const meta=app?.childNodes.filter(n=>n.nodeName==='meta-data').map(attrs)||[];
+  const code=Number(a.versionCode),major=Number(a.versionCodeMajor||0);
+  return {name,packageName:String(a.package||''),versionCode:Number.isSafeInteger(code)&&code>=0&&Number.isSafeInteger(major)&&major>=0?String((BigInt(major)<<BigInt(32))+BigInt(code)):'invalid',
+    split:String(a.split||''),minSdk:sdk.minSdkVersion===undefined?1:Number(sdk.minSdkVersion),requiredTypes:types(a.requiredSplitTypes),splitTypes:types(a.splitTypes),
+    requiresSplits:attrs(app).isSplitRequired===true||meta.some(m=>m.name==='com.android.vending.splits.required'&&(m.value===true||m.value===1)),
+    dependencies:root.childNodes.filter(n=>n.nodeName==='uses-split').map(n=>String(attrs(n).name||'')).filter(Boolean),configForSplit:String(a.configForSplit||'')};
+}
+
+/** ZIP wrapper only: publisher-signed APK bytes are never changed or re-signed. */
+export async function inspectAppPackage(bytes:Buffer,filename:string) {
+  if(bytes.length>APK_MAX_BYTES)throw new Error('Choose an app package of 500 MB or less.');
+  if(!filename.toLowerCase().endsWith('.psapk')) {
+    if(!filename.toLowerCase().endsWith('.apk'))throw new Error('Choose .apk or a PrimeSecure .psapk package.');
+    validateApkParts([apkPart(bytes,filename)],false);
+    return {...await inspectApk(bytes,filename),mime:'application/vnd.android.package-archive'};
+  }
+  const entries:{name:string;size:number}[]=[],names=new Set<string>();let size=0;
+  // Preflight the central directory BEFORE allocating/decompressing any APK entry.
+  unzipSync(bytes,{filter:e=>{
+    size+=e.originalSize;
+    if(!APK_PART_NAME.test(e.name)||names.has(e.name.toLowerCase())||!e.originalSize||size>APK_MAX_BYTES||entries.length>=100)throw new Error('Invalid APK set: use only 1–100 root-level APKs, including base.apk, totaling at most 500 MB.');
+    names.add(e.name.toLowerCase());entries.push({name:e.name,size:e.originalSize});return false;
+  }});
+  if(!entries.some(e=>e.name==='base.apk'))throw new Error('App folder must contain base.apk.');
+  const parts:ApkPart[]=[];
+  // Read one part at a time, keeping large packages within the server memory budget.
+  for(const entry of entries) {
+    const file=unzipSync(bytes,{filter:e=>e.name===entry.name})[entry.name];
+    if(file.length!==entry.size)throw new Error('APK set contains an invalid file size.');
+    parts.push(apkPart(Buffer.from(file.buffer,file.byteOffset,file.byteLength),entry.name));
+  }
+  validateApkParts(parts,true);
+  const base=unzipSync(bytes,{filter:e=>e.name==='base.apk'})['base.apk'];
+  return {...await inspectApk(Buffer.from(base.buffer,base.byteOffset,base.byteLength),filename.replace(/\.psapk$/i,'.apk')),
+    sha256:createHash('sha256').update(bytes).digest('hex'),mime:APK_SET_MIME};
+}
 
 // Resolve simple string/file references from Android's compiled resource table.
 function resourceStrings(buffer: Uint8Array): Map<number,string> {
@@ -58,8 +111,16 @@ export async function inspectApk(bytes: Buffer,filename: string) {
   if(bytes[0]!==0x50 || bytes[1]!==0x4b)throw new Error("This file is not an APK. Choose the original .apk file.");
   const reader=await ApkReader.open(bytes), manifest=await reader.readManifest();
   if(!/^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/.test(manifest.package))throw new Error("APK has no valid application identifier.");
-  const files=unzipSync(bytes,{filter:entry=>entry.name==="resources.arsc" || (/^res\/.+\.(png|webp|jpg)$/.test(entry.name) && entry.originalSize<=200000)});
-  const resources=files['resources.arsc']?resourceStrings(files['resources.arsc']):new Map<number,string>();
+  let selectedBytes=0;
+  const files=unzipSync(bytes,{filter:entry=>{
+    const selected=(entry.name==='resources.arsc' && entry.originalSize<=32_000_000)||(/^res\/.+\.(png|webp|jpg)$/.test(entry.name)&&entry.originalSize<=200000);
+    if(selected)selectedBytes+=entry.originalSize;
+    if(selectedBytes>40_000_000)throw new Error('APK icon resources exceed the inspection limit.');
+    return selected;
+  }});
+  let resources=new Map<number,string>();
+  // An unsupported resource-table variant must not mislabel a valid app as corrupt.
+  try{if(files['resources.arsc'])resources=resourceStrings(files['resources.arsc']);}catch{}
   const resolve=(value?:string)=>value?.startsWith('resourceId:')?resources.get(Number(value.split(':')[1])):value;
   const label=resolve(manifest.application?.label);
   let icon=resolve(manifest.application?.icon);

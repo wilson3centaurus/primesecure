@@ -12,6 +12,10 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 import java.util.UUID
@@ -24,40 +28,80 @@ class AppInstaller(private val context: Context, private val store: AgentStore) 
     private val dpm = AdminReceiver.dpm(context)
     private val admin = AdminReceiver.component(context)
 
-    suspend fun install(commandId: String, payload: JSONObject, taskId: String? = null): JSONObject {
+    suspend fun install(commandId: String, payload: JSONObject, taskId: String? = null): JSONObject = withContext(Dispatchers.IO) {
         val path = payload.stringOrNull("storage_path") ?: throw IllegalArgumentException("no storage_path")
-        val apk = File(context.cacheDir, "install-$commandId.apk")
+        val bucket = payload.optString("bucket", "apks")
+        require(bucket in setOf("apks", "primesecure-hub")) { "Unsupported app source" }
+        // The fresh catalog, rather than payload MIME or the cache filename, authorizes
+        // the hub object and supplies its hash. Remote commands explicitly name .psapk.
+        suspend fun approvedItem(): JSONObject? {
+            if (bucket != "primesecure-hub") return null
+            val catalog = SupabaseApi(store).rpc("device_hub")
+            require(catalog.optString("status", store.lastStatus.orEmpty()) == "active") { "App installs require an active school device" }
+            val items = catalog.getJSONArray("items")
+            return (0 until items.length()).map { items.getJSONObject(it) }.find {
+                it.optString("id") == payload.optString("hub_item_id") && it.optString("kind") == "app" &&
+                    it.optString("storage_path") == path && it.optString("package_name") == payload.optString("package")
+            } ?: throw IllegalArgumentException("App is no longer approved for this device")
+        }
+        val approved = approvedItem()
+        val isSet = PsApkArchive.isSet(approved?.getString("storage_path") ?: path)
+        if (isSet && approved != null) require(approved.optString("mime_type") == PsApkArchive.MIME) { "Invalid catalog APK set MIME type" }
+        // Legacy staff commands in the separate `apks` bucket predate catalog hashes.
+        // Keep that signed single-APK workflow working; hub items and ALL APK sets
+        // still require a hash from the freshly authorized source.
+        val suppliedHash = if (approved != null) approved.stringOrNull("sha256") else payload.stringOrNull("sha256")
+        val expectedHash = ApkDownloadHash.expectedForSource(suppliedHash, legacySingleApk = bucket == "apks" && !isSet)
+        val expectedSize = approved?.optLong("size", -1) ?: -1L
+        if (isSet) require(expectedSize <= PsApkArchive.MAX_BYTES) { "APK set download exceeds the size limit" }
+        val cacheKey = java.security.MessageDigest.getInstance("SHA-256")
+            .digest("$commandId|$bucket|$path|$expectedHash".toByteArray()).joinToString("") { "%02x".format(it) }
+        val apk = File(context.cacheDir, "install-$cacheKey.${if (isSet) "psapk" else "apk"}")
+        val extracted = File(context.cacheDir, "install-set-${UUID.randomUUID()}")
+        var downloaded = false
         try {
-            val bucket = payload.optString("bucket", "apks")
-            require(bucket in setOf("apks", "primesecure-hub")) { "Unsupported app source" }
-            if (bucket == "primesecure-hub") {
-                val catalog = SupabaseApi(store).rpc("device_hub").getJSONArray("items")
-                val approved = (0 until catalog.length()).map { catalog.getJSONObject(it) }.any {
-                    it.getString("id") == payload.optString("hub_item_id") && it.getString("kind") == "app" &&
-                        it.getString("storage_path") == path && it.getString("package_name") == payload.optString("package")
-                }
-                require(approved) { "App is no longer approved for this device" }
-            }
             val tasks = HubTasks(context)
-            SupabaseApi(store).download("/storage/v1/object/$bucket/$path", apk, resume = true) { bytes, total, speed ->
+            SupabaseApi(store).download("/storage/v1/object/$bucket/$path", apk, resume = true,
+                maxBytes = if (isSet) PsApkArchive.MAX_BYTES else Long.MAX_VALUE) { bytes, total, speed ->
                 if (taskId != null) tasks.update(taskId, "downloading", bytes, total, speed)
             }
-            payload.stringOrNull("sha256")?.let { expected ->
-                val hash = java.security.MessageDigest.getInstance("SHA-256")
-                apk.inputStream().use { input -> val buffer = ByteArray(65536); while (true) { val n = input.read(buffer); if (n < 0) break; hash.update(buffer, 0, n) } }
-                check(hash.digest().joinToString("") { "%02x".format(it) }.equals(expected, true)) { "The APK download is damaged. Please retry." }
+            downloaded = true
+            if (isSet && expectedSize >= 0) require(apk.length() == expectedSize) { "APK set download size does not match catalog" }
+            val coroutine = currentCoroutineContext()
+            expectedHash?.let { ApkDownloadHash.verify(apk, it) { coroutine.ensureActive() } }
+            val (plan, packageName, versionName) = if (isSet) {
+                val files = PsApkArchive.extract(apk, extracted, checkCancelled = { coroutine.ensureActive() })
+                val members = files.map { coroutine.ensureActive(); ApkSetInspector.inspect(it, Build.VERSION.SDK_INT) }
+                val sessionFiles = ApkSetPlan.create(members, Build.VERSION.SDK_INT, Build.SUPPORTED_ABIS.toList())
+                val base = members.single { it.splitName == null }
+                Triple(sessionFiles, base.packageName, base.versionName)
+            } else {
+                // Old catalog rows can still contain a split-dependent base APK. Fail
+                // before opening a session, with the same checks as a complete set.
+                val member = ApkSetInspector.inspect(apk, Build.VERSION.SDK_INT)
+                Triple(ApkSetPlan.single(member, Build.VERSION.SDK_INT, Build.SUPPORTED_ABIS.toList()),
+                    member.packageName, member.versionName)
             }
-            val info = archiveInfo(apk)
-            payload.stringOrNull("package")?.let { require(info.packageName == it) { "APK package does not match catalog" } }
-            if (info.packageName == context.packageName) throw IllegalArgumentException("use the agent update instead")
+            payload.stringOrNull("package")?.let { require(packageName == it) { "APK package does not match catalog" } }
+            if (packageName == context.packageName) throw IllegalArgumentException("use the agent update instead")
+            if (approved != null) {
+                val fresh = approvedItem()!!
+                require(fresh.stringOrNull("sha256") == expectedHash && (!isSet || fresh.optString("mime_type") == PsApkArchive.MIME)) {
+                    "App catalog changed during download. Please retry."
+                }
+            }
             if (taskId != null) tasks.update(taskId, "installing")
-            installFile(apk, info.packageName)
-            return JSONObject()
-                .put("package", info.packageName)
-                .put("version", info.versionName ?: JSONObject.NULL)
+            installFiles(plan, packageName)
+            JSONObject()
+                .put("package", packageName)
+                .put("version", versionName ?: JSONObject.NULL)
+        } catch (e: IllegalArgumentException) {
+            apk.delete()
+            throw e
         } finally {
-            // Keep an interrupted download for a resumed background attempt.
-            if (taskId == null || apk.length() == 0L || runCatching { archiveInfo(apk) }.isSuccess) apk.delete()
+            extracted.deleteRecursively()
+            // Only interrupted network transfers are resumable; never retain a corrupt set.
+            if (downloaded || taskId == null || apk.length() == 0L || (isSet && apk.length() >= PsApkArchive.MAX_BYTES)) apk.delete()
         }
     }
 
@@ -67,22 +111,38 @@ class AppInstaller(private val context: Context, private val store: AgentStore) 
     }
 
     /** Installs (or updates) [apk] silently; suspends until PackageInstaller reports back. */
-    suspend fun installFile(apk: File, packageName: String) = installation.withLock {
+    suspend fun installFile(apk: File, packageName: String) = installFiles(listOf(SessionApk("base.apk", apk)), packageName)
+
+    private suspend fun installFiles(files: List<SessionApk>, packageName: String) = installation.withLock {
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
         params.setAppPackageName(packageName)
-        params.setSize(apk.length())
+        params.setSize(files.sumOf { it.file.length() })
         val installer = pm.packageInstaller
         val sessionId = installer.createSession(params)
-        withUnknownSourcesAllowed {
-            installer.openSession(sessionId).use { session ->
-                apk.inputStream().use { input ->
-                    session.openWrite("base.apk", 0, apk.length()).use { output ->
-                        input.copyTo(output)
-                        session.fsync(output)
+        try {
+            withUnknownSourcesAllowed {
+                installer.openSession(sessionId).use { session ->
+                    for (apk in files) {
+                        currentCoroutineContext().ensureActive()
+                        apk.file.inputStream().use { input ->
+                            session.openWrite(apk.name, 0, apk.file.length()).use { output ->
+                                val buffer = ByteArray(64 * 1024)
+                                while (true) {
+                                    currentCoroutineContext().ensureActive()
+                                    val count = input.read(buffer)
+                                    if (count < 0) break
+                                    output.write(buffer, 0, count)
+                                }
+                                session.fsync(output)
+                            }
+                        }
                     }
+                    awaitResult("install-$sessionId") { sender -> session.commit(sender) }
                 }
-                awaitResult("install-$sessionId") { sender -> session.commit(sender) }
             }
+        } catch (e: Throwable) {
+            runCatching { installer.abandonSession(sessionId) }
+            throw e
         }
     }
     companion object { private val installation = Mutex() }
@@ -105,11 +165,20 @@ class AppInstaller(private val context: Context, private val store: AgentStore) 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) add(UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES_GLOBALLY)
         }
         val active = keys.filter { dpm.getUserRestrictions(admin).getBoolean(it) }
-        active.forEach { dpm.clearUserRestriction(admin, it) }
+        var failure: Throwable? = null
         try {
+            active.forEach { dpm.clearUserRestriction(admin, it) }
             return block()
+        } catch (e: Throwable) {
+            failure = e
+            throw e
         } finally {
-            active.forEach { dpm.addUserRestriction(admin, it) }
+            var restoreFailure: Throwable? = null
+            active.forEach { key ->
+                try { dpm.addUserRestriction(admin, key) }
+                catch (e: Throwable) { if (restoreFailure == null) restoreFailure = e else restoreFailure!!.addSuppressed(e) }
+            }
+            restoreFailure?.let { if (failure != null) failure.addSuppressed(it) else throw it }
         }
     }
 

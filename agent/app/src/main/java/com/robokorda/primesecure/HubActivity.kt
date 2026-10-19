@@ -328,7 +328,7 @@ class HubActivity : Activity() {
                         }
                         "install" -> {
                             val item=hub.items().find { it.optString("id")==a.getString("id") && it.optString("kind")=="app" } ?: error("This app is unavailable.")
-                            enqueue("install",JSONObject().put("item_id",item.getString("id")),item.getString("title"),"install:${item.getString("id")}")
+                            enqueue("install",JSONObject().put("item_id",item.getString("id")).put("force",true),item.getString("title"),"install:${item.getString("id")}")
                         }
                         "uninstall" -> {
                             val item=hub.items().find { it.optString("id")==a.getString("id") && it.optString("kind")=="app" } ?: error("This app is unavailable.")

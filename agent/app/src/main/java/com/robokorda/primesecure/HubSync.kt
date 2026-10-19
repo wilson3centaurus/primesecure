@@ -161,7 +161,11 @@ class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(cont
         val approved = (0 until fresh.length()).map { fresh.getJSONObject(it) }.find {
             it.optString("id") == item.optString("id") && it.optString("kind") == "app"
         } ?: error("This app is no longer approved for your school.")
-        if (!runCatching { applicationContext.packageManager.getPackageInfo(approved.getString("package_name"), 0) }.isSuccess) {
+        val queued = tasks.all().find { it.optString("id") == task }
+        val installed = runCatching { applicationContext.packageManager.getPackageInfo(approved.getString("package_name"), 0) }.isSuccess
+        if (ApkSetPlan.shouldInstall(installed, PsApkArchive.isSet(approved.getString("storage_path")),
+                queued?.optJSONObject("payload")?.optBoolean("force") == true,
+                queued?.optString("error")?.let { it.isNotBlank() && it != "null" } == true)) {
             tasks.update(task, "syncing")
             AppInstaller(applicationContext, store).install(task, JSONObject().put("bucket", "primesecure-hub")
                 .put("storage_path", approved.getString("storage_path")).put("hub_item_id", approved.getString("id"))

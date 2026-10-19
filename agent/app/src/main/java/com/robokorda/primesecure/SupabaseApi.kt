@@ -37,7 +37,8 @@ class SupabaseApi(private val store: AgentStore) {
     }
 
     /** Downloads a file (e.g. a storage object) as the device account into [target]. */
-    suspend fun download(path: String, target: File, resume: Boolean = false, progress: ((Long, Long, Long) -> Unit)? = null) = withContext(Dispatchers.IO) {
+    suspend fun download(path: String, target: File, resume: Boolean = false, maxBytes: Long = Long.MAX_VALUE, progress: ((Long, Long, Long) -> Unit)? = null) = withContext(Dispatchers.IO) {
+        require(maxBytes > 0 && target.length() <= maxBytes) { "Download exceeds the size limit" }
         val base = store.serverUrl
         if (base.isBlank()) throw ApiException(0, "No server URL configured")
         val request = Request.Builder()
@@ -53,6 +54,7 @@ class SupabaseApi(private val store: AgentStore) {
             val append = resume && response.code == 206
             var bytes = if (append) target.length() else 0L
             val total = body.contentLength().takeIf { it >= 0 }?.plus(bytes) ?: 0L
+            require(total >= 0 && total <= maxBytes) { "Download exceeds the size limit" }
             var checkpoint = android.os.SystemClock.elapsedRealtime(); var previous = bytes
             progress?.invoke(bytes, total, 0)
             java.io.FileOutputStream(target, append).use { out -> body.byteStream().use { input ->
@@ -60,6 +62,7 @@ class SupabaseApi(private val store: AgentStore) {
                 while (true) {
                     kotlinx.coroutines.currentCoroutineContext().ensureActive()
                     val count = input.read(buffer); if (count < 0) break
+                    require(count.toLong() <= maxBytes - bytes) { "Download exceeds the size limit" }
                     out.write(buffer, 0, count); bytes += count
                     val now = android.os.SystemClock.elapsedRealtime()
                     if (now - checkpoint >= 750) {

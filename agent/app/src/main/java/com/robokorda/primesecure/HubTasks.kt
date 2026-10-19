@@ -18,7 +18,13 @@ class HubTasks(private val context: Context) {
     fun publicList(): JSONArray = JSONArray(all().take(150).map { JSONObject(it.toString()).apply { remove("payload") } })
     fun pending() = all().filter { it.optString("status") !in setOf("done", "installed", "removed", "failed", "superseded") }.sortedBy { it.optLong("created") }
     fun enqueue(action: String, payload: JSONObject, title: String, key: String? = null): String = synchronized(lock) {
-        if (key != null) all().firstOrNull { it.optString("key") == key && it.optString("status") !in setOf("done", "installed", "removed", "failed", "superseded") }?.let { return@synchronized it.getString("id") }
+        if (key != null) all().firstOrNull { it.optString("key") == key && it.optString("status") !in setOf("done", "installed", "removed", "failed", "superseded") }?.let {
+            if (action == "install" && payload.optBoolean("force")) {
+                it.getJSONObject("payload").put("force", true)
+                save(it)
+            }
+            return@synchronized it.getString("id")
+        }
         // Save a newer profile or wallpaper choice without allowing an older one to overwrite it later.
         if (action in setOf("profile", "wallpaper")) pending().filter { it.optString("action") == action }.forEach { update(it.getString("id"), "superseded") }
         val id = UUID.randomUUID().toString()
@@ -45,7 +51,16 @@ class HubTasks(private val context: Context) {
         if(status=="failed" && task.optString("action") in setOf("install","download","admin_command"))
             DeviceLog.event(context,"error",if(task.optString("action")=="install")"install" else "download","background_task_failed")
     }
-    fun retry(id: String) { if (all().any { it.optString("id") == id && it.optString("status") == "failed" }) update(id, "queued") }
+    fun retry(id: String) = synchronized(lock) {
+        all().find { it.optString("id") == id && it.optString("status") == "failed" }?.let {
+            if (it.optString("action") == "install") {
+                it.getJSONObject("payload").put("force", true)
+                save(it)
+            }
+            update(id, "queued")
+        }
+        Unit
+    }
     private fun save(task: JSONObject) { check(prefs.edit().putString("task:${task.getString("id")}", task.toString()).commit()) { "Could not save background task" } }
     companion object { private val lock = Any() }
 }
