@@ -209,7 +209,7 @@ test('wallpaper label follows successful native application, not the click', () 
 
 test('exactly three setup tabs use complete catalog totals independently of task history', () => {
   const streams = ['wallpaper', 'app', 'resource'].map(kind => ({ kind, label: kind, total_items: 1200, completed_items: 600, total_bytes: 10000, completed_bytes: 5000, elapsed_ms: 123000, complete: false }));
-  const ui = workspace(catalog({ setup_progress: { streams, elapsed_ms: 200000, complete: false }, tasks: [] }));
+  const ui = workspace(catalog({ setup_progress: { catalog_known: true, streams, elapsed_ms: 200000, complete: false }, tasks: [] }));
   const html = ui.page('Background tasks');
   assert.equal((html.match(/role="tab"/g) || []).length, 3);
   assert.match(html, /600 \/ 1200 items complete/);

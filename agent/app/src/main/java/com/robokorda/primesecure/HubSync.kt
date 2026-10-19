@@ -46,6 +46,8 @@ class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(cont
             val revision=api.rpc("device_sync_state").optLong("revision")
             hub.catalog = api.rpc("device_hub").put("_sync_revision",revision).put("catalog_fetched_at_ms", System.currentTimeMillis())
             if (store.deviceId != device) return Result.success()
+            // Do not wait for thousands of school files (or a failed item) before checking UI fixes.
+            StudentUiUpdates.check(applicationContext)
             Notifications.supportReplies(applicationContext,hub.catalog)
             val draft=hub.profileDraft;val saved=hub.catalog.optJSONObject("student_profile")
             if(draft!=null && saved!=null && tasks.pending().none { it.optString("action")=="profile" } && draft.keys().asSequence().all { draft.optString(it,"")==saved.optString(it,"").let { value->if(value=="null") "" else value } }) hub.profileDraft=null
@@ -67,6 +69,7 @@ class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(cont
             val deferredFailures = checkpoint.getStringSet("failures", emptySet())!!.toMutableSet()
             var installs = emptyMap<String?, JSONObject>()
             var downloads = emptyMap<String, JSONObject>()
+            var cachedTasks = emptyMap<String, List<JSONObject>>()
             var lastCatalogPoll = SystemClock.elapsedRealtime()
             // This is the only executor for queued catalogue installs AND school-file transfers.
             // Failed entries are attempted once per round, including across bounded batches.
@@ -97,11 +100,14 @@ class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(cont
                 downloads = hub.items().filter { it.optString("kind") in setOf("resource", "wallpaper") ||
                     (store.lastStatus == "active" && it.optString("kind") == "app" && it.optString("id") in installs) }
                     .associateBy { it.getString("id") }
+                cachedTasks = tasks.pending().filter { it.optString("action") == "download" }
+                    .groupBy { it.optString("item_id") }
                 val pending = mutableListOf<SetupDownload>()
                 for (item in downloads.values) {
                     if (item.optString("kind") != "app") {
                         val target = hub.resourceFile(item)
                         if (target.exists() && item.optLong("size", -1) >= 0 && target.length() == item.optLong("size")) {
+                            completeCachedDownload(item, target, tasks, cachedTasks[item.getString("id")].orEmpty())
                             if (item.optString("kind") == "wallpaper") preview(item, target)
                             continue
                         }
@@ -146,6 +152,7 @@ class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(cont
                 } else {
                 val target = hub.resourceFile(item)
                 if (target.exists() && item.optLong("size", -1) >= 0 && target.length() == item.optLong("size")) {
+                    completeCachedDownload(item, target, tasks, cachedTasks[item.getString("id")].orEmpty())
                     if (item.optString("kind") == "wallpaper") preview(item, target)
                     return@runBoundedPass true
                 }
@@ -201,11 +208,10 @@ class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(cont
             } else {
                 checkpoint.edit().remove("failures").commit()
                 if (failed) enqueue(applicationContext, HubSyncQueuePolicy.APPEND, HubSyncScheduling.FAILURE_DELAY_MILLIS)
-                // Presentation updates and message attachments must not block newly queued
+                // Message attachments must not block newly queued
                 // wallpapers or hold the school streams behind an unbounded attachment loop.
                 if (!failed) {
                     withTimeoutOrNull(30_000L) { cacheMessageImages(hub, tasks, api) }
-                    withContext(Dispatchers.IO) { StudentUiUpdates.check(applicationContext) }
                 }
             }
             Result.success()
@@ -218,6 +224,21 @@ class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(cont
             // exponential WorkManager backoff after connectivity has already recovered.
             enqueue(applicationContext, HubSyncQueuePolicy.APPEND, HubSyncScheduling.FAILURE_DELAY_MILLIS)
             Result.success()
+        }
+    }
+    private suspend fun completeCachedDownload(item: JSONObject, file: File, tasks: HubTasks, candidates: List<JSONObject>) {
+        val matches = candidates.filter {
+            CachedDownloadRules.matches(item.optString("kind"), item.optString("id"), it.optString("action"),
+                it.optString("key"), it.optString("item_id"), it.optString("status"))
+        }
+        if (matches.isEmpty()) return
+        val coroutine = currentCoroutineContext()
+        val ready = withContext(Dispatchers.IO) {
+            CachedDownloadRules.ready(file, item.optLong("size", -1), item.stringOrNull("sha256")) { coroutine.ensureActive() }
+        }
+        if (ready) for (task in matches) {
+            currentCoroutineContext().ensureActive()
+            tasks.update(task.getString("id"), "done", file.length(), file.length())
         }
     }
     private suspend fun cacheMessageImages(hub: HubStore, tasks: HubTasks, api: SupabaseApi) {

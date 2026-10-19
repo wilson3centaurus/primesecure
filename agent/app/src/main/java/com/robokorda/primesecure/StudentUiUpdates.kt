@@ -2,6 +2,13 @@ package com.robokorda.primesecure
 
 import android.content.Context
 import android.util.Base64
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -17,33 +24,58 @@ object StudentUiUpdates {
     val BUNDLED_VERSION = BuildConfig.UI_BUNDLED_VERSION
     private val names = setOf("index.html","workspace.js","workspace.css","primebook.png","robokorda.jpg")
     private val client = OkHttpClient.Builder().connectTimeout(10,TimeUnit.SECONDS).readTimeout(20,TimeUnit.SECONDS)
-        .followRedirects(false).build()
+        .callTimeout(StudentUiUpdateRules.CHECK_MILLIS,TimeUnit.MILLISECONDS).followRedirects(false).build()
+    private val checking = Mutex()
 
-    fun check(context: Context) {
-        if(DeviceSafety.updatesPaused(context))return
+    suspend fun check(context: Context) {
+        if(DeviceSafety.updatesPaused(context) || !checking.tryLock())return
         val prefs = context.getSharedPreferences("student-ui",Context.MODE_PRIVATE)
-        val now = System.currentTimeMillis()
-        if (now - prefs.getLong("last_attempt",0) < 60*60_000L) return
-        prefs.edit().putLong("last_attempt",now).apply()
-        runCatching {
-            client.newCall(Request.Builder().url("https://primesecure-beta.vercel.app/student-ui/release.json").header("Cache-Control","no-cache").build()).execute().use { response ->
-                check(response.isSuccessful) { "UI download unavailable" }
-                val body = response.body ?: error("Empty UI release")
-                val bytes = body.byteStream().use { input ->
-                    val out = java.io.ByteArrayOutputStream(); val buffer = ByteArray(8192)
-                    while (true) { val n = input.read(buffer); if (n < 0) break; check(out.size()+n <= 2_000_000); out.write(buffer,0,n) }; out.toByteArray()
+        try {
+            currentCoroutineContext().ensureActive()
+            val now = System.currentTimeMillis()
+            if (!StudentUiUpdateRules.due(prefs.getLong("last_attempt",0),now)) return
+            prefs.edit().putLong("last_attempt",now).apply()
+            val completed = withContext(Dispatchers.IO) {
+                withTimeoutOrNull(StudentUiUpdateRules.CHECK_MILLIS) {
+                    val coroutine = currentCoroutineContext()
+                    val bytes = client.newCall(Request.Builder().url("https://primesecure-beta.vercel.app/student-ui/release.json").header("Cache-Control","no-cache").build()).executeCancellable { response ->
+                        check(response.isSuccessful) { "UI download unavailable" }
+                        val body = response.body ?: error("Empty UI release")
+                        body.byteStream().use { input ->
+                            val out = java.io.ByteArrayOutputStream()
+                            val buffer = ByteArray(8192)
+                            while (true) {
+                                coroutine.ensureActive()
+                                val n = input.read(buffer)
+                                if (n < 0) break
+                                check(out.size()+n <= 2_000_000)
+                                out.write(buffer,0,n)
+                            }
+                            out.toByteArray()
+                        }
+                    }
+                    currentCoroutineContext().ensureActive()
+                    val release = verified(context,bytes)
+                    val version = release.getInt("version")
+                    if (version <= maxOf(BUNDLED_VERSION,prefs.getInt("highest",0))) return@withTimeoutOrNull true
+                    val root = File(context.filesDir,"student-ui").apply { mkdirs() }
+                    val directory = File(root,"v$version").apply { mkdirs() }
+                    for (name in names) {
+                        currentCoroutineContext().ensureActive()
+                        File(directory,name).writeBytes(Base64.decode(release.getJSONObject("files").getString(name),Base64.NO_WRAP))
+                    }
+                    File(directory,"signed-release.json").writeBytes(bytes)
+                    // Publish the pointer only after every verified file is written.
+                    currentCoroutineContext().ensureActive()
+                    if(!DeviceSafety.updatesPaused(context))prefs.edit().putInt("highest",version).putInt("active",version).remove("error").commit()
+                    true
                 }
-                val release = verified(context,bytes)
-                val version = release.getInt("version")
-                if (version <= maxOf(BUNDLED_VERSION,prefs.getInt("highest",0))) return
-                val root = File(context.filesDir,"student-ui").apply { mkdirs() }
-                val directory = File(root,"v$version").apply { mkdirs() }
-                for (name in names) File(directory,name).writeBytes(Base64.decode(release.getJSONObject("files").getString(name),Base64.NO_WRAP))
-                File(directory,"signed-release.json").writeBytes(bytes)
-                // Publish the pointer only after every verified file is written.
-                if(!DeviceSafety.updatesPaused(context))prefs.edit().putInt("highest",version).putInt("active",version).remove("error").commit()
             }
-        }.onFailure { prefs.edit().putString("error","Interface update postponed; your saved interface is still available.").apply() }
+            if (completed == null) error("UI check timed out")
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            prefs.edit().putString("error","Interface update postponed; your saved interface is still available.").apply()
+        } finally { checking.unlock() }
     }
 
     private fun verified(context: Context, bytes: ByteArray): JSONObject {
