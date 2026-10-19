@@ -3,6 +3,9 @@ package com.robokorda.primesecure
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -41,6 +44,9 @@ class SupabaseApi(private val store: AgentStore) {
         require(maxBytes > 0 && target.length() <= maxBytes) { "Download exceeds the size limit" }
         val base = store.serverUrl
         if (base.isBlank()) throw ApiException(0, "No server URL configured")
+        val coroutine = currentCoroutineContext()
+        for (attempt in 0..1) {
+        var reauthenticate = false
         val request = Request.Builder()
             .url(base.trimEnd('/') + path)
             .header("apikey", store.anonKey)
@@ -48,7 +54,11 @@ class SupabaseApi(private val store: AgentStore) {
             .apply { if (resume && target.exists() && target.length() > 0) header("Range", "bytes=${target.length()}-") }
             .get()
             .build()
-        downloadHttp.newCall(request).execute().use { response ->
+        downloadHttp.newCall(request).executeCancellable { response ->
+            if (response.code == 401 && attempt == 0) {
+                reauthenticate = true
+                return@executeCancellable
+            }
             if (!response.isSuccessful) throw ApiException(response.code, errorMessage(response.code, response.body?.string().orEmpty()))
             val body = response.body ?: throw ApiException(response.code, "empty body")
             val append = resume && response.code == 206
@@ -60,7 +70,7 @@ class SupabaseApi(private val store: AgentStore) {
             java.io.FileOutputStream(target, append).use { out -> body.byteStream().use { input ->
                 val buffer = ByteArray(64 * 1024)
                 while (true) {
-                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    coroutine.ensureActive()
                     val count = input.read(buffer); if (count < 0) break
                     require(count.toLong() <= maxBytes - bytes) { "Download exceeds the size limit" }
                     out.write(buffer, 0, count); bytes += count
@@ -73,10 +83,15 @@ class SupabaseApi(private val store: AgentStore) {
             } }
             progress?.invoke(bytes, total, 0)
         }
+        if (!reauthenticate) break
+        store.accessToken = null
+        }
     }
 
     /** A valid access token for the device account, refreshing or signing in again as needed. */
-    suspend fun accessToken(): String {
+    suspend fun accessToken(): String = sessionLock.withLock { accessTokenUnlocked() }
+
+    private suspend fun accessTokenUnlocked(): String {
         val current = store.accessToken
         if (current != null && System.currentTimeMillis() < store.accessExpiresAt - 60_000) return current
 
@@ -114,7 +129,7 @@ class SupabaseApi(private val store: AgentStore) {
                 .header("Authorization", "Bearer $bearer")
                 .post(body.toString().toRequestBody(JSON))
                 .build()
-            http.newCall(request).execute().use { response ->
+            http.newCall(request).executeCancellable { response ->
                 val text = response.body?.string().orEmpty()
                 if (!response.isSuccessful) throw ApiException(response.code, errorMessage(response.code, text))
                 if (text.isBlank() || text == "null") JSONObject() else JSONObject(text)
@@ -130,6 +145,7 @@ class SupabaseApi(private val store: AgentStore) {
     }
 
     companion object {
+        private val sessionLock = Mutex()
         private val JSON = "application/json".toMediaType()
         val http: OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)

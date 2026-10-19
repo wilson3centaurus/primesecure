@@ -282,7 +282,7 @@ class HubActivity : Activity() {
                                 PasswordRecovery.reset(this@HubActivity,a);toast("Device password changed. Your school can reset it if you forget it.")
                             } else toast("Complete password recovery activation first.")
                         }
-                        "sync" -> { HubSync.schedule(this@HubActivity); CheckInWorker.runNow(this@HubActivity); TelemetryWorker.schedule(this@HubActivity); toast("Sync requested. Your offline library is still available."); delay(3000); refresh() }
+                        "sync" -> { HubSync.schedule(this@HubActivity, force=true); OfflineWorker.schedule(this@HubActivity, force=true); CheckInWorker.runNow(this@HubActivity); SetupProgress.reportSoon(this@HubActivity, final=true); TelemetryWorker.schedule(this@HubActivity); toast("Refreshing the school catalog now. Saved downloads will resume."); delay(1000); refresh() }
                         "pin" -> pinOnce(true)
                         "hide" -> { withContext(Dispatchers.IO) { hub.hide(a.getString("key"),a.getBoolean("value")) }; refresh() }
                         "message" -> {

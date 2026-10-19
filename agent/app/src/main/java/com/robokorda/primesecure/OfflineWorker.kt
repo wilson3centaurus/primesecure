@@ -75,10 +75,10 @@ class OfflineWorker(context: Context, params: WorkerParameters) : CoroutineWorke
     }
     companion object {
         private val lock = Mutex()
-        fun schedule(context: Context) {
-            WorkManager.getInstance(context).enqueueUniqueWork("hub-outbox", ExistingWorkPolicy.APPEND_OR_REPLACE,
+        fun schedule(context: Context, force: Boolean = false) {
+            WorkManager.getInstance(context).enqueueUniqueWork("hub-outbox", if (force) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.APPEND_OR_REPLACE,
                 OneTimeWorkRequestBuilder<OfflineWorker>().setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-                    .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS).build())
+                    .setBackoffCriteria(BackoffPolicy.LINEAR, 10, TimeUnit.SECONDS).build())
         }
     }
 }

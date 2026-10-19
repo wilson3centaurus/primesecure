@@ -37,6 +37,12 @@ class BootReceiver : BroadcastReceiver() {
                 }
                 step("check_in_schedule") { CheckInWorker.schedule(context) }
                 step("check_in_now") { CheckInWorker.runNow(context) }
+                // An upgrade must not inherit hours of exponential retry delay
+                // from an older scheduler. This keeps durable tasks and .part files.
+                if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
+                    step("library_upgrade_sync") { HubSync.schedule(context, force = true) }
+                    step("outbox_upgrade_sync") { OfflineWorker.schedule(context, force = true) }
+                }
                 step("agent_service_start") { AgentService.start(context) }
                 step("pending_messages") { MessageActivity.showPending(context) }
             } catch(e:Exception) {
