@@ -38,10 +38,14 @@
 ## Catalog replacement status
 
 - Approved plan SHA-256: `f3c9bccf482f8ff0cdb46ba5d5c01c1c73c15f1ab20fed9636c0d802ab42030d`.
-- Planned: 34 matched compatible sets; withdraw 16 requiring newer Android and two duplicate/misidentified listings. Unmatched catalog entries are unchanged.
+- Published: 34 matched compatible sets; withdrew 16 requiring newer Android and two duplicate/misidentified listings. Unmatched catalog entries are unchanged. Of the repaired sets, 33 retain their published visibility and one retains its previous unpublished state.
 - All 34 archives passed SDK signature, manifest, dependency, size and byte-integrity checks. This does not prove every app launches.
 - Recovery staging reuses 2,076,964,792 verified base bytes on the server. Only 757,297,515 split bytes and 16,490 ZIP metadata bytes need transfer; reconstructed archives must exactly match approved SHA-256 values before immutable storage upload.
-- Publication remains pending until every staged object is verified. The publication tool backs up existing catalog/access/default rows privately, checks drift under locks, preserves access/defaults and retains original objects.
+- All 34 staged archives passed stored-byte SHA verification before publication. The live transaction backup is `/root/primesecure-backups/app-package-recovery-20261019T124857Z`; its `result.json` confirms 34 repaired, 18 withdrawn, unchanged school access/defaults, and all original storage objects retained. The operator SSH connection dropped after commit; the private result and a new read-only catalog check resolved the outcome without rerunning the publisher.
+- Actual `device_hub()` tests under the enrolled device's authenticated identity: agent code 33 receives zero APK sets and `apk_set_update_required=true`; codes 34 and 37 receive all 33 published corrected sets. The 18 withdrawn entries are absent. Simulated version changes were rolled back, preserving the real device version/status. This checks the catalog contract, not fresh physical enrollment or every third-party app launch.
+- Latest observed post-publication setup report: wallpapers 85/85, notes 1589/2653, required apps 10/35. Notes images intentionally precede apps. The app denominator changed with the corrected catalog; it is not a limited history count. Setup is still incomplete.
+- A single native Calculator reinstall check was queued only for the named test device: command `789cc9b6-4aad-4df7-85e0-a7a50ec17437`, using the actual published catalog path and archive SHA `8d06be5aa19534015df02415baf3d4c2f0e3b4bd8bb6ceaf6c38bdf12e7ff0f4`. Queue acceptance alone does not prove installation or launch. Its result remains pending while the device's renewed debugging connection is unavailable.
+- At 13:06 UTC, the server confirmed the pilot's last check-in was 12:57:20 UTC (14:57 Harare), before the command was created at 13:02:46 UTC. That command was the only pending device command. The native end-to-end reinstall check is blocked on reconnection, not reported as passed. No second command, uninstall, enrollment reset or fleet activation was issued.
 
 ## Checks
 
