@@ -58,27 +58,34 @@ class AppInstaller(private val context: Context, private val store: AgentStore) 
             .digest("$commandId|$bucket|$path|$expectedHash".toByteArray()).joinToString("") { "%02x".format(it) }
         val apk = File(context.cacheDir, "install-$cacheKey.${if (isSet) "psapk" else "apk"}")
         val extracted = File(context.cacheDir, "install-set-${UUID.randomUUID()}")
-        var downloaded = false
+        var prepared = false
+        var retainCache = false
         try {
             val tasks = HubTasks(context)
-            SupabaseApi(store).download("/storage/v1/object/$bucket/$path", apk, resume = true,
-                maxBytes = if (isSet) PsApkArchive.MAX_BYTES else Long.MAX_VALUE) { bytes, total, speed ->
-                if (taskId != null) tasks.update(taskId, "downloading", bytes, total, speed)
+            val maxBytes = if (isSet) PsApkArchive.MAX_BYTES else Long.MAX_VALUE
+            AppInstallCache.prepare(apk, expectedSize, expectedHash, maxBytes) { resume ->
+                SupabaseApi(store).download("/storage/v1/object/$bucket/$path", apk, resume = resume,
+                    maxBytes = maxBytes) { bytes, total, speed ->
+                    if (taskId != null) tasks.update(taskId, "downloading", bytes, total, speed)
+                }
             }
-            downloaded = true
-            if (isSet && expectedSize >= 0) require(apk.length() == expectedSize) { "APK set download size does not match catalog" }
+            prepared = true
             val coroutine = currentCoroutineContext()
-            expectedHash?.let { ApkDownloadHash.verify(apk, it) { coroutine.ensureActive() } }
+            coroutine.ensureActive()
             val (plan, packageName, versionName) = if (isSet) {
                 val files = PsApkArchive.extract(apk, extracted, checkCancelled = { coroutine.ensureActive() })
-                val members = files.map { coroutine.ensureActive(); ApkSetInspector.inspect(it, Build.VERSION.SDK_INT) }
+                val members = files.map {
+                    coroutine.ensureActive()
+                    ApkSetInspector.inspect(it, Build.VERSION.SDK_INT).also { coroutine.ensureActive() }
+                }
                 val sessionFiles = ApkSetPlan.create(members, Build.VERSION.SDK_INT, Build.SUPPORTED_ABIS.toList())
                 val base = members.single { it.splitName == null }
                 Triple(sessionFiles, base.packageName, base.versionName)
             } else {
                 // Old catalog rows can still contain a split-dependent base APK. Fail
                 // before opening a session, with the same checks as a complete set.
-                val member = ApkSetInspector.inspect(apk, Build.VERSION.SDK_INT)
+                coroutine.ensureActive()
+                val member = ApkSetInspector.inspect(apk, Build.VERSION.SDK_INT).also { coroutine.ensureActive() }
                 Triple(ApkSetPlan.single(member, Build.VERSION.SDK_INT, Build.SUPPORTED_ABIS.toList()),
                     member.packageName, member.versionName)
             }
@@ -91,17 +98,19 @@ class AppInstaller(private val context: Context, private val store: AgentStore) 
                 }
             }
             if (taskId != null) tasks.update(taskId, "installing")
+            coroutine.ensureActive()
             installFiles(plan, packageName)
             JSONObject()
                 .put("package", packageName)
                 .put("version", versionName ?: JSONObject.NULL)
-        } catch (e: IllegalArgumentException) {
-            apk.delete()
+        } catch (e: Exception) {
+            retainCache = AppInstallCache.retain(apk, expectedSize, expectedHash, taskId != null, prepared, e)
             throw e
         } finally {
             extracted.deleteRecursively()
-            // Only interrupted network transfers are resumable; never retain a corrupt set.
-            if (downloaded || taskId == null || apk.length() == 0L || (isSet && apk.length() >= PsApkArchive.MAX_BYTES)) apk.delete()
+            // A cancelled task can reuse bounded bytes, but never skip fresh hash/manifest/
+            // signature checks. Success, corruption and unowned/legacy cache are removed.
+            if (!retainCache) apk.delete()
         }
     }
 
@@ -114,6 +123,7 @@ class AppInstaller(private val context: Context, private val store: AgentStore) 
     suspend fun installFile(apk: File, packageName: String) = installFiles(listOf(SessionApk("base.apk", apk)), packageName)
 
     private suspend fun installFiles(files: List<SessionApk>, packageName: String) = installation.withLock {
+        currentCoroutineContext().ensureActive()
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
         params.setAppPackageName(packageName)
         params.setSize(files.sumOf { it.file.length() })

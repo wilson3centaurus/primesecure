@@ -1,4 +1,4 @@
-param([string]$PlatformTools = "$env:LOCALAPPDATA\Android\Sdk\platform-tools", [string]$VersionName = "0.9.3", [int]$VersionCode = 36, [string]$KitSuffix = "StudentEnrollment-Compact")
+param([string]$PlatformTools = "$env:LOCALAPPDATA\Android\Sdk\platform-tools", [string]$VersionName = "0.9.4", [int]$VersionCode = 37, [string]$KitSuffix = "StudentEnrollment-Compact")
 if ($VersionName -notmatch '^\d+\.\d+\.\d+$' -or $VersionCode -lt 1) { throw 'Invalid release version.' }
 if ($KitSuffix -notmatch '^[A-Za-z0-9-]+$') { throw 'Invalid kit name.' }
 $ErrorActionPreference = 'Stop'
