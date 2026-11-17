@@ -23,7 +23,7 @@ internal object SetupRequirements {
      * must not hold a PrimeBook hostage on a slow school connection.
      */
     fun readyForDesktop(owner: Boolean, enrolled: Boolean, policy: Boolean, catalog: Boolean): Boolean =
-        owner && enrolled && policy && catalog
+        owner && enrolled && policy
 
     fun backgroundComplete(apps: Boolean, wallpaper: Boolean, notes: Boolean, mediaAccess: Boolean): Boolean =
         apps && wallpaper && notes && mediaAccess

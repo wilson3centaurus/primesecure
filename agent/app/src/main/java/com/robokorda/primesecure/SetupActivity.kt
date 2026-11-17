@@ -94,13 +94,16 @@ class SetupActivity : Activity() {
         val backgroundComplete = SetupRequirements.backgroundComplete(
             installed == required.size, wallpaperReady, downloaded == noteIds.size, filesAllowed,
         )
+        // Only the local security boundary gates the desktop. Catalogue, app,
+        // wallpaper and book work is resumable and must never strand setup on
+        // a slow school connection.
         val rows = listOf(
             "Verifying PrimeBook" to owner,
             "Applying school policy" to setup.policyReady,
-            "Setting up required apps" to (installed == required.size),
-            "Preparing learning resources" to learningReady,
             "Locking the PrimeBook" to (owner && setup.policyReady),
             "Ready for school" to readyForDesktop,
+            "Setting up required apps" to (installed == required.size),
+            "Preparing learning resources" to learningReady,
         )
         val tasks = HubTasks(this).all(); val active = tasks.filter { it.optString("status") !in setOf("done", "installed", "superseded") }.take(3)
         val activity = active.joinToString("\n") {

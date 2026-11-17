@@ -45,8 +45,8 @@ android {
         minSdk = 26
         targetSdk = 34
         // New native releases must exceed the installed recovery and production codes.
-        versionCode = System.getenv("AGENT_VERSION_CODE")?.toIntOrNull() ?: 74
-        versionName = System.getenv("AGENT_VERSION_NAME") ?: "0.9.41-robokorda-licence"
+        versionCode = System.getenv("AGENT_VERSION_CODE")?.toIntOrNull() ?: 75
+        versionName = System.getenv("AGENT_VERSION_NAME") ?: "0.9.42-fast-firstboot"
 
         buildConfigField("String", "SUPABASE_URL", "\"${setting("primesecure.url", "PRIMESECURE_URL")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${setting("primesecure.anonKey", "PRIMESECURE_ANON_KEY")}\"")

@@ -201,13 +201,27 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
             }.onFailure {
                 DeviceLog.event(context,"warn","setup","password_recovery_prepare_failed",it)
             }
-            InitialSetup(context).begin()
+            val initial = InitialSetup(context)
+            initial.begin()
             Provisioning.clear(context)
             schedule(context)
             AgentService.start(context)
-            val response = checkIn(context)
+            // Apply the firmware-embedded security baseline immediately. A
+            // full check-in, catalogue, apps and books are background work;
+            // slow internet must not hold first boot after enrollment.
+            val baseline = JSONObject()
+                .put("scope", "embedded_school_baseline")
+                .put("block_installs", true)
+            val applier = PolicyApplier(context, store)
+            applier.apply(baseline)
+            initial.policyResult(applier.lastProblems)
+            runNow(context)
+            HubSync.schedule(context)
             context.startActivity(InitialSetup(context).destination().addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-            return response
+            return JSONObject()
+                .put("device_id", store.deviceId)
+                .put("policy_source", "embedded")
+                .put("background_sync", true)
         }
     }
 }

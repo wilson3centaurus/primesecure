@@ -110,6 +110,7 @@ class DeviceSetupActivity : Activity() {
                 setup.classForm = result.optInt("class_form").takeIf { it in 1..6 }?.toString()
                 setup.classSection = result.optString("class_section").takeIf { it.matches(Regex("^[A-Z]{1,4}$")) }
                 setup.hardwareId = result.optString("hardware_id").takeIf { it.isNotBlank() } ?: PrimeBookIdentity.displayId(this@DeviceSetupActivity)
+                setup.enrollmentKey = result.optString("enroll_token").takeIf { it.isNotBlank() }
                 render()
             }
         }, LinearLayout.LayoutParams(dp(580), dp(54)).apply { gravity = Gravity.CENTER_HORIZONTAL })
@@ -200,6 +201,10 @@ class DeviceSetupActivity : Activity() {
         if (BuildConfig.FIRST_BOOT_TEST_MODE && setup.sessionId == "offline-test-existing") {
             FirstBootTestStore(this).existingFixture()
             openOfflinePreparation()
+            return
+        }
+        setup.enrollmentKey?.takeIf { it.isNotBlank() }?.let { token ->
+            launch("Securing this PrimeBook...") { enrollAndPrepare(token) }
             return
         }
         launch("Restoring this PrimeBook's school assignment...") {

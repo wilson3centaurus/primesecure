@@ -42,7 +42,7 @@ async function sessionPayload(session:{id:string;school_id:string;device_id:stri
   const assigned=device??(session.device_id?(await admin.from("devices").select("id,school_id,student_name,serial,prime_id,class_form,class_section,status,created_at").eq("id",session.device_id).maybeSingle()).data:null);
   return {
     session_id:session.id,
-    assignment_state:assigned?"assigned":"unassigned",
+    assignment_state:assigned?.student_name?"assigned":"unassigned",
     school_name:await schoolName(session.school_id),
     student_name:assigned?.student_name??null,
     assignment_date:assigned?.created_at??null,
@@ -50,6 +50,24 @@ async function sessionPayload(session:{id:string;school_id:string;device_id:stri
     class_section:assigned?.class_section??null,
     hardware_id:session.hardware_id,
   };
+}
+
+// Once a setup code has proved the school/device relationship, prepare the
+// single-use enrollment token in the same request. The PrimeBook can then show
+// the recovered assignment and finish its embedded security work without a
+// second "restore assignment" server round-trip.
+async function activateVerifiedSession(
+  session:{id:string;setup_code_id:string;school_id:string;device_id:string|null;hardware_id:string},
+  device:Record<string,any>,
+){
+  const {data:token,error:tokenError}=await admin.rpc("gen_enroll_token");
+  if(tokenError||!token)throw new Error("token_create_failed");
+  const expires=new Date(Date.now()+7*86400_000).toISOString();
+  const {error:updateError}=await admin.from("devices").update({enroll_token:token,enroll_token_expires_at:expires}).eq("id",device.id);
+  if(updateError)throw updateError;
+  await admin.from("first_boot_sessions").update({device_id:device.id,status:"activated"}).eq("id",session.id);
+  await admin.from("school_setup_codes").update({used_at:new Date().toISOString()}).eq("id",session.setup_code_id);
+  return {...await sessionPayload(session,device),enroll_token:token,enroll_token_expires_at:expires};
 }
 
 async function verifyFirstBoot(body:Record<string,unknown>,secretHash:string){
@@ -61,9 +79,16 @@ async function verifyFirstBoot(body:Record<string,unknown>,secretHash:string){
   if(!hardware||hardware==="IDENTITY PENDING")return reply(400,{error:"identity_unavailable"});
 
   const {data:existing}=await admin.from("first_boot_sessions")
-    .select("id,school_id,device_id,hardware_id,expires_at").eq("request_secret_hash",secretHash)
+    .select("id,setup_code_id,school_id,device_id,hardware_id,expires_at").eq("request_secret_hash",secretHash)
     .gt("expires_at",new Date().toISOString()).order("created_at",{ascending:false}).limit(1).maybeSingle();
-  if(existing)return reply(200,await sessionPayload(existing));
+  if(existing){
+    const payload=await sessionPayload(existing);
+    if(existing.device_id&&payload.assignment_state==="assigned"){
+      const {data:device}=await admin.from("devices").select("id,school_id,student_name,serial,prime_id,class_form,class_section,status,created_at").eq("id",existing.device_id).maybeSingle();
+      if(device){try{return reply(200,await activateVerifiedSession(existing,device))}catch{return reply(500,{error:"token_create_failed"})}}
+    }
+    return reply(200,payload);
+  }
 
   const codeHash=await digest(setupCode);
   const {data:code,error:codeError}=await admin.from("school_setup_codes")
@@ -80,8 +105,9 @@ async function verifyFirstBoot(body:Record<string,unknown>,secretHash:string){
   if(device&&device.school_id!==code.school_id)return reply(409,{error:"device_assigned_other_school"});
   const row={request_secret_hash:secretHash,setup_code_id:code.id,school_id:code.school_id,device_id:device?.id??null,
     hardware_id:hardware,serial,prime_id:prime,android_id:clean(body.android_id,200),model:clean(body.model,200),status:device?"assigned":"verified"};
-  const {data:session,error}=await admin.from("first_boot_sessions").insert(row).select("id,school_id,device_id,hardware_id").single();
+  const {data:session,error}=await admin.from("first_boot_sessions").insert(row).select("id,setup_code_id,school_id,device_id,hardware_id").single();
   if(error)return reply(500,{error:"session_create_failed"});
+  if(device){try{return reply(200,await activateVerifiedSession(session,device))}catch{return reply(500,{error:"token_create_failed"})}}
   return reply(200,await sessionPayload(session,device));
 }
 

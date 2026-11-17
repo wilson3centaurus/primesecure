@@ -8,6 +8,13 @@ import { PGlite } from "@electric-sql/pglite";
 const migrationsDirectory=join(dirname(fileURLToPath(import.meta.url)),"..","migrations");
 const migration=readFileSync(join(migrationsDirectory,"20261029065844_device_setup_requests.sql"),"utf8");
 const identityMigration=readFileSync(join(migrationsDirectory,"20261109164344_primeid_serial_and_student_class.sql"),"utf8");
+const setupFunction=readFileSync(join(dirname(fileURLToPath(import.meta.url)),"..","functions","device-setup","index.ts"),"utf8");
+
+test("verified existing assignments receive an enrollment token in the verification response",()=>{
+  assert.match(setupFunction,/activateVerifiedSession/);
+  assert.match(setupFunction,/enroll_token:token/);
+  assert.match(setupFunction,/if\(device\).*activateVerifiedSession/s);
+});
 
 async function database(){
   const db=new PGlite();
