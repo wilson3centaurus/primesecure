@@ -5,7 +5,9 @@ import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 800;
+// Keep this within the production project's Fluid Compute limit. The response
+// is streamed, so the function does not buffer the archive in memory.
+export const maxDuration = 300;
 
 type ExportKind = "wallpapers" | "apps" | "school-notes";
 type HubKind = "wallpaper" | "app" | "resource";
