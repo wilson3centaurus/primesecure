@@ -5,11 +5,14 @@ class SettingsLockdownRulesTest {
     @Test fun emergencyPauseReleasesAllNewRestrictions() {
         assertTrue(SettingsLockdownRules.plan(true,true,true,true,30).values.none { it })
     }
-    @Test fun wifiAndDebuggingRemainIndependentForProvisioning() {
+    @Test fun wifiConfigurationAlwaysRemainsAvailableForRecovery() {
         val plan=SettingsLockdownRules.plan(true,false,false,false,30)
         assertTrue(plan.getValue("no_modify_accounts"))
         assertFalse(plan.getValue("no_config_wifi"));assertFalse(plan.getValue("no_debugging_features"))
         assertTrue(SettingsLockdownRules.plan(false,true,false,false,30).getValue("no_debugging_features"))
+        val networkLock=SettingsLockdownRules.plan(false,false,true,false,30)
+        assertFalse(networkLock.getValue("no_config_wifi"))
+        assertTrue(networkLock.getValue("no_config_mobile_networks"))
     }
     @Test fun olderAndroidDoesNotReceiveUnsupportedRestrictions() {
         val plan=SettingsLockdownRules.plan(true,true,true,false,26)

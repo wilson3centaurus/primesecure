@@ -22,9 +22,17 @@ internal object EnrollmentStartup {
         val prefs=activity.getSharedPreferences("enrollment-permissions",Context.MODE_PRIVATE)
         val device=AgentStore(activity).deviceId
         if(prefs.getString("device",null)!=device)prefs.edit().clear().putString("device",device).commit()
-        if(AdminReceiver.isDeviceOwner(activity)&&!prefs.getBoolean("recovery_attempted",false)) {
-            prefs.edit().putBoolean("recovery_attempted",true).commit()
-            runCatching { PasswordRecovery.activate(activity) }.onFailure {
+        val recovery=PasswordRecovery.status(activity)
+        val lastPrompt=prefs.getLong("recovery_prompted_at",0L)
+        val retryDue=System.currentTimeMillis()-lastPrompt>=24L*60L*60L*1000L
+        if(AdminReceiver.isDeviceOwner(activity)&&recovery!="ready"&&recovery!="unsupported"&&retryDue) {
+            // With no existing screen credential Android activates the escrow token
+            // immediately. If a credential already exists, Android requires the
+            // student to confirm it; retry at most daily after a dismissal/failure.
+            prefs.edit().putLong("recovery_prompted_at",System.currentTimeMillis()).commit()
+            runCatching { PasswordRecovery.activate(activity) }.onSuccess {
+                if(PasswordRecovery.status(activity)=="ready")prefs.edit().putBoolean("recovery_ready",true).commit()
+            }.onFailure {
                 DeviceLog.event(activity,"warn","setup","recovery_needs_attention")
             }
         }

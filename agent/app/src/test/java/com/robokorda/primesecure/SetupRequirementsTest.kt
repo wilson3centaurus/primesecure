@@ -17,14 +17,19 @@ class SetupRequirementsTest {
     @Test fun missingOrInvalidSizesAreNotPretendedToBeReady() {
         assertTrue(SetupRequirements.starterResources(listOf(StarterResource("bad", -1))).isEmpty())
     }
-    @Test fun eachRequiredStageMustComplete() {
-        for (missing in 0..7) {
-            val flags = BooleanArray(8) { it != missing }
-            assertFalse("stage $missing", SetupRequirements.ready(flags[0],flags[1],flags[2],flags[3],flags[4],flags[5],flags[6],flags[7]))
+    @Test fun onlyCoreSecurityStagesBlockDesktopRelease() {
+        for (missing in 0..3) {
+            val flags = BooleanArray(4) { it != missing }
+            assertFalse("stage $missing", SetupRequirements.readyForDesktop(flags[0],flags[1],flags[2],flags[3]))
         }
-        assertTrue(SetupRequirements.ready(true,true,true,true,true,true,true,true))
+        assertTrue(SetupRequirements.readyForDesktop(true,true,true,true))
+    }
+    @Test fun backgroundDownloadsDoNotBlockDesktopRelease() {
+        assertTrue(SetupRequirements.readyForDesktop(true,true,true,true))
+        assertFalse(SetupRequirements.backgroundComplete(false,false,false,false))
+        assertTrue(SetupRequirements.backgroundComplete(true,true,true,true))
     }
     @Test fun emptyLibrariesStillRequireManagementPolicyAndCatalogue() {
-        assertFalse(SetupRequirements.ready(true,true,false,false,true,true,true,true))
+        assertFalse(SetupRequirements.readyForDesktop(true,true,false,false))
     }
 }

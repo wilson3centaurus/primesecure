@@ -10,6 +10,7 @@ class DiagnosticsWorker(c:Context,p:WorkerParameters):CoroutineWorker(c,p) {
     override suspend fun doWork():Result {
         val store=AgentStore(applicationContext);val device=store.deviceId
         if(!store.isEnrolled || store.lastStatus=="retired")return Result.success()
+        SystemLogDigest.collect(applicationContext)
         return try {
             repeat(7) {
                 if(AgentStore(applicationContext).deviceId!=device)return Result.success()

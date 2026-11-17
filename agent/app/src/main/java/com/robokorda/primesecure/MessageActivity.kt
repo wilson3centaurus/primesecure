@@ -67,7 +67,7 @@ class MessageActivity : Activity() {
         MessageContent.render(this, body, payload, scope)
         root.addView(ScrollView(this).apply { addView(body) }, LinearLayout.LayoutParams(-1, 0, 1f))
         val reply=EditText(this).apply { hint="Reply to school"; maxLines=3 }
-        val anonymous=CheckBox(this).apply { text="Mark anonymous (school administrators still see your name)" }
+        val anonymous=CheckBox(this).apply { text="Mark anonymous (school administrators won't see your name)" }
         root.addView(reply); root.addView(anonymous)
         root.addView(Button(this).apply { text="Send reply"; setOnClickListener {
             val body=reply.text.toString().trim()

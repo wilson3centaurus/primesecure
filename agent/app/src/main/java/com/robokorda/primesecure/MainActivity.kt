@@ -8,6 +8,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.provider.Settings
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
@@ -40,6 +41,7 @@ class MainActivity : Activity() {
     private lateinit var counter: TextView
     private lateinit var validation: TextView
     private lateinit var managementHint: TextView
+    private lateinit var primeId: TextView
     private lateinit var enrollButton: Button
     private lateinit var checkInButton: Button
     private lateinit var provisionButton: Button
@@ -57,8 +59,18 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         store = AgentStore(this)
+        if (SetupGatePolicy.offlineTestComplete(this)) {
+            startActivity(Intent(this, HubActivity::class.java))
+            finish()
+            return
+        }
         if (store.isEnrolled) {
             startActivity(InitialSetup(this).destination())
+            finish()
+            return
+        }
+        if (intent?.getStringExtra("token").isNullOrBlank() && Provisioning.pendingToken(this).isNullOrBlank()) {
+            SetupGatePolicy.launchGate(this, "main_activity")
             finish()
             return
         }
@@ -106,7 +118,16 @@ class MainActivity : Activity() {
         gap(card, 17)
         card.addView(label("Link this Primebook", 22f, StudentTheme.foreground(this), true).apply { gravity = Gravity.CENTER })
         gap(card, 8)
-        gap(card, 23)
+        primeId = label("Prime ID: checking…", 13f, muted, true).apply {
+            gravity = Gravity.CENTER
+            setTextIsSelectable(true)
+        }
+        card.addView(primeId)
+        gap(card, 12)
+        card.addView(actionButton("Connect to Wi-Fi", secondary = true).apply {
+            setOnClickListener { startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) }
+        }, buttonParams())
+        gap(card, 18)
         val keyHeading = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         keyHeading.addView(label("ENROLLMENT KEY", 11f, muted, true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         counter = label("0 / 8", 12f, muted)
@@ -172,6 +193,9 @@ class MainActivity : Activity() {
         card.addView(progressRow)
         gap(card, 22)
         card.addView(View(this).apply { setBackgroundColor(border) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
+        card.addView(actionButton("Open full device diagnostics", secondary = true).apply {
+            setOnClickListener { startActivity(Intent(this@MainActivity, DeviceDiagnosticsActivity::class.java)) }
+        }, buttonParams().apply { topMargin = dp(14) })
         val diagnostics = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
@@ -390,9 +414,12 @@ class MainActivity : Activity() {
         badge.text = when { busy -> "Connecting to your school"; store.isEnrolled -> "Enrolled"; owner -> "Management ready · Not enrolled"; else -> "Management setup needed" }
         badge.setTextColor(if (ready) Color.parseColor(if (dark) "#88ddbd" else "#147453") else accent)
         badge.background = rounded(Color.parseColor(if (ready) if (dark) "#183b34" else "#e6f5ed" else if (dark) "#30294c" else "#efebfc"), 20)
+        primeId.text = WifiInventory.primeId(this)?.let { "Prime ID  $it" }
+            ?: "Prime ID appears after Android management is enabled"
         val fmt = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.MEDIUM)
         status.text = buildString {
             appendLine("Device Owner: ${if (owner) "YES" else "NO"}")
+            appendLine("Firmware bootstrap: ${OwnerBootstrapStatus.read(this@MainActivity)}")
             appendLine("Server: ${store.serverUrl.ifBlank { "(not set)" }}")
             appendLine("Agent: ${BuildConfig.VERSION_NAME}${if (BuildConfig.DEBUG) " (debug)" else ""}")
             appendLine("All-files access: ${if (FileManager.hasAccess()) "yes" else "not granted"}")

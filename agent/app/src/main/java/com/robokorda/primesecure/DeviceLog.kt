@@ -51,6 +51,22 @@ internal object DeviceLog {
         val bounded=JSONArray(retained)
         p.edit().putString("events",bounded.toString()).putString("last_key",fingerprint).putLong("last_at",now).commit()
     } }.let { Unit }
+    /**
+     * Appends one pre-bounded system-log digest event. Only `reason` and `frames`
+     * (fixed-filter log lines produced on-device by [SystemLogDigest]) are sent;
+     * the server enforces the same key allow-list and its 5,000-byte detail cap.
+     */
+    fun recordDigest(c:Context,reason:String,lines:List<String>) = runCatching { synchronized(lock) {
+        val p=prefs(c);val events=JSONArray(p.getString("events","[]"))
+        val details=JSONObject().put("reason",reason).put("frames",JSONArray(lines))
+        if(details.toString().toByteArray().size>4800) return@synchronized
+        events.put(JSONObject().put("id",UUID.randomUUID().toString()).put("occurred_at",Instant.now().toString())
+            .put("severity","warning").put("category","crash").put("code","system_log_digest")
+            .put("version",BuildConfig.VERSION_NAME).put("details",details))
+        val retained=(0 until events.length()).map { events.getJSONObject(it) }.toMutableList()
+        while(retained.size>200)retained.removeAt(DiagnosticFormat.dropIndex(retained.map { it.optString("severity") }))
+        p.edit().putString("events",JSONArray(retained).toString()).commit()
+    } }.let { Unit }
     fun state(c:Context,key:String,category:String,code:String,details:JSONObject) = runCatching {
         val p=prefs(c);val value=details.toString()
         if(p.getString("state:$key",null)!=value) {

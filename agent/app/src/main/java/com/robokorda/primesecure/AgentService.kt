@@ -85,6 +85,11 @@ class AgentService : Service() {
                 keepWifi()
                 scheduleSafely("usage_sample") { UsageReporter.sample(this@AgentService) }
                 delay(30_000L); tick++
+                // DevicePolicyManager state is local and survives loss of Wi-Fi.
+                // Reconcile it anyway so an OEM launcher/package refresh cannot
+                // leave a blocked firmware app visible until the next check-in.
+                if(tick%2==0) runCatching { PolicyApplier(this@AgentService,store).applyCached() }
+                    .onFailure { DeviceLog.event(this@AgentService,"warning","policy","offline_policy_reapply_failed",it) }
                 if(Connectivity.online(this@AgentService)) {
                     urgentCommands(store)
                     try {

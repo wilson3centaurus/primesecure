@@ -50,9 +50,11 @@ internal object HubSyncScheduling {
 
 internal object SetupDownloadOrder {
     fun priority(item: SetupDownload): Int = when (item.kind) {
-        "wallpaper" -> 0
-        "app" -> 2
-        else -> if (isImage(item)) 1 else 3
+        // Required apps make the device useful first. The school library is
+        // intentionally opportunistic and can finish over a slow connection.
+        "app" -> 0
+        "wallpaper" -> 1
+        else -> if (isImage(item)) 2 else 3
     }
 
     private fun isImage(item: SetupDownload): Boolean = item.mime.startsWith("image/", ignoreCase = true) ||

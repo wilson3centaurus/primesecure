@@ -17,7 +17,14 @@ internal object SetupRequirements {
         }
     }
 
-    fun ready(owner: Boolean, enrolled: Boolean, policy: Boolean, catalog: Boolean,
-              apps: Boolean, wallpaper: Boolean, notes: Boolean, mediaAccess: Boolean): Boolean =
-        owner && enrolled && policy && catalog && apps && wallpaper && notes && mediaAccess
+    /**
+     * The security boundary must finish before the student reaches the desktop.
+     * Apps, books and other learning content are resumable background work and
+     * must not hold a PrimeBook hostage on a slow school connection.
+     */
+    fun readyForDesktop(owner: Boolean, enrolled: Boolean, policy: Boolean, catalog: Boolean): Boolean =
+        owner && enrolled && policy && catalog
+
+    fun backgroundComplete(apps: Boolean, wallpaper: Boolean, notes: Boolean, mediaAccess: Boolean): Boolean =
+        apps && wallpaper && notes && mediaAccess
 }

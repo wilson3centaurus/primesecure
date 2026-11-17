@@ -6,10 +6,24 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission
+        android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation" />
     <!-- Optional school usage reports; explicitly enabled through Android Usage Access settings. -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Firmware setup build: allows the privileged preinstalled agent to restore its first-run gate after boot. -->
+    <uses-permission
+        android:name="android.permission.START_ACTIVITIES_FROM_BACKGROUND"
+        tools:ignore="ProtectedPermissions" />
+    <!-- Pilot image: technician access to Developer Options for wireless ADB diagnostics. -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+    <!-- V8 diagnostic pilot: bounded, fixed probes only; no arbitrary shell input. -->
+    <uses-permission android:name="android.permission.DUMP" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.READ_LOGS" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.GET_ACCOUNTS_PRIVILEGED" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.SET_WALLPAPER" />
     <!-- Granted to ourselves as Device Owner; needed for Build.getSerial(). -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
@@ -60,6 +74,81 @@
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask" />
+        <!--
+          Firmware-baked student launcher.  It remains HOME after enrollment;
+          Device Owner makes it the persistent preferred HOME without removing
+          Launcher3/Quickstep, which Android still needs for recents.
+        -->
+        <activity
+            android:name=".SchoolLauncherActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:lockTaskMode="if_whitelisted"
+            android:resizeableActivity="false"
+            android:supportsPictureInPicture="false"
+            android:stateNotNeeded="true"
+            android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar.Fullscreen">
+            <!-- Keep HOME in its own filter so Android's launcher role can discover it. -->
+            <intent-filter android:priority="1000">
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter android:priority="1000">
+                <action android:name="android.intent.action.DEVICE_INITIALIZATION_WIZARD" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter android:priority="1000">
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.SETUP_WIZARD" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <!-- Applied as a system app's default HOME on a new Android user. -->
+            <preferred>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </preferred>
+        </activity>
+        <!-- Same activity/window shape as acknowledgement-required MessageActivity. -->
+        <activity
+            android:name=".SetupGateActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:lockTaskMode="if_whitelisted"
+            android:resizeableActivity="false"
+            android:supportsPictureInPicture="false"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar.Fullscreen" />
+        <activity android:name=".DeviceDiagnosticsActivity" android:exported="false"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity android:name=".DeviceSetupActivity" android:exported="false" android:launchMode="singleTask"
+            android:excludeFromRecents="true"
+            android:lockTaskMode="if_whitelisted" android:resizeableActivity="false" android:supportsPictureInPicture="false"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar.Fullscreen" />
+        <activity android:name=".PrimeOsTermsActivity" android:exported="false"
+            android:excludeFromRecents="true"
+            android:lockTaskMode="if_whitelisted" android:resizeableActivity="false" android:supportsPictureInPicture="false"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar.Fullscreen" />
+        <activity android:name=".OfflineTestPreparationActivity" android:exported="false"
+            android:excludeFromRecents="true"
+            android:lockTaskMode="if_whitelisted" android:resizeableActivity="false" android:supportsPictureInPicture="false"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar.Fullscreen" />
+        <activity android:name=".OfflineDesktopPreviewActivity" android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar.Fullscreen" />
+        <activity android:name=".MandatoryStudentSetupActivity" android:exported="false"
+            android:excludeFromRecents="true"
+            android:lockTaskMode="if_whitelisted" android:resizeableActivity="false" android:supportsPictureInPicture="false"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar.Fullscreen" />
+        <activity android:name=".SetupWifiActivity" android:exported="false" android:launchMode="singleTask"
+            android:excludeFromRecents="true"
+            android:lockTaskMode="if_whitelisted" android:resizeableActivity="false" android:supportsPictureInPicture="false"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar.Fullscreen" />
         <activity android:name=".SetupActivity" android:exported="false" android:launchMode="singleTask"
             android:theme="@android:style/Theme.Material.Light.NoActionBar" />
         <activity android:name=".SupportCaptureActivity" android:exported="false"
@@ -73,7 +162,8 @@
         </service>
         <service android:name=".RemoteScreenCaptureService" android:exported="false" android:foregroundServiceType="mediaProjection" />
         <activity android:name=".HubActivity" android:exported="true" android:launchMode="singleTask"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+            android:resizeableActivity="false" android:supportsPictureInPicture="false"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar.Fullscreen">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -134,6 +224,16 @@
             android:excludeFromRecents="true"
             android:launchMode="singleTask"
             android:lockTaskMode="if_whitelisted"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen" />
+
+        <activity
+            android:name=".RoboKordaLicenceActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:lockTaskMode="if_whitelisted"
+            android:resizeableActivity="false"
+            android:supportsPictureInPicture="false"
             android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen" />
 
         <activity

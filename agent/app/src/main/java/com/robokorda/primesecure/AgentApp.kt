@@ -19,6 +19,9 @@ class AgentApp : Application(), Configuration.Provider {
         DeviceLog.install(this)
         if(getSystemService(android.os.UserManager::class.java).isUserUnlocked)DeviceSafety.finishRollback(this)
         if(!getSystemService(android.os.UserManager::class.java).isUserUnlocked)return
+        OfflineSetupNotice.refresh(this)
+        SchoolSetupHome.reconcile(this)
+        SetupGatePolicy.applyOfflineBaseline(this)
         CoroutineScope(SupervisorJob()+Dispatchers.IO).launch {
             if(AgentStore(this@AgentApp).isEnrolled) {
                 DeviceLog.bind(this@AgentApp,AgentStore(this@AgentApp).deviceId)

@@ -16,19 +16,33 @@ object PasswordRecovery {
         else if (prefs(context).getString("token", null) == null) "not_enabled"
         else if (AdminReceiver.dpm(context).isResetPasswordTokenActive(AdminReceiver.component(context))) "ready" else "needs_confirmation"
     }.getOrDefault("unsupported")
-    fun activate(activity: Activity) {
-        check(AdminReceiver.isDeviceOwner(activity)) { "Device-owner access is required." }
-        val prefs = prefs(activity)
-        if (prefs.getString("device", null) != AgentStore(activity).deviceId) prefs.edit().clear().putString("device", AgentStore(activity).deviceId).commit()
+    /** Prepare recovery automatically before the student creates a credential. */
+    fun prepare(context: Context): String {
+        check(AdminReceiver.isDeviceOwner(context)) { "Device-owner access is required." }
+        val device = AgentStore(context).deviceId ?: error("Enroll this Primebook before preparing recovery.")
+        val prefs = prefs(context)
+        if (prefs.getString("device", null) != device) prefs.edit().clear().putString("device", device).commit()
         if (prefs.getString("token", null) == null) {
             val token = ByteArray(32).also { SecureRandom().nextBytes(it) }
             // Persist before registering so a crash cannot leave an escrow token we no longer know.
             check(prefs.edit().putString("token", Base64.encodeToString(token, Base64.NO_WRAP)).commit())
-            if (!AdminReceiver.dpm(activity).setResetPasswordToken(AdminReceiver.component(activity), token)) {
+            if (!AdminReceiver.dpm(context).setResetPasswordToken(AdminReceiver.component(context), token)) {
                 prefs.edit().remove("token").commit(); error("Password recovery is not supported by this Primebook.")
             }
         }
-        if (status(activity) == "needs_confirmation") {
+        // Android drops an inactive token at reboot. While no screen lock exists the token
+        // activates without any student confirmation, so keep re-arming it automatically.
+        val dpm = AdminReceiver.dpm(context); val admin = AdminReceiver.component(context)
+        if (!dpm.isResetPasswordTokenActive(admin) &&
+            !context.getSystemService(KeyguardManager::class.java).isDeviceSecure) {
+            val token = Base64.decode(prefs.getString("token", null)!!, Base64.NO_WRAP)
+            dpm.setResetPasswordToken(admin, token)
+        }
+        return status(context)
+    }
+    fun activate(activity: Activity) {
+        if (prepare(activity) == "needs_confirmation") {
+            val prefs = prefs(activity)
             // Android discards an inactive escrow token at reboot; register our saved token again.
             val token=Base64.decode(prefs.getString("token",null) ?: error("Recovery token unavailable"),Base64.NO_WRAP)
             check(AdminReceiver.dpm(activity).setResetPasswordToken(AdminReceiver.component(activity),token)) { "Password recovery is unavailable on this device." }

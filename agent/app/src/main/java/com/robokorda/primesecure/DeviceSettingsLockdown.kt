@@ -41,5 +41,6 @@ object DeviceSettingsLockdown {
         }.onFailure { DeviceLog.event(context,"warning","safety","settings_restore_failed",it,JSONObject().put("restriction",key)) }
         p.edit().putStringSet("owned",remaining.toSet()).remove("results").commit()
     }
+    fun owns(context:Context,key:String)=prefs(context).getStringSet("owned",emptySet())!!.contains(key)
     fun status(context:Context)=runCatching { JSONObject(prefs(context).getString("results","{}")!!) }.getOrElse { JSONObject() }
 }

@@ -34,6 +34,9 @@ object DeviceState {
 
     private suspend fun unlock(context: Context) {
         withContext(Dispatchers.Main) { LockActivity.finishIfShowing() }
+        // Pre-enrollment setup owns this allowlist. A normal check-in must not
+        // silently remove it while the wizard is still running.
+        if (!AgentStore(context).isEnrolled) return
         val dpm = AdminReceiver.dpm(context)
         val admin = AdminReceiver.component(context)
         if (HubStore(context).pending() == null && dpm.getLockTaskPackages(admin).isNotEmpty()) dpm.setLockTaskPackages(admin, arrayOf())

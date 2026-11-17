@@ -9,7 +9,11 @@ import org.json.JSONObject
 /** Current connection only. Never scans nearby networks or reads saved Wi-Fi passwords. */
 object WifiInventory {
     fun invalidate(context: Context) { context.getSharedPreferences("wifi-inventory", Context.MODE_PRIVATE).edit().remove("at").apply() }
-    fun primeId(context: Context): String? = runCatching {
+    /** RoboKorda Prime ID: the hardware serial is stable and available before Wi-Fi. */
+    fun primeId(context: Context): String? = PrimeBookIdentity.serial() ?: factoryWifiMac(context)
+
+    /** Legacy/OEM inventory identity retained only for server migration and diagnostics. */
+    fun factoryWifiMac(context: Context): String? = runCatching {
         if (!AdminReceiver.isDeviceOwner(context)) return@runCatching null
         SchoolControlRules.inventoryMac(AdminReceiver.dpm(context).getWifiMacAddress(AdminReceiver.component(context)))
     }.getOrNull()

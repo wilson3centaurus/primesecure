@@ -13,6 +13,8 @@ object Notifications {
     private const val SERVICE_CHANNEL = "service"
     private const val MESSAGE_CHANNEL = "messages"
     private const val SYNC_CHANNEL = "school-updates"
+    private const val SETUP_CHANNEL = "required-setup-v11"
+    private const val SETUP_ID = 911
 
     private fun manager(context: Context) =
         context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -25,6 +27,10 @@ object Notifications {
             },
             NotificationChannel(MESSAGE_CHANNEL, "Messages from school", NotificationManager.IMPORTANCE_HIGH),
             NotificationChannel(SYNC_CHANNEL, "School updates", NotificationManager.IMPORTANCE_DEFAULT),
+            NotificationChannel(SETUP_CHANNEL, "Required PrimeBook setup", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Keeps required school setup visible until activation is complete"
+                setShowBadge(false)
+            },
         ))
     }
 
@@ -75,6 +81,33 @@ object Notifications {
     fun cancelMessage(context: Context, commandId: String) {
         manager(context).cancel(commandId.hashCode())
     }
+
+    /** Same system full-screen delivery route used by acknowledgement-required messages. */
+    fun setupGate(context: Context, reason: String) {
+        createChannels(context)
+        val intent = Intent(context, SetupGateActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            .putExtra("launch_reason", "notification:$reason")
+        val pending = PendingIntent.getActivity(
+            context, SETUP_ID, intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val notification = builder(context, SETUP_CHANNEL)
+            .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setContentTitle("PrimeBook setup required")
+            .setContentText("Complete school setup to begin using this PrimeBook.")
+            .setStyle(Notification.BigTextStyle().bigText("Complete school setup to begin using this PrimeBook. This notice stays active until setup is finished."))
+            .setContentIntent(pending)
+            .setFullScreenIntent(pending, true)
+            .setCategory(Notification.CATEGORY_MESSAGE)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .build()
+        manager(context).notify(SETUP_ID, notification)
+    }
+
+    fun cancelSetupGate(context: Context) = manager(context).cancel(SETUP_ID)
 
     fun cancelSupport(context:Context) { manager(context).cancel(930) }
 

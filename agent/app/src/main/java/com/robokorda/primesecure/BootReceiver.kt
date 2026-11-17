@@ -21,7 +21,18 @@ class BootReceiver : BroadcastReceiver() {
         CoroutineScope(SupervisorJob()+Dispatchers.IO).launch {
             try {
                 val store = AgentStore(context)
-                if (!store.isEnrolled) return@launch
+                if (!store.isEnrolled) {
+                    if (SetupGatePolicy.offlineTestComplete(context)) {
+                        OfflineSetupNotice.refresh(context)
+                        SchoolSetupHome.makePreferred(context)
+                        return@launch
+                    }
+                    OfflineSetupNotice.refresh(context)
+                    SetupGatePolicy.applyOfflineBaseline(context)
+                    SchoolSetupHome.reconcile(context)
+                    SetupGatePolicy.launchGate(context, "boot")
+                    return@launch
+                }
                 DeviceLog.event(context,"info","boot",if(intent.action==Intent.ACTION_MY_PACKAGE_REPLACED)"agent_updated" else "boot_unlocked")
                 fun step(phase:String, block:()->Unit) {
                     try { block() } catch(e:Exception) {
@@ -35,6 +46,7 @@ class BootReceiver : BroadcastReceiver() {
                     if(store.lastStatus=="locked" && AdminReceiver.isDeviceOwner(context))
                         context.startActivity(LockActivity.intent(context))
                 }
+                step("licence") { RoboKordaLicence.applyCached(context, store.lastStatus.orEmpty()) }
                 step("check_in_schedule") { CheckInWorker.schedule(context) }
                 step("check_in_now") { CheckInWorker.runNow(context) }
                 // An upgrade must not inherit hours of exponential retry delay

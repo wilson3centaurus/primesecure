@@ -4,6 +4,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ManualAppHidesTest {
+    @Test fun firmwareDefaultsCoverPrimeOsStoreBrowserSearchYoutubeAndFiles() {
+        assertTrue(ManualAppHides.firmwareDefaults.containsAll(setOf(
+            "com.floydwiz.browser", "com.floydwiz.primestore", "com.android.vending",
+            "com.google.android.googlequicksearchbox", "com.google.android.youtube",
+            "com.floydwiz.primefilemanager", "com.floydwiz.primeos.mdm",
+            "com.floydwiz.primeos.appcompat",
+        )))
+        assertFalse(ManualAppHides.firmwareDefaults.contains("com.android.settings"))
+        assertFalse(ManualAppHides.firmwareDefaults.contains("com.android.launcher3"))
+        assertFalse(ManualAppHides.firmwareDefaults.contains("app.grapheneos.camera"))
+    }
     @Test fun strictModeAloneNeverMakesFirmwareExceptions() {
         assertTrue(ManualAppHides.firmwareExceptions(emptySet(),emptySet(),true,true,500000).isEmpty())
     }
@@ -12,6 +23,10 @@ class ManualAppHidesTest {
         assertTrue(result.containsAll(setOf("com.android.browser","com.android.chrome")))
         assertFalse(result.contains("com.google.android.googlequicksearchbox"))
         assertFalse(result.contains("com.floydwiz.primestore"))
+    }
+    @Test fun youtubeRequestIncludesPhoneAndTvPackages() {
+        val result=ManualAppHides.firmwareExceptions(setOf("com.google.android.youtube"),emptySet(),true,true,500000)
+        assertEquals(setOf("com.google.android.youtube","com.google.android.youtube.tv"),result)
     }
     @Test fun activeWebViewAndCoreRolesAlwaysWinOverAnExplicitRequest() {
         val essential=setOf("com.android.chrome","com.floydwiz.primestore","com.android.settings","keyboard","launcher")

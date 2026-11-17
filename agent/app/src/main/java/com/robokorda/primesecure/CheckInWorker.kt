@@ -155,6 +155,7 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                     }
                 } else SettingsSync.phase(context,"attention")
                 DeviceState.apply(context, status)
+                RoboKordaLicence.observe(context, response.optJSONObject("robokorda_licence"), status)
                 store.lastCheckInAt = System.currentTimeMillis()
                 runCatching { BootRecovery.ensureChannel(context) }
                 runCatching { PasswordRecovery.registerBoot(context) }
@@ -193,6 +194,13 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
             )
             DeviceLog.bind(context,store.deviceId)
             DeviceLog.event(context,"info","setup","enrollment_registered")
+            runCatching {
+                val recovery = PasswordRecovery.prepare(context)
+                DeviceLog.event(context,"info","setup","password_recovery_prepared",details=JSONObject().put("status",recovery))
+                if (recovery == "ready") PasswordRecovery.registerBoot(context)
+            }.onFailure {
+                DeviceLog.event(context,"warn","setup","password_recovery_prepare_failed",it)
+            }
             InitialSetup(context).begin()
             Provisioning.clear(context)
             schedule(context)

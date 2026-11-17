@@ -10,6 +10,20 @@ fun setting(property: String, env: String): String =
     System.getenv(env)?.takeIf { it.isNotBlank() }
         ?: providers.gradleProperty(property).orNull.orEmpty()
 
+// V21 shipped with no backend URL/key compiled in, so setup failed with
+// "PrimeSecure server key is not configured". Refuse to build a distributable
+// APK without them. Supply them via PRIMESECURE_URL / PRIMESECURE_ANON_KEY or
+// ~/.gradle/gradle.properties (primesecure.url / primesecure.anonKey).
+gradle.taskGraph.whenReady {
+    val distributable = allTasks.any {
+        it.project == project && Regex("^(assemble|bundle|package)Release").containsMatchIn(it.name)
+    }
+    if (distributable && System.getenv("PRIMESECURE_ALLOW_NO_BACKEND") != "true" &&
+        (setting("primesecure.url", "PRIMESECURE_URL").isBlank() || setting("primesecure.anonKey", "PRIMESECURE_ANON_KEY").isBlank())) {
+        throw GradleException("Release build has no PrimeSecure server URL/key. Set PRIMESECURE_URL and PRIMESECURE_ANON_KEY (or primesecure.url / primesecure.anonKey in ~/.gradle/gradle.properties).")
+    }
+}
+
 // A manually published interface can be ahead of the clock. Never let its old
 // cached assets replace the newer interface bundled with this APK.
 val signedUiRelease = rootProject.file("../dashboard/public/student-ui/release.json")
@@ -31,11 +45,13 @@ android {
         minSdk = 26
         targetSdk = 34
         // New native releases must exceed the installed recovery and production codes.
-        versionCode = System.getenv("AGENT_VERSION_CODE")?.toIntOrNull() ?: 37
-        versionName = System.getenv("AGENT_VERSION_NAME") ?: "0.9.4"
+        versionCode = System.getenv("AGENT_VERSION_CODE")?.toIntOrNull() ?: 65
+        versionName = System.getenv("AGENT_VERSION_NAME") ?: "0.9.32-v18schoolpolicy"
 
         buildConfigField("String", "SUPABASE_URL", "\"${setting("primesecure.url", "PRIMESECURE_URL")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${setting("primesecure.anonKey", "PRIMESECURE_ANON_KEY")}\"")
+        buildConfigField("String", "SCHOOL_ID", "\"${setting("primesecure.schoolId", "PRIMESECURE_SCHOOL_ID").ifBlank { "14eea188-73b1-40bc-8f8d-15afbea27ffa" }}\"")
+        buildConfigField("boolean", "FIRST_BOOT_TEST_MODE", (System.getenv("FIRST_BOOT_TEST_MODE") == "true").toString())
         // Same monotonically increasing epoch used by the UI publisher. A newer
         // APK must never load an older cached web interface over its bundled UI.
         buildConfigField("int", "UI_BUNDLED_VERSION", maxOf((System.currentTimeMillis() - 1767225600000L) / 1000, signedUiVersion + 1).toString())

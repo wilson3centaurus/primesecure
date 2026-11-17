@@ -55,7 +55,7 @@ internal object AppSafety {
         if (!AdminReceiver.isDeviceOwner(context)) return
         val dpm = AdminReceiver.dpm(context)
         val admin = AdminReceiver.component(context)
-        for (pkg in protectedPackages(context)) {
+        for (pkg in protectedPackages(context) - ManualAppHides.safeSystemHides) {
             runCatching {
                 if (dpm.isApplicationHidden(admin, pkg)) {
                     check(dpm.setApplicationHidden(admin, pkg, false)) { "Android refused to restore $pkg" }

@@ -21,7 +21,10 @@ internal object SettingsLockdownRules {
     fun plan(settings:Boolean,debugging:Boolean,network:Boolean,paused:Boolean,sdk:Int):Map<String,Boolean> =
         general.filterValues { it<=sdk }.mapValues { settings&&!paused } + mapOf(
             UserManager.DISALLOW_DEBUGGING_FEATURES to (debugging&&!paused),
-            UserManager.DISALLOW_CONFIG_WIFI to (network&&!paused),
+            // A school device must always be able to join a new home or school Wi-Fi
+            // network. Blocking this can permanently strand an offline device because
+            // no later policy command can reach it to release the restriction.
+            UserManager.DISALLOW_CONFIG_WIFI to false,
             UserManager.DISALLOW_CONFIG_MOBILE_NETWORKS to (network&&!paused)
         )
 }

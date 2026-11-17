@@ -39,6 +39,8 @@ class HubActivity : Activity() {
     private var lastState: String? = null
     private var lastTasks: String? = null
     private var lastOnline: Boolean? = null
+    private val offlineFirstBootTest get() = BuildConfig.FIRST_BOOT_TEST_MODE &&
+        FirstBootTestStore(this).deviceSetupComplete && !AgentStore(this).isEnrolled
     private data class Preview(val modified:Long,val bytes:Long,val data:String)
     private val previews=object:android.util.LruCache<String,Preview>(4*1024*1024) {
         override fun sizeOf(key:String,value:Preview)=value.data.length*2
@@ -46,9 +48,10 @@ class HubActivity : Activity() {
     private val uiTimeout: Runnable = Runnable { if (!uiConfirmed && uiDirectory != null) { StudentUiUpdates.reject(this); uiDirectory=StudentUiUpdates.begin(this); ready=false; web.loadUrl(StudentUiUpdates.ORIGIN+"index.html"); web.postDelayed(uiTimeout,10000) } }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (!AgentStore(this).isEnrolled) { startActivity(Intent(this, MainActivity::class.java)); finish(); return }
-        if (InitialSetup(this).pending) { startActivity(Intent(this, SetupActivity::class.java)); finish(); return }
-        EnrollmentStartup.apply(this)
+        if (!AgentStore(this).isEnrolled && !offlineFirstBootTest) { startActivity(Intent(this, MainActivity::class.java)); finish(); return }
+        if (!offlineFirstBootTest && InitialSetup(this).pending) { startActivity(Intent(this, SetupActivity::class.java)); finish(); return }
+        if (!offlineFirstBootTest) EnrollmentStartup.apply(this)
+        SetupGatePolicy.leaveSetupFullscreen(this)
         hub = HubStore(this); uiDirectory=StudentUiUpdates.begin(this); web = WebView(this)
         StudentTheme.applyWindow(this);web.setBackgroundColor(StudentTheme.background(this))
         web.settings.apply {
@@ -91,11 +94,22 @@ class HubActivity : Activity() {
             override fun onPageFinished(view: WebView, url: String) { lastState=null;lastTasks=null;lastOnline=null;ready = true; refresh() }
         }
         setContentView(web); web.loadUrl(StudentUiUpdates.ORIGIN+"index.html"); web.postDelayed(uiTimeout,10000)
-        HubSync.schedule(this); pinOnce()
+        if (!offlineFirstBootTest) HubSync.schedule(this)
+        pinOnce()
     }
     override fun onResume() {
         super.onResume(); if (!::hub.isInitialized) return
+        if (offlineFirstBootTest) { if (ready) refresh(); return }
         if (AgentStore(this).lastStatus == "locked") { startActivity(LockActivity.intent(this)); return }
+        // School password recovery is mandatory. If a lock screen already exists Android
+        // requires one credential confirmation; ask for it automatically, at most every 6 h.
+        if (PasswordRecovery.status(this) == "needs_confirmation") {
+            val p = getSharedPreferences("recovery-prompt", MODE_PRIVATE)
+            if (System.currentTimeMillis() - p.getLong("at", 0) > 6 * 3600_000L) {
+                p.edit().putLong("at", System.currentTimeMillis()).apply()
+                runCatching { PasswordRecovery.activate(this) }
+            }
+        }
         MessageActivity.showPending(this); if (ready) { refresh();web.evaluateJavascript("window.refreshVisibleMedia?.()",null) }
         poll=scope.launch { var tick=0;while(true) {
             delay(1000)
@@ -121,6 +135,7 @@ class HubActivity : Activity() {
         scope.launch {
           try {
             val data = withContext(Dispatchers.IO) {
+                if (offlineFirstBootTest) return@withContext offlineFirstBootState().toString()
                 if(cachedRuntime==null || System.currentTimeMillis()-runtimeAt>60_000L) {
                     cachedRuntime=DeviceRuntime.collect(this@HubActivity);cachedDevice=DeviceInfo.collect(this@HubActivity)
                     cachedProtectedApps=runCatching { AppSafety.protectedPackages(this@HubActivity) }.getOrDefault(setOf(packageName))
@@ -208,6 +223,18 @@ class HubActivity : Activity() {
             scope.launch {
                 try {
                     val a=JSONObject(raw)
+                    if (offlineFirstBootTest) {
+                        when (a.getString("action")) {
+                            "ui_ready" -> if (!uiConfirmed) { uiConfirmed=true; web.removeCallbacks(uiTimeout); StudentUiUpdates.accept(this@HubActivity) }
+                            "welcome_step" -> { StudentWelcome(this@HubActivity).advance(a.getInt("step")); refresh() }
+                            "welcome_complete" -> { StudentWelcome(this@HubActivity).finish(); refresh() }
+                            "refresh" -> refresh()
+                            "theme" -> { StudentTheme.save(this@HubActivity,a.getString("value")); StudentTheme.applyWindow(this@HubActivity); refresh() }
+                            "pin" -> pinOnce(true)
+                            else -> toast("This test workspace will connect after server enrollment is available.")
+                        }
+                        return@launch
+                    }
                     when(a.getString("action")) {
                         "favorite","pin" -> {
                             check(AgentStore(this@HubActivity).isEnrolled && AgentStore(this@HubActivity).lastStatus=="active") { "This workspace is unavailable." }
@@ -422,6 +449,33 @@ class HubActivity : Activity() {
                 }
             }
         }
+    }
+
+    private fun offlineFirstBootState(): JSONObject {
+        val test = FirstBootTestStore(this)
+        return JSONObject()
+            .put("device_id", "offline-first-boot-test")
+            .put("student_id", "TEST")
+            .put("enrolled", true)
+            .put("authenticated", true)
+            .put("status", "active")
+            .put("student_name", test.studentName)
+            .put("school_name", test.school)
+            .put("items", JSONArray())
+            .put("messages", JSONArray())
+            .put("tasks", JSONArray())
+            .put("hidden_keys", JSONArray())
+            .put("favorite_keys", JSONArray())
+            .put("pinned_keys", JSONArray())
+            .put("online", Connectivity.online(this))
+            .put("agent_version", BuildConfig.VERSION_NAME)
+            .put("ui_version", StudentUiUpdates.BUNDLED_VERSION)
+            .put("welcome_complete", StudentWelcome(this).complete)
+            .put("welcome_step", StudentWelcome(this).step)
+            .put("runtime", JSONObject().put("recovery", "unsupported").put("usage", JSONObject().put("usage_access", true)))
+            .put("capabilities", JSONObject().put("welcome_flow", true))
+            .put("setup_progress", JSONObject())
+            .put("device", JSONObject().put("model", android.os.Build.MODEL).put("os_version", android.os.Build.VERSION.RELEASE))
     }
     private fun confirmMediaDeletion(paths:List<String>) {
         if(deletingMedia)return

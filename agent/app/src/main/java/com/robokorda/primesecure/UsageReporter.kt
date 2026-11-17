@@ -25,8 +25,13 @@ object UsageReporter {
 
     @Suppress("DEPRECATION")
     fun accessGranted(context: Context): Boolean = runCatching {
-        context.getSystemService(AppOpsManager::class.java)
-            .checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName) == AppOpsManager.MODE_ALLOWED
+        val mode = context.getSystemService(AppOpsManager::class.java)
+            .checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName)
+        // Firmware-privileged PrimeSecure holds PACKAGE_USAGE_STATS as a granted privileged
+        // permission; with the app-op at MODE_DEFAULT Android then allows usage queries,
+        // so no student action is needed.
+        mode == AppOpsManager.MODE_ALLOWED || (mode == AppOpsManager.MODE_DEFAULT &&
+            context.checkSelfPermission(android.Manifest.permission.PACKAGE_USAGE_STATS) == android.content.pm.PackageManager.PERMISSION_GRANTED)
     }.getOrDefault(false)
 
     fun openAccessSettings(context: Context) {
