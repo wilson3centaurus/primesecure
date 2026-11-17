@@ -9,6 +9,47 @@ import type { FormState } from "@/lib/types";
 
 export type AddDevicesState = (NonNullable<FormState> & { created?: { id: string; name: string; token: string }[] }) | undefined;
 
+export type SetupCodeState = { code?: string; expiresAt?: string; error?: string } | undefined;
+
+export async function issueSchoolSetupCode(): Promise<SetupCodeState> {
+  const staff = await requireStaff();
+  const school = await getCurrentSchool();
+  if (!school || !canManage(staff, school.id)) return { error: "Only school administrators can issue setup codes." };
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("staff_issue_school_setup_code", { p_school: school.id });
+  if (error || !data?.code) return { error: error?.message ?? "Could not issue a setup code." };
+  revalidatePath("/devices");
+  return { code: String(data.code), expiresAt: String(data.expires_at) };
+}
+
+export async function approveDeviceSetup(formData: FormData): Promise<void> {
+  const staff = await requireStaff();
+  const school = await getCurrentSchool();
+  const request = String(formData.get("request_id") ?? "");
+  if (!school || !canManage(staff, school.id) || !/^[0-9a-f-]{36}$/i.test(request)) {
+    redirect("/devices?setup_error=Only+school+administrators+can+approve+this+request.");
+  }
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("staff_approve_device_setup", { p_request: request, p_school: school.id });
+  if (error) redirect(`/devices?setup_error=${encodeURIComponent(error.message)}`);
+  revalidatePath("/devices");
+  redirect("/devices?setup_notice=Device+approved.+Compare+the+key+before+enrollment.");
+}
+
+export async function rejectDeviceSetup(formData: FormData): Promise<void> {
+  const staff = await requireStaff();
+  const school = await getCurrentSchool();
+  const request = String(formData.get("request_id") ?? "");
+  if (!school || !canManage(staff, school.id) || !/^[0-9a-f-]{36}$/i.test(request)) {
+    redirect("/devices?setup_error=Only+school+administrators+can+reject+this+request.");
+  }
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("staff_reject_device_setup", { p_request: request });
+  if (error) redirect(`/devices?setup_error=${encodeURIComponent(error.message)}`);
+  revalidatePath("/devices");
+  redirect("/devices?setup_notice=Setup+request+rejected.");
+}
+
 export async function setDeviceSafety(_previous:FormState,form:FormData):Promise<FormState> {
  await requireStaff();
  const device=String(form.get('device_id')||''),action=String(form.get('action')||''),release=String(form.get('release_id')||'');

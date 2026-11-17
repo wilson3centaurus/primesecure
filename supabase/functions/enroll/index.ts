@@ -101,6 +101,14 @@ Deno.serve(async (req) => {
     return json(500, { error: "link_failed" });
   }
 
+  // The dashboard must not call a device active before the actual enrollment
+  // exchange succeeds. This transition is the physical-device proof point.
+  await admin
+    .from("device_setup_requests")
+    .update({ status: "enrolled", enrolled_at: new Date().toISOString() })
+    .eq("device_id", device.id)
+    .eq("status", "approved");
+
   return json(200, {
     device_id: device.id,
     school_id: device.school_id,

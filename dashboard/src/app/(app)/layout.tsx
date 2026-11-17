@@ -5,7 +5,7 @@ import { WorkspaceShell } from "@/components/workspace-shell";
 import { UploadQueueProvider } from "@/components/upload-queue";
 import { getCurrentSchool, getVisibleSchools, requireStaff, ROLE_LABEL } from "@/lib/auth";
 import Image from "next/image";
-import { LayoutDashboard, Laptop, Mail, FolderOpen, AppWindow, MessageCircle, Users, School, Download, Settings, BarChart3, ClipboardList, LogOut } from "lucide-react";
+import { LayoutDashboard, Laptop, Mail, FolderOpen, AppWindow, MessageCircle, Users, School, Download, Settings, BarChart3, ClipboardList, LogOut, KeyRound, BadgeCheck } from "lucide-react";
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const staff = await requireStaff();
@@ -16,6 +16,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
     <div className="space-y-2"><p className="sidebar-caption">Workspace</p><nav className="space-y-1" aria-label="School workspace">
       <NavLink href="/overview"><LayoutDashboard/>Overview</NavLink>
       <NavLink href="/devices"><Laptop/>Students & devices</NavLink>
+      {staff.role!=="teacher"&&<NavLink href="/setup-code"><KeyRound/>PrimeBook setup code</NavLink>}
       <NavLink href="/messages"><Mail/>Messages</NavLink>
       <NavLink href="/library"><FolderOpen/>Content & files</NavLink>
       <NavLink href="/apps"><AppWindow/>Apps</NavLink>
@@ -24,6 +25,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
     <div className="space-y-2"><p className="sidebar-caption">Management</p><nav className="space-y-1" aria-label="School management">
       {staff.role!=="teacher"&&<NavLink href="/reports"><BarChart3/>Usage reports</NavLink>}
       {staff.role!=="teacher"&&<NavLink href="/cases"><ClipboardList/>Issues & cases</NavLink>}
+      {staff.role!=="teacher"&&<NavLink href="/licences"><BadgeCheck/>Licences</NavLink>}
       {staff.role!=="teacher"&&<NavLink href="/settings"><Settings/>Settings</NavLink>}
       <NavLink href="/staff"><Users/>Staff</NavLink>
       {staff.role==="super_admin"&&<NavLink href="/schools"><School/>Schools</NavLink>}

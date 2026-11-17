@@ -105,7 +105,7 @@ port = 54324
 [storage]
 enabled = true
 # The maximum file size allowed (e.g. "5MB", "500KB").
-file_size_limit = "50MiB"
+file_size_limit = "500MB"
 
 # Uncomment to configure local storage buckets
 # [storage.buckets.images]
@@ -386,3 +386,8 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 [functions.enroll]
 # Devices call this with the anon key before they have their own account.
 verify_jwt = true
+
+[functions.device-setup]
+# Pre-enrollment devices authenticate polling with a high-entropy request
+# secret. A device token is released only after a staff dashboard approval.
+verify_jwt = false

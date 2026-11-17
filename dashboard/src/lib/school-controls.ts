@@ -1,5 +1,6 @@
 export const BUILTIN_APP_REQUESTS = [
  {package:"com.google.android.googlequicksearchbox",name:"Google"},
+ {package:"com.google.android.youtube",name:"YouTube"},
  {package:"com.floydwiz.browser",name:"Primebook Browser"},
  {package:"com.floydwiz.manual",name:"Primebook Help"},
  {package:"com.floydwiz.primestore",name:"Primebook App Store"},

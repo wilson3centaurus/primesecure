@@ -5,6 +5,17 @@ import { revalidatePath } from "next/cache";
 import type { FormState } from "@/lib/types";
 import { BUILTIN_APP_REQUESTS } from "@/lib/school-controls";
 import { parseBlockedPackages } from "@/lib/package-rules";
+import { redirect } from "next/navigation";
+
+export async function setFleetLicenceValidation(form:FormData):Promise<void> {
+ const staff=await requireStaff();
+ if(staff.role!=="super_admin")redirect('/settings?licence_error=RoboKorda+administrator+access+required.');
+ const enabled=String(form.get('enabled')||'')==='true';
+ const db=await createClient();const {error}=await db.rpc('staff_set_licence_validation',{p_enabled:enabled});
+ if(error)redirect(`/settings?licence_error=${encodeURIComponent(error.message)}`);
+ revalidatePath('/settings');revalidatePath('/licences');
+ redirect(`/settings?licence_notice=${encodeURIComponent(enabled?'Licence validation enabled for the fleet.':'Licence validation disabled. OS and MDM testing will not be blocked.')}`);
+}
 export async function saveManagementSettings(_prev:FormState,form:FormData):Promise<FormState> {
  const staff=await requireStaff(),school=await getCurrentSchool();if(!school||!canManage(staff,school.id))return {error:'School administrator access required.'};
  const db=await createClient();
