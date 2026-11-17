@@ -12,8 +12,8 @@ export function FactoryContentExports() {
       <h2 className="text-sm font-semibold">Factory preload exports</h2>
       <p className="mt-2 text-sm text-slate-500">
         Download a versioned snapshot of the content currently available to this school. These ZIP files preserve
-        the catalogue metadata and hashes used by PrimeSecure, so they can be embedded in a future PrimeOS image.
-        Content added after the snapshot will continue to sync online.
+        the catalogue folders, metadata and hashes used by PrimeSecure, so they can be copied into an offline USB
+        factory preload. Content added after the snapshot will continue to sync online.
       </p>
       <div className="mt-4 grid gap-3 md:grid-cols-3">
         {exports.map((item) => (
@@ -31,8 +31,8 @@ export function FactoryContentExports() {
         ))}
       </div>
       <p className="mt-3 text-xs text-muted">
-        Large exports stream directly from protected storage and may take time. Keep this tab open until the ZIP
-        finishes downloading.
+        Each export is a point-in-time snapshot. Large exports stream directly from protected storage and may take
+        time; keep this tab open until the ZIP finishes downloading.
       </p>
     </section>
   );
