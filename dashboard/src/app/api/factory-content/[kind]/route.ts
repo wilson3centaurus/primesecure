@@ -69,7 +69,7 @@ async function readAll<T>(load: (from: number, to: number) => PromiseLike<{ data
   }
 }
 
-export async function GET(request: Request, { params }: { params: Promise<{ kind: string }> }) {
+export async function GET(_request: Request, { params }: { params: Promise<{ kind: string }> }) {
   const requested = (await params).kind as ExportKind;
   const hubKind = exportKinds[requested];
   if (!hubKind) return Response.json({ error: "Unknown factory-content export" }, { status: 404 });
@@ -89,25 +89,6 @@ export async function GET(request: Request, { params }: { params: Promise<{ kind
   const visible = items.filter((item) => item.school_id === school.id || (item.school_id === null && shared.has(item.id)));
 
   const createdAt = new Date().toISOString();
-  if (new URL(request.url).searchParams.get("mode") === "manifest") {
-    const authorized: Array<HubItem & { archive_path: string; signed_url: string }> = [];
-    for (let offset = 0; offset < visible.length; offset += 100) {
-      const batch = visible.slice(offset, offset + 100);
-      const { data, error } = await db.storage.from("primesecure-hub")
-        .createSignedUrls(batch.map((item) => item.storage_path), 60 * 60 * 24);
-      if (error || !data) return Response.json({ error: error?.message || "Could not authorize export files." }, { status: 502 });
-      for (let index = 0; index < batch.length; index += 1) {
-        const signedUrl = data[index]?.signedUrl;
-        if (!signedUrl) return Response.json({ error: `Could not authorize ${batch[index].storage_path}.` }, { status: 502 });
-        authorized.push({ ...batch[index], archive_path: archivePath(batch[index]), signed_url: signedUrl });
-      }
-    }
-    return Response.json({
-      schema: "com.robokorda.primesecure.factory-content/v1", created_at: createdAt,
-      school: { id: school.id, name: school.name }, export: requested,
-      item_count: authorized.length, total_bytes: authorized.reduce((sum, item) => sum + Number(item.size || 0), 0), items: authorized,
-    }, { headers: { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
-  }
   const manifestItems: Array<Record<string, unknown>> = [];
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
