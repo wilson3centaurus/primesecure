@@ -386,7 +386,7 @@ def main(argv=None):
     try:
         print(json.dumps({'phase':'connecting_verified_ssh_host'}),flush=True)
         client.connect(HOST, username='root', key_filename=str(Path.home()/'.ssh/primesecure_support_ed25519'),
-                       timeout=15, banner_timeout=15, auth_timeout=15, allow_agent=False, look_for_keys=False)
+                       timeout=45, banner_timeout=45, auth_timeout=45, allow_agent=False, look_for_keys=False)
         client.get_transport().set_keepalive(10)
         print(json.dumps({'phase':'read_only_release_inspection'}),flush=True)
         inspected = remote_run(client, plan)
