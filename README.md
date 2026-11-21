@@ -2,6 +2,10 @@
 
 Self-hosted MDM for PrimeOS (Android 11) student Primebooks.
 
+The paired firmware workspace is `C:\Users\XO\Desktop\PrimeOS-RoboKorda`. Its [authoritative engineering handoff](../PrimeOS-RoboKorda/docs/CURRENT_STATUS_README.md) records the V7-V21 history, Device Owner proof, registration work, recovery/AVB findings, storage rules and current incident. APK/backend changes here and flash-image changes there must be verified together on the same pilot.
+
+> **Firmware stop notice — 10 November 2026:** PrimeSecure `0.9.37-v21fullscreen-background` / code 70 builds and passes PC tests, but the V21 fresh firmware physically bootloops before Android/ADB on the tested unlocked PrimeBook. Do not flash V21 or infer firmware readiness from the APK build. Recover with one complete matched known-good firmware set first.
+
 | Path | What |
 | --- | --- |
 | `agent/` | Kotlin Device Owner agent (`com.robokorda.primesecure`) |
@@ -50,6 +54,10 @@ Debug builds are `testOnly` (adb can remove the Device Owner without a factory r
 plain-HTTP servers. Release builds are neither.
 
 ### Provision a Primebook
+
+There is currently no approved firmware pilot to flash. V8 physically proved Device Owner, while later versions refined the gate and registration flow; V21 failed physical boot. Read the paired firmware handoff before any device action.
+
+The ADB procedure below is retained only as a development/test path for an already booting engineering device. It is not a fleet deployment or a way to diagnose a pre-Android boot loop.
 
 For the Windows setup window (no terminal commands for operators), see [PC Setup](tools/pc-setup/README.md). The portable kit includes the verified APK and connection tools; staff authorize wireless debugging, select a device and enter its enrollment key. Device Owner still requires Android authorization. The kit does not wipe devices or bypass another owner's management.
 

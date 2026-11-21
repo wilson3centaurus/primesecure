@@ -78,6 +78,11 @@ class RealtimeClient(
                     // Library/settings changes update our device row's sync_revision.
                     // Devices have no direct SELECT permission on school settings/access.
                     .put(change("INSERT", "support_messages", "device_id=eq.$deviceId"))
+                    .put(change("*", "student_friend_requests", null, "primesecure"))
+                    .put(change("*", "student_contacts", null, "primesecure"))
+                    .put(change("*", "student_blocks", null, "primesecure"))
+                    .put(change("*", "student_chat_messages", null, "primesecure"))
+                    .put(change("*", "student_chat_presence", null, "primesecure"))
                 val payload = JSONObject()
                     .put("config", JSONObject()
                         .put("broadcast", JSONObject().put("self", false))
@@ -137,8 +142,8 @@ class RealtimeClient(
         }
     }
 
-    private fun change(event: String, table: String, filter: String?) = JSONObject()
-        .put("event", event).put("schema", "public").put("table", table)
+    private fun change(event: String, table: String, filter: String?, schema: String = "public") = JSONObject()
+        .put("event", event).put("schema", schema).put("table", table)
         .apply { if (filter != null) put("filter", filter) }
 
     private fun message(topic: String, event: String, payload: JSONObject, ref: String, joinRef: String?) =

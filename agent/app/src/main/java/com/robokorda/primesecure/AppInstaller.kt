@@ -36,7 +36,7 @@ class AppInstaller(private val context: Context, private val store: AgentStore) 
         // the hub object and supplies its hash. Remote commands explicitly name .psapk.
         suspend fun approvedItem(): JSONObject? {
             if (bucket != "primesecure-hub") return null
-            val catalog = SupabaseApi(store).rpc("device_hub")
+            val catalog = SupabaseApi(store).deviceHub()
             require(catalog.optString("status", store.lastStatus.orEmpty()) == "active") { "App installs require an active school device" }
             val items = catalog.getJSONArray("items")
             return (0 until items.length()).map { items.getJSONObject(it) }.find {

@@ -53,7 +53,8 @@ class OfflineWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                     api.rpc("device_support_photo",JSONObject().put("p_image",payload.getString("image")).put("p_request_id",id))
                     tasks.update(id,"done")
                 } else {
-                    api.rpc("device_offline_action", JSONObject().put("p_request_id", id).put("p_action", action).put("p_payload", payload))
+                    api.rpc("device_offline_action", JSONObject().put("p_request_id", id).put("p_action", action).put("p_payload", payload),
+                        schema = if (action.startsWith("chat_")) "primesecure" else "public")
                     tasks.update(id, "done")
                     // Keep the local profile until a fresh catalog confirms the saved values.
                 }

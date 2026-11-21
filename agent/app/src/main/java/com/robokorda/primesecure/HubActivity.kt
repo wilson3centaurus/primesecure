@@ -167,7 +167,7 @@ class HubActivity : Activity() {
                     .put("runtime",cachedRuntime).put("agent_version",BuildConfig.VERSION_NAME).put("ui_version",uiDirectory?.name?.drop(1)?.toIntOrNull() ?: StudentUiUpdates.BUNDLED_VERSION)
                     .put("welcome_complete",StudentWelcome(this@HubActivity).complete).put("welcome_step",StudentWelcome(this@HubActivity).step)
                     .put("media_view",getSharedPreferences("student-display",MODE_PRIVATE).getString("media_view","grid"))
-                    .put("capabilities",JSONObject().put("welcome_flow",true).put("resource_covers",true).put("resource_copy",true).put("media_batch",true).put("delete_personal_media",true).put("resource_requests",true).put("open_approved_apps",true).put("uninstall_optional_apps",true).put("usage_access_setup",true).put("support_photo",true).put("theme_preferences",true).put("communication_inbox",true).put("controlled_downloads",true).put("prime_media",true).put("prime_media_covers",true))
+                    .put("capabilities",JSONObject().put("welcome_flow",true).put("resource_covers",true).put("resource_copy",true).put("media_batch",true).put("delete_personal_media",true).put("resource_requests",true).put("open_approved_apps",true).put("uninstall_optional_apps",true).put("usage_access_setup",true).put("support_photo",true).put("theme_preferences",true).put("communication_inbox",true).put("student_chat",true).put("controlled_downloads",true).put("prime_media",true).put("prime_media_covers",true))
                     .put("download_sites",JSONArray(SchoolWebTools.all.mapNotNull { SchoolWebTools.configured(this@HubActivity,it.id) }.map { tool -> JSONObject().put("id",tool.id).put("title",tool.title).put("url",tool.startUrl).put("allowed",ApprovedWebApps.rules(this@HubActivity).allows(tool.startUrl)) }))
                     .put("ui_theme",StudentTheme.preference(this@HubActivity))
                     .put("hidden_keys",JSONArray(hub.hiddenKeys())).put("sync_error",hub.syncError ?: JSONObject.NULL)
@@ -194,6 +194,9 @@ class HubActivity : Activity() {
                 catalog.put("pending_support",JSONArray(HubTasks(this@HubActivity).all().filter { it.optString("action") in setOf("support","name_appeal","support_photo","support_post","bug_report") && it.optString("status") !in setOf("done","superseded") }.map {
                     JSONObject().put("body",if(it.optString("action")=="support_photo")"Photo for support" else it.getJSONObject("payload").optString("body")).put("status",it.optString("status"))
                 }))
+                catalog.put("pending_chat",JSONArray(HubTasks(this@HubActivity).all().filter { it.optString("action").startsWith("chat_") && it.optString("status") !in setOf("done","superseded") }.map {
+                    JSONObject().put("action",it.optString("action")).put("payload",it.optJSONObject("payload") ?: JSONObject()).put("status",it.optString("status"))
+                }))
                 catalog.toString()
             }
             if (ready && data!=lastState) {
@@ -201,6 +204,9 @@ class HubActivity : Activity() {
                 web.evaluateJavascript("window.receiveState($quoted)") {
                     if(intent.getBooleanExtra("open_support",false)) {
                         intent.removeExtra("open_support");web.evaluateJavascript("window.openSupport()",null)
+                    }
+                    if(intent.getBooleanExtra("open_chat",false)) {
+                        intent.removeExtra("open_chat");web.evaluateJavascript("window.openSupport()",null)
                     }
                 };lastState=data
             }
@@ -302,6 +308,24 @@ class HubActivity : Activity() {
                             val ids=a.getJSONArray("ids");check(ids.length()<=200)
                             withContext(Dispatchers.IO) { HubTasks(this@HubActivity).enqueue("support_read",JSONObject().put("ids",ids),"Read support replies") };OfflineWorker.schedule(this@HubActivity)
                             Notifications.cancelSupport(this@HubActivity)
+                        }
+                        "chat_search" -> {
+                            val query=a.optString("query").trim();check(query.length in 2..40) { "Enter at least two username characters." }
+                            val result=withContext(Dispatchers.IO) { SupabaseApi(AgentStore(this@HubActivity)).rpc("device_chat_directory",JSONObject().put("p_query",query).put("p_limit",12),schema="primesecure") }
+                            if(ready)web.evaluateJavascript("window.receiveChatDirectory?.(${JSONObject.quote(result.toString())})",null)
+                        }
+                        "chat_presence" -> {
+                            if(!Connectivity.online(this@HubActivity))return@launch
+                            val target=a.optString("device_id").takeIf { it.isNotBlank() }
+                            withContext(Dispatchers.IO) { SupabaseApi(AgentStore(this@HubActivity)).rpc("device_chat_presence",JSONObject().put("p_target_device_id",target ?: JSONObject.NULL).put("p_typing",a.optBoolean("typing")),schema="primesecure") }
+                        }
+                        "chat_action" -> {
+                            val action=a.getString("type")
+                            check(action in setOf("chat_request","chat_respond","chat_cancel","chat_send","chat_read","chat_block","chat_unblock","chat_preference")) { "Unsupported chat action." }
+                            enqueue(action,a.optJSONObject("payload") ?: JSONObject(),when(action) {
+                                "chat_send"->"Chat message";"chat_request"->"Friend request";"chat_respond"->"Friend request response";"chat_block"->"Block student";"chat_unblock"->"Unblock student";else->"Chat update"
+                            })
+                            if(action=="chat_read")Notifications.cancelStudentChat(this@HubActivity)
                         }
                         "device_password" -> {
                             PasswordRecovery.activate(this@HubActivity)

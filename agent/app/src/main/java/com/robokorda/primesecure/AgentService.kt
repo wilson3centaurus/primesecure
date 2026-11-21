@@ -113,7 +113,8 @@ class AgentService : Service() {
                 checkInSoon()
             }
             "policies" -> checkInSoon()
-            "hub_items", "hub_access", "hub_settings", "support_messages" -> {
+            "hub_items", "hub_access", "hub_settings", "support_messages", "student_friend_requests",
+            "student_contacts", "student_blocks", "student_chat_messages", "student_chat_presence" -> {
                 checkInSoon();scheduleSafely("realtime_hub") { HubSync.schedule(this) }
             }
             // Every check-in updates our own row; only a status change needs action.

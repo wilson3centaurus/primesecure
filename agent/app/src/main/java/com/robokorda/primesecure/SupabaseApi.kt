@@ -28,16 +28,22 @@ class SupabaseApi(private val store: AgentStore) {
         return post("/functions/v1/enroll", body, bearer = store.anonKey)
     }
 
-    suspend fun rpc(name: String, args: JSONObject = JSONObject()): JSONObject {
+    suspend fun rpc(name: String, args: JSONObject = JSONObject(), schema: String = "public"): JSONObject {
+        require(schema.matches(Regex("^[a-z][a-z0-9_]{0,62}$"))) { "Invalid API schema" }
         return try {
-            post("/rest/v1/rpc/$name", args, bearer = accessToken())
+            post("/rest/v1/rpc/$name", args, bearer = accessToken(), schema = schema)
         } catch (e: ApiException) {
             if (e.code != 401) throw e
             // Token revoked or clock skew: drop it and sign in again once.
             store.accessToken = null
-            post("/rest/v1/rpc/$name", args, bearer = accessToken())
+            post("/rest/v1/rpc/$name", args, bearer = accessToken(), schema = schema)
         }
     }
+
+    /** Combines the legacy public catalogue with the schema-isolated chat payload. */
+    suspend fun deviceHub(): JSONObject = rpc("device_hub")
+        .put("student_chat", rpc("device_chat_hub", schema = "primesecure"))
+        .put("student_chat_features", true)
 
     /** Downloads a file (e.g. a storage object) as the device account into [target]. */
     suspend fun download(path: String, target: File, resume: Boolean = false, maxBytes: Long = Long.MAX_VALUE, progress: ((Long, Long, Long) -> Unit)? = null) = withContext(Dispatchers.IO) {
@@ -119,7 +125,7 @@ class SupabaseApi(private val store: AgentStore) {
         return token
     }
 
-    private suspend fun post(path: String, body: JSONObject, bearer: String): JSONObject =
+    private suspend fun post(path: String, body: JSONObject, bearer: String, schema: String? = null): JSONObject =
         withContext(Dispatchers.IO) {
             val base = store.serverUrl
             if (base.isBlank()) throw ApiException(0, "No server URL configured")
@@ -127,6 +133,12 @@ class SupabaseApi(private val store: AgentStore) {
                 .url(base.trimEnd('/') + path)
                 .header("apikey", store.anonKey)
                 .header("Authorization", "Bearer $bearer")
+                .apply {
+                    if (schema != null) {
+                        header("Accept-Profile", schema)
+                        header("Content-Profile", schema)
+                    }
+                }
                 .post(body.toString().toRequestBody(JSON))
                 .build()
             http.newCall(request).executeCancellable { response ->

@@ -111,6 +111,33 @@ object Notifications {
 
     fun cancelSupport(context:Context) { manager(context).cancel(930) }
 
+    fun cancelStudentChat(context:Context) { manager(context).cancel(931) }
+
+    fun studentChat(context:Context,catalog:org.json.JSONObject) {
+        val chat=catalog.optJSONObject("student_chat") ?: return
+        val contacts=chat.optJSONArray("contacts") ?: return
+        val unread=(0 until contacts.length()).map { contacts.getJSONObject(it) }.filter { it.optInt("unread")>0 }
+        val prefs=context.getSharedPreferences("student-chat-notifications",Context.MODE_PRIVATE)
+        val device=AgentStore(context).deviceId
+        if(prefs.getString("device",null)!=device) {
+            cancelStudentChat(context);prefs.edit().clear().putString("device",device).commit()
+        }
+        if(unread.isEmpty()) { cancelStudentChat(context);prefs.edit().remove("signature").apply();return }
+        val signature=unread.joinToString(",") { "${it.optString("contact_id")}:${it.optInt("unread")}:${it.optString("last_message_at")}" }
+        if(prefs.getString("signature",null)==signature)return
+        val total=unread.sumOf { it.optInt("unread") }
+        val newest=unread.maxByOrNull { it.optString("last_message_at") }
+        val open=PendingIntent.getActivity(context,931,Intent(context,HubActivity::class.java).putExtra("open_chat",true),PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val title=if(unread.size==1)"New message from @${newest?.optString("username","student")}" else "$total new messages from ${unread.size} friends"
+        val body=newest?.optString("last_message")?.take(140).orEmpty().ifBlank { "Open PrimeSecure Chat to read your messages." }
+        createChannels(context)
+        val notification=builder(context,MESSAGE_CHANNEL).setSmallIcon(android.R.drawable.ic_dialog_email)
+            .setContentTitle(title).setContentText(body).setStyle(Notification.BigTextStyle().bigText(body))
+            .setContentIntent(open).setCategory(Notification.CATEGORY_MESSAGE)
+            .setVisibility(Notification.VISIBILITY_PRIVATE).setAutoCancel(true).build()
+        runCatching { manager(context).notify(931,notification);prefs.edit().putString("signature",signature).apply() }
+    }
+
     fun supportReplies(context:Context,catalog:org.json.JSONObject) {
         val prefs=context.getSharedPreferences("support-notifications",Context.MODE_PRIVATE)
         val device=AgentStore(context).deviceId

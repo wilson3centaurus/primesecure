@@ -44,11 +44,12 @@ class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(cont
             if (checkpoint.getString("device", null) != device) checkpoint.edit().clear().putString("device", device).commit()
             if (inputData.getBoolean("force", false) && runAttemptCount == 0) checkpoint.edit().remove("failures").commit()
             val revision=api.rpc("device_sync_state").optLong("revision")
-            hub.catalog = api.rpc("device_hub").put("_sync_revision",revision).put("catalog_fetched_at_ms", System.currentTimeMillis())
+            hub.catalog = api.deviceHub().put("_sync_revision",revision).put("catalog_fetched_at_ms", System.currentTimeMillis())
             if (store.deviceId != device) return Result.success()
             // Do not wait for thousands of school files (or a failed item) before checking UI fixes.
             StudentUiUpdates.check(applicationContext)
             Notifications.supportReplies(applicationContext,hub.catalog)
+            Notifications.studentChat(applicationContext,hub.catalog)
             val draft=hub.profileDraft;val saved=hub.catalog.optJSONObject("student_profile")
             if(draft!=null && saved!=null && tasks.pending().none { it.optString("action")=="profile" } && draft.keys().asSequence().all { draft.optString(it,"")==saved.optString(it,"").let { value->if(value=="null") "" else value } }) hub.profileDraft=null
             val history = api.rpc("device_message_history")
@@ -78,7 +79,7 @@ class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(cont
                 if (SystemClock.elapsedRealtime() - lastCatalogPoll >= 15_000) {
                     val currentRevision = api.rpc("device_sync_state").optLong("revision")
                     if (currentRevision != hub.catalog.optLong("_sync_revision", -1)) {
-                        hub.catalog = api.rpc("device_hub").put("_sync_revision", currentRevision).put("catalog_fetched_at_ms", System.currentTimeMillis())
+                        hub.catalog = api.deviceHub().put("_sync_revision", currentRevision).put("catalog_fetched_at_ms", System.currentTimeMillis())
                         SetupProgress.reportSoon(applicationContext)
                     }
                     lastCatalogPoll = SystemClock.elapsedRealtime()
@@ -266,7 +267,7 @@ class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(cont
     }
     private suspend fun install(item: JSONObject, task: String, api: SupabaseApi, store: AgentStore, hub: HubStore, tasks: HubTasks) {
         val revision = api.rpc("device_sync_state").optLong("revision")
-        val catalog = api.rpc("device_hub").put("_sync_revision", revision).put("catalog_fetched_at_ms", System.currentTimeMillis())
+        val catalog = api.deviceHub().put("_sync_revision", revision).put("catalog_fetched_at_ms", System.currentTimeMillis())
         hub.catalog = catalog
         check(catalog.optString("status", store.lastStatus) == "active") { "App installs require an active school device." }
         val fresh = catalog.optJSONArray("items") ?: org.json.JSONArray()

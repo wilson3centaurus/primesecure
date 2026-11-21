@@ -6,7 +6,7 @@ Background tasks shows connection waits, download bytes, speed, installation and
 
 Wi-Fi reconnects trigger check-in and pending work. The foreground management service catches up every minute and schedules inventory/location every five minutes. WorkManager retains its periodic fallback. Android and PrimeOS still govern actual scheduling and connectivity.
 
-Students can edit username, DOB, address, guardian/student phones and a compressed picture. Real names remain school-controlled; correction requests appear in Student support. Picture selection is prompted on first open but optional. Profile entry also works offline. Support conversations are private to the student's device and school/support administrators.
+Students can edit username, DOB, address, guardian/student phones and a compressed picture. Real names remain school-controlled; correction requests appear in Student support. Picture selection is prompted on first open but optional. Profile entry also works offline. A student's username and picture are visible to schoolmates in Chat; personal and guardian details remain restricted to authorised staff. Authorised school administrators can review internal student chats and support conversations for safeguarding.
 
 Media defaults to Documents, filtering out APKs and dotfiles. Built-in viewers cover images, music, video and PDF. DOCX, ODT and EPUB offer bounded text views; formatting, embedded images and EPUB chapter order can differ. Legacy DOC and unsupported media codecs still need an approved reader. Storage totals come from Android; category totals are a partial shared-file inventory, excluding protected app/system files.
 

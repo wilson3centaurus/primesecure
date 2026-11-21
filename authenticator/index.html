@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RoboKorda Authenticator</title>
+<meta name="description" content="Issues short-lived PrimeBook setup codes for school administrators.">
+<meta name="theme-color" content="#6254d9">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main id="app" class="shell">
+
+  <section id="view-login" class="card" hidden>
+    <img class="logo" src="icons/icon-192.png" alt="" width="64" height="64">
+    <h1>RoboKorda Authenticator</h1>
+    <p class="muted">Sign in with your admin dashboard account to get PrimeBook setup codes.</p>
+    <form id="login-form" autocomplete="on">
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="username" inputmode="email" required>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <label class="check"><input id="keep" type="checkbox" checked> Keep me signed in on this device</label>
+      <p id="login-error" class="error" role="alert" hidden></p>
+      <button id="login-btn" class="primary" type="submit">Sign in</button>
+    </form>
+  </section>
+
+  <section id="view-code" class="card" hidden>
+    <header class="bar">
+      <div class="who">
+        <strong id="school-name">School</strong>
+        <span id="user-email" class="muted small"></span>
+      </div>
+      <button id="menu-btn" class="ghost" type="button" aria-label="Menu" aria-haspopup="true" aria-expanded="false">⋯</button>
+      <div id="menu" class="menu" hidden>
+        <button id="switch-school" type="button" hidden>Switch school</button>
+        <button id="install-btn" type="button" hidden>Install app</button>
+        <button id="signout" type="button">Sign out</button>
+      </div>
+    </header>
+
+    <p class="muted center">Enter this code on the PrimeBook and tap <b>Verify</b>.</p>
+
+    <button id="code-btn" class="code-wrap" type="button" aria-label="Setup code. Tap to copy.">
+      <svg class="ring" viewBox="0 0 120 120" aria-hidden="true">
+        <circle class="track" cx="60" cy="60" r="54"/>
+        <circle id="arc" class="arc" cx="60" cy="60" r="54" transform="rotate(-90 60 60)"/>
+      </svg>
+      <span id="code" class="code" aria-live="off">······</span>
+      <span id="secs" class="secs">—</span>
+    </button>
+
+    <p id="status" class="muted center small" role="status">Getting code…</p>
+    <p id="warn" class="warn" hidden></p>
+    <button id="resume" class="primary" type="button" hidden>Show codes again</button>
+  </section>
+
+  <section id="view-schools" class="card" hidden>
+    <h2>Choose a school</h2>
+    <ul id="school-list" class="list"></ul>
+  </section>
+
+  <section id="view-blocked" class="card" hidden>
+    <h2 id="blocked-title">No access</h2>
+    <p id="blocked-msg" class="muted"></p>
+    <button id="blocked-out" class="primary" type="button">Sign out</button>
+  </section>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</main>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

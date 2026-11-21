@@ -117,7 +117,7 @@ class CheckInWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 SettingsSync.phase(context,"applying")
                 val policy = response.optJSONObject("policy") ?: JSONObject()
                 run {
-                    val hub = SupabaseApi(store).rpc("device_hub").put("_sync_revision",syncRevision)
+                    val hub = SupabaseApi(store).deviceHub().put("_sync_revision",syncRevision)
                     HubStore(context).catalog = hub
                     val local = HubStore(context).localWallpaper
                     if (local != null && HubTasks(context).pending().any { it.optString("action") == "wallpaper" } && hub.optBoolean("allow_wallpaper_choice")) {
