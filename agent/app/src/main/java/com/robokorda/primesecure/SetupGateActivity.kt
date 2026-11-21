@@ -90,11 +90,6 @@ class SetupGateActivity : Activity() {
                     SetupWifiActivity::class.java else PrimeOsTermsActivity::class.java
                 startActivity(Intent(this@SetupGateActivity, next))
             }, LinearLayout.LayoutParams(dp(390), dp(56)).apply { gravity = Gravity.CENTER_HORIZONTAL })
-            addView(FirstBootUi.space(this@SetupGateActivity, 10))
-            addView(FirstBootUi.button(this@SetupGateActivity, "Technician diagnostics", true) {
-                runCatching { stopLockTask() }
-                startActivity(Intent(this@SetupGateActivity, DeviceDiagnosticsActivity::class.java))
-            }, LinearLayout.LayoutParams(dp(390), dp(50)).apply { gravity = Gravity.CENTER_HORIZONTAL })
             addView(FirstBootUi.space(this@SetupGateActivity, 16))
             addView(FirstBootUi.subtitle(this@SetupGateActivity, "PrimeOS powered by RoboKorda Africa", 13f))
         }

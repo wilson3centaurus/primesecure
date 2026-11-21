@@ -67,8 +67,12 @@ migration_states=()
     migration_states+=("first-boot-present")
   fi
   cat "$BUNDLE_DIR/20261109164344_primeid_serial_and_student_class.sql"
+  printf '\n'
+  cat "$BUNDLE_DIR/20261121120000_backfill_first_boot_student_class.sql"
+  printf '\n'
+  cat "$BUNDLE_DIR/20261121173000_staff_support_delivery_receipts.sql"
   printf '\ncommit;\n'
-  migration_states+=("serial-class-normalized")
+  migration_states+=("serial-class-normalized" "dashboard-class-backfilled" "support-receipts-scoped")
 } > "$migration_sql"
 
 if [[ "$request_exists" == "t" ]]; then
@@ -85,7 +89,10 @@ migration_state="$(IFS=,; printf '%s' "${migration_states[*]}")"
 
 post_columns="$("${PSQL[@]}" -c "select count(*) from information_schema.columns where table_schema='public' and ((table_name='devices' and column_name in ('class_form','class_section')) or (table_name='first_boot_sessions' and column_name in ('class_form','class_section')))")"
 [[ "$post_columns" == "4" ]] || fail "serial/class migration did not create all required columns"
+unmapped="$("${PSQL[@]}" -c "select count(*) from public.devices where class_form between 1 and 6 and class_section ~ '^[A-Z]{1,4}$' and (btrim(coalesce(form_level,''))='' or btrim(coalesce(class_name,''))='')")"
+[[ "$unmapped" == "0" ]] || fail "dashboard class backfill left $unmapped device(s) unmapped"
 [[ "$("${PSQL[@]}" -c "select to_regprocedure('public.staff_issue_school_setup_code(uuid)') is not null")" == "t" ]] || fail "setup-code RPC is unavailable after migration"
+[[ "$("${PSQL[@]}" -c "select count(*) from pg_policies where schemaname='public' and tablename='communication_receipts' and policyname='communication_receipts_school_support_reads'")" == "1" ]] || fail "support receipt policy is unavailable after migration"
 
 install -d -m 755 "$functions_root/device-setup" "$functions_root/enroll"
 install -m 644 "$BUNDLE_DIR/device-setup/index.ts" "$functions_root/device-setup/index.ts"

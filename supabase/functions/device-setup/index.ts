@@ -19,6 +19,7 @@ async function digest(value:string){
   return Array.from(new Uint8Array(bytes),b=>b.toString(16).padStart(2,"0")).join("");
 }
 function legacyCode(){const n=crypto.getRandomValues(new Uint32Array(1))[0]%1_000_000;return n.toString().padStart(6,"0")}
+function formLabel(value:unknown){const n=Number(value);return Number.isInteger(n)&&n>=1&&n<=6?`Form ${n}`:null}
 
 async function schoolName(schoolId:string){
   const {data}=await admin.from("schools").select("name").eq("id",schoolId).maybeSingle();
@@ -26,7 +27,7 @@ async function schoolName(schoolId:string){
 }
 
 async function lookupDevice(serial:string|null,prime:string|null){
-  const fields="id,school_id,student_name,serial,prime_id,class_form,class_section,status,created_at";
+  const fields="id,school_id,student_name,serial,prime_id,form_level,class_name,class_form,class_section,status,created_at";
   if(serial){
     const {data,error}=await admin.from("devices").select(fields).eq("serial",serial).order("created_at",{ascending:true}).limit(1).maybeSingle();
     if(error)throw error;if(data)return data;
@@ -39,15 +40,17 @@ async function lookupDevice(serial:string|null,prime:string|null){
 }
 
 async function sessionPayload(session:{id:string;school_id:string;device_id:string|null;hardware_id:string},device?:Record<string,unknown>|null){
-  const assigned=device??(session.device_id?(await admin.from("devices").select("id,school_id,student_name,serial,prime_id,class_form,class_section,status,created_at").eq("id",session.device_id).maybeSingle()).data:null);
+  const assigned=device??(session.device_id?(await admin.from("devices").select("id,school_id,student_name,serial,prime_id,form_level,class_name,class_form,class_section,status,created_at").eq("id",session.device_id).maybeSingle()).data:null);
   return {
     session_id:session.id,
     assignment_state:assigned?.student_name?"assigned":"unassigned",
     school_name:await schoolName(session.school_id),
     student_name:assigned?.student_name??null,
     assignment_date:assigned?.created_at??null,
-    class_form:assigned?.class_form??null,
-    class_section:assigned?.class_section??null,
+    class_form:assigned?.class_form??(Number(String(assigned?.form_level??"").replace(/^Form\s+/i,""))||null),
+    class_section:assigned?.class_section??assigned?.class_name??null,
+    form_level:assigned?.form_level??formLabel(assigned?.class_form),
+    class_name:assigned?.class_name??assigned?.class_section??null,
     hardware_id:session.hardware_id,
   };
 }
@@ -84,7 +87,7 @@ async function verifyFirstBoot(body:Record<string,unknown>,secretHash:string){
   if(existing){
     const payload=await sessionPayload(existing);
     if(existing.device_id&&payload.assignment_state==="assigned"){
-      const {data:device}=await admin.from("devices").select("id,school_id,student_name,serial,prime_id,class_form,class_section,status,created_at").eq("id",existing.device_id).maybeSingle();
+      const {data:device}=await admin.from("devices").select("id,school_id,student_name,serial,prime_id,form_level,class_name,class_form,class_section,status,created_at").eq("id",existing.device_id).maybeSingle();
       if(device){try{return reply(200,await activateVerifiedSession(existing,device))}catch{return reply(500,{error:"token_create_failed"})}}
     }
     return reply(200,payload);
@@ -128,10 +131,11 @@ async function finishFirstBoot(body:Record<string,unknown>,secretHash:string,ass
     if(existing){
       if(existing.school_id!==session.school_id)return reply(409,{error:"device_assigned_other_school"});
       deviceId=existing.id;student=existing.student_name;
-      await admin.from("devices").update({class_form:form,class_section:section}).eq("id",deviceId);
+      await admin.from("devices").update({class_form:form,class_section:section,form_level:formLabel(form),class_name:section}).eq("id",deviceId);
     }else{
       const {data:created,error:createError}=await admin.from("devices").insert({school_id:session.school_id,student_name:student,
-        class_form:form,class_section:section,model:session.model,serial:session.serial,android_id:session.android_id,prime_id:session.prime_id}).select("id,student_name").single();
+        class_form:form,class_section:section,form_level:formLabel(form),class_name:section,
+        model:session.model,serial:session.serial,android_id:session.android_id,prime_id:session.prime_id}).select("id,student_name").single();
       if(createError)return reply(500,{error:"device_create_failed"});deviceId=created.id;
     }
     await admin.from("first_boot_sessions").update({class_form:form,class_section:section}).eq("id",session.id);

@@ -82,7 +82,7 @@ class SetupActivity : Activity() {
 
     private fun snapshot(): Snapshot {
         val setup = InitialSetup(this); val store = AgentStore(this); val hub = HubStore(this)
-        val catalog = hub.catalog; val items = hub.items(); val required = InitialSetup.requiredApps(catalog, items)
+        val catalog = hub.catalog; val items = hub.items(); val required = InitialSetup.autoInstallApps(this, catalog, items)
         val installed = required.count { runCatching { packageManager.getPackageInfo(it.getString("package_name"), 0) }.isSuccess }
         val noteIds = InitialSetup.starterIds(items)
         val downloaded = items.count { it.optString("id") in noteIds && hub.resourceFile(it).let { file -> file.exists() && file.length() == it.optLong("size") } }

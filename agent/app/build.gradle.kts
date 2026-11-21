@@ -45,8 +45,8 @@ android {
         minSdk = 26
         targetSdk = 34
         // New native releases must exceed the installed recovery and production codes.
-        versionCode = System.getenv("AGENT_VERSION_CODE")?.toIntOrNull() ?: 75
-        versionName = System.getenv("AGENT_VERSION_NAME") ?: "0.9.42-fast-firstboot"
+        versionCode = System.getenv("AGENT_VERSION_CODE")?.toIntOrNull() ?: 76
+        versionName = System.getenv("AGENT_VERSION_NAME") ?: "0.9.44-preload-chat"
 
         buildConfigField("String", "SUPABASE_URL", "\"${setting("primesecure.url", "PRIMESECURE_URL")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${setting("primesecure.anonKey", "PRIMESECURE_ANON_KEY")}\"")
@@ -104,4 +104,5 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.10.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    implementation("com.google.zxing:core:3.5.3")
 }

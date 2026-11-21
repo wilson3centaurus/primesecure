@@ -41,5 +41,16 @@ internal class InitialSetup(private val context: Context) {
             return items.filter { it.optString("kind") == "app" &&
                 (it.optBoolean("preinstall") || it.optString("package_name") in packages) }
         }
+        fun autoInstallApps(context: Context, catalog: JSONObject, items: List<JSONObject>): List<JSONObject> {
+            val optedOut = context.getSharedPreferences("factory-app-choices", Context.MODE_PRIVATE)
+                .getStringSet("uninstalled", emptySet()) ?: emptySet()
+            val required = requiredApps(catalog, items).map { it.optString("package_name") }.toSet()
+            return items.filter { item ->
+                item.optString("kind") == "app" && (
+                    item.optString("package_name") in required ||
+                    (item.optBoolean("factory_autoinstall") && item.optString("package_name") !in optedOut)
+                )
+            }
+        }
     }
 }

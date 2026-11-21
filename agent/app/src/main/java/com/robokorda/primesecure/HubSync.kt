@@ -44,7 +44,7 @@ class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(cont
             if (checkpoint.getString("device", null) != device) checkpoint.edit().clear().putString("device", device).commit()
             if (inputData.getBoolean("force", false) && runAttemptCount == 0) checkpoint.edit().remove("failures").commit()
             val revision=api.rpc("device_sync_state").optLong("revision")
-            hub.catalog = api.deviceHub().put("_sync_revision",revision).put("catalog_fetched_at_ms", System.currentTimeMillis())
+            hub.catalog = FactoryPreload.merge(api.deviceHub()).put("_sync_revision",revision).put("catalog_fetched_at_ms", System.currentTimeMillis())
             if (store.deviceId != device) return Result.success()
             // Do not wait for thousands of school files (or a failed item) before checking UI fixes.
             StudentUiUpdates.check(applicationContext)
@@ -79,13 +79,13 @@ class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(cont
                 if (SystemClock.elapsedRealtime() - lastCatalogPoll >= 15_000) {
                     val currentRevision = api.rpc("device_sync_state").optLong("revision")
                     if (currentRevision != hub.catalog.optLong("_sync_revision", -1)) {
-                        hub.catalog = api.deviceHub().put("_sync_revision", currentRevision).put("catalog_fetched_at_ms", System.currentTimeMillis())
+                        hub.catalog = FactoryPreload.merge(api.deviceHub()).put("_sync_revision", currentRevision).put("catalog_fetched_at_ms", System.currentTimeMillis())
                         SetupProgress.reportSoon(applicationContext)
                     }
                     lastCatalogPoll = SystemClock.elapsedRealtime()
                 }
                 if (store.deviceId != device) throw kotlinx.coroutines.CancellationException("Enrollment changed")
-                if (store.lastStatus == "active") for (required in InitialSetup.requiredApps(hub.catalog, hub.items())) {
+                if (store.lastStatus == "active") for (required in InitialSetup.autoInstallApps(applicationContext, hub.catalog, hub.items())) {
                     val id = required.getString("id")
                     val path = required.optString("storage_path")
                     val hash = required.optString("sha256")
@@ -267,7 +267,7 @@ class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(cont
     }
     private suspend fun install(item: JSONObject, task: String, api: SupabaseApi, store: AgentStore, hub: HubStore, tasks: HubTasks) {
         val revision = api.rpc("device_sync_state").optLong("revision")
-        val catalog = api.deviceHub().put("_sync_revision", revision).put("catalog_fetched_at_ms", System.currentTimeMillis())
+        val catalog = FactoryPreload.merge(api.deviceHub()).put("_sync_revision", revision).put("catalog_fetched_at_ms", System.currentTimeMillis())
         hub.catalog = catalog
         check(catalog.optString("status", store.lastStatus) == "active") { "App installs require an active school device." }
         val fresh = catalog.optJSONArray("items") ?: org.json.JSONArray()
@@ -280,11 +280,16 @@ class HubSync(context: Context, params: WorkerParameters) : CoroutineWorker(cont
                 queued?.optJSONObject("payload")?.optBoolean("force") == true,
                 queued?.optString("error")?.let { it.isNotBlank() && it != "null" } == true)) {
             tasks.update(task, "syncing")
-            AppInstaller(applicationContext, store).install(task, JSONObject().put("bucket", "primesecure-hub")
+            val installer = AppInstaller(applicationContext, store)
+            if (FactoryPreload.file(approved) != null) installer.installFactory(approved)
+            else installer.install(task, JSONObject().put("bucket", "primesecure-hub")
                 .put("storage_path", approved.getString("storage_path")).put("hub_item_id", approved.getString("id"))
                 .put("package", approved.getString("package_name")).put("sha256", approved.optString("sha256")), task)
         }
         tasks.update(task, "installed")
+        applicationContext.getSharedPreferences("factory-app-choices", Context.MODE_PRIVATE).edit()
+            .putStringSet("uninstalled", applicationContext.getSharedPreferences("factory-app-choices", Context.MODE_PRIVATE)
+                .getStringSet("uninstalled", emptySet())!!.toSet() - approved.getString("package_name")).commit()
         applicationContext.getSharedPreferences("hub-sync-scheduling", Context.MODE_PRIVATE).edit().remove("failed-app:${approved.getString("id")}").commit()
     }
     private suspend fun preview(item: JSONObject, target: File) = withContext(Dispatchers.IO) {

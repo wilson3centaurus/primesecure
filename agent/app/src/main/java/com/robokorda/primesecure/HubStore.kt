@@ -100,6 +100,7 @@ class HubStore(private val context: Context) {
         prefs.edit().putString("message:$id",message.toString()).commit()
     }
     fun resourceFile(item: JSONObject): File {
+        FactoryPreload.file(item)?.let { return it }
         val id = java.util.UUID.fromString(item.getString("id")).toString()
         val ext = item.optString("storage_path").substringAfterLast('.', "bin")
             .takeIf { it.matches(Regex("[a-zA-Z0-9]{1,10}")) } ?: "bin"

@@ -28,6 +28,39 @@ class AppInstaller(private val context: Context, private val store: AgentStore) 
     private val dpm = AdminReceiver.dpm(context)
     private val admin = AdminReceiver.component(context)
 
+    /** Installs an AVB-protected factory payload without downloading a duplicate. */
+    suspend fun installFactory(item: JSONObject): JSONObject = withContext(Dispatchers.IO) {
+        require(item.optString("kind") == "app" && (item.optBoolean("factory_autoinstall") || item.optBoolean("preinstall"))) {
+            "Factory app is not approved for automatic installation"
+        }
+        val archive = FactoryPreload.file(item) ?: throw IllegalArgumentException("Factory app is missing")
+        val expectedSize = item.optLong("size", -1)
+        require(expectedSize >= 0 && archive.length() == expectedSize) { "Factory app size mismatch" }
+        item.stringOrNull("sha256")?.let { expected ->
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            archive.inputStream().use { input ->
+                val buffer = ByteArray(65536)
+                while (true) { currentCoroutineContext().ensureActive(); val count = input.read(buffer); if (count < 0) break; digest.update(buffer, 0, count) }
+            }
+            require(digest.digest().joinToString("") { "%02x".format(it) }.equals(expected, true)) { "Factory app hash mismatch" }
+        }
+        val extracted = File(context.cacheDir, "factory-install-${UUID.randomUUID()}")
+        try {
+            val isSet = PsApkArchive.isSet(item.optString("factory_path"))
+            val coroutine = currentCoroutineContext()
+            val members = if (isSet) PsApkArchive.extract(archive, extracted) { coroutine.ensureActive() }
+                .map { ApkSetInspector.inspect(it, Build.VERSION.SDK_INT) }
+            else listOf(ApkSetInspector.inspect(archive, Build.VERSION.SDK_INT))
+            val plan = if (isSet) ApkSetPlan.create(members, Build.VERSION.SDK_INT, Build.SUPPORTED_ABIS.toList())
+                else ApkSetPlan.single(members.single(), Build.VERSION.SDK_INT, Build.SUPPORTED_ABIS.toList())
+            val base = members.single { it.splitName == null }
+            require(base.packageName == item.getString("package_name")) { "Factory app package mismatch" }
+            require(base.packageName != context.packageName) { "PrimeSecure updates use the agent release channel" }
+            installFiles(plan, base.packageName)
+            JSONObject().put("package", base.packageName).put("version", base.versionName ?: JSONObject.NULL)
+        } finally { extracted.deleteRecursively() }
+    }
+
     suspend fun install(commandId: String, payload: JSONObject, taskId: String? = null): JSONObject = withContext(Dispatchers.IO) {
         val path = payload.stringOrNull("storage_path") ?: throw IllegalArgumentException("no storage_path")
         val bucket = payload.optString("bucket", "apks")

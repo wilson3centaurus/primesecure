@@ -27,6 +27,8 @@ FILES = {
     "20261029065844_device_setup_requests.sql": REPO / "supabase/migrations/20261029065844_device_setup_requests.sql",
     "20261103170000_first_boot_setup_codes.sql": REPO / "supabase/migrations/20261103170000_first_boot_setup_codes.sql",
     "20261109164344_primeid_serial_and_student_class.sql": REPO / "supabase/migrations/20261109164344_primeid_serial_and_student_class.sql",
+    "20261121120000_backfill_first_boot_student_class.sql": REPO / "supabase/migrations/20261121120000_backfill_first_boot_student_class.sql",
+    "20261121173000_staff_support_delivery_receipts.sql": REPO / "supabase/migrations/20261121173000_staff_support_delivery_receipts.sql",
     "device-setup/index.ts": REPO / "supabase/functions/device-setup/index.ts",
     "enroll/index.ts": REPO / "supabase/functions/enroll/index.ts",
 }
@@ -57,6 +59,7 @@ select json_build_object(
   'device_class_columns',(select count(*) from information_schema.columns where table_schema='public' and table_name='devices' and column_name in ('class_form','class_section')),
   'session_class_columns',(select count(*) from information_schema.columns where table_schema='public' and table_name='first_boot_sessions' and column_name in ('class_form','class_section')),
   'setup_code_rpc',to_regprocedure('public.staff_issue_school_setup_code(uuid)') is not null
+  ,'support_receipt_policy',(select count(*) from pg_policies where schemaname='public' and tablename='communication_receipts' and policyname='communication_receipts_school_support_reads')
 );
 """
     state = json.loads(run(client, PSQL, query))

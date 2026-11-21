@@ -29,7 +29,7 @@ class SetupProgress(private val context: Context) {
         val catalog = hub.catalog
         val known = catalog.has("items") && !catalog.isNull("items")
         val all = hub.items()
-        val required = InitialSetup.requiredApps(catalog, all).map { it.optString("id") }.toSet()
+        val required = InitialSetup.autoInstallApps(context, catalog, all).map { it.optString("id") }.toSet()
         val tracked = all.filter { it.optString("kind") in setOf("wallpaper", "resource") || it.optString("id") in required }
         val signature = MessageDigest.getInstance("SHA-256").digest(tracked.sortedBy { it.optString("id") }
             .joinToString("\n") { listOf(it.optString("id"), it.optString("kind"), it.optLong("size", -1),

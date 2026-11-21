@@ -27,7 +27,7 @@ class OfflineWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                     PrimeMediaDownloads.download(applicationContext,payload,id)
                 } else if(action == "uninstall") {
                     val revision=api.rpc("device_sync_state").optLong("revision")
-                    val catalog=api.rpc("device_hub").put("_sync_revision",revision);hub.catalog=catalog
+                    val catalog=FactoryPreload.merge(api.rpc("device_hub")).put("_sync_revision",revision);hub.catalog=catalog
                     check(catalog.optString("status",store.lastStatus)=="active") { "App removal is available only on active school devices." }
                     val freshItems=catalog.optJSONArray("items") ?: org.json.JSONArray()
                     val items=(0 until freshItems.length()).map { freshItems.getJSONObject(it) }
@@ -48,6 +48,10 @@ class OfflineWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                         blocked.edit().putStringSet("packages",blocked.getStringSet("packages",emptySet())!!.toSet()-pkg).commit()
                     }
                     AppInstaller(applicationContext,store).uninstall(JSONObject().put("package",pkg))
+                    if (item.optBoolean("factory_autoinstall") && !required) {
+                        val choices=applicationContext.getSharedPreferences("factory-app-choices",Context.MODE_PRIVATE)
+                        choices.edit().putStringSet("uninstalled",(choices.getStringSet("uninstalled",emptySet())?:emptySet())+pkg).commit()
+                    }
                     tasks.update(id,"removed")
                 } else if(action == "support_photo") {
                     api.rpc("device_support_photo",JSONObject().put("p_image",payload.getString("image")).put("p_request_id",id))

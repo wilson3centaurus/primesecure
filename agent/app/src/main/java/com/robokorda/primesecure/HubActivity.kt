@@ -177,6 +177,7 @@ class HubActivity : Activity() {
                     .put("last_sync",AgentStore(this@HubActivity).lastCheckInAt)
                     .put("school_sync",SettingsSync.snapshot(this@HubActivity))
                     .put("device",cachedDevice).put("battery",DeviceInfo.batteryDiagnostics(this@HubActivity))
+                    .put("prime_id_qr",PrimeIdQr.dataUri(catalog.optString("prime_id")).let { it ?: JSONObject.NULL })
                     .put("installed_apps_count",cachedAppCount)
                 hub.profileDraft?.let { catalog.put("student_profile",it).put("profile_pending",true) }
                 catalog.getJSONObject("capabilities").put("favorites",true)

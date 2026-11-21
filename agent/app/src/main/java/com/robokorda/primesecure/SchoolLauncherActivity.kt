@@ -215,11 +215,6 @@ class SchoolLauncherActivity : Activity() {
         })
         card.addView(space(24))
         card.addView(action("Proceed") { openSetupWifi() })
-        card.addView(space(10))
-        card.addView(action("Technician diagnostics / Wireless debugging") {
-            runCatching { stopLockTask() }
-            startActivity(Intent(this, DeviceDiagnosticsActivity::class.java))
-        })
         card.addView(space(14))
         card.addView(text("Setup cannot be skipped or closed. USB storage, Bluetooth sharing and app sideloading stay blocked while this PrimeBook is being prepared.", 12f, muted).apply { gravity = Gravity.CENTER })
         root.addView(card, LinearLayout.LayoutParams(minOf(dp(720), resources.displayMetrics.widthPixels - dp(68)), ViewGroup.LayoutParams.WRAP_CONTENT))
