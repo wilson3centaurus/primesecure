@@ -23,7 +23,7 @@ def release(code=22):
 
 
 def reviewed():
-    return dict(id='00000000-0000-4000-8000-000000000037',
+    return dict(id='00000000-0000-4000-8000-000000000076',
                 **{k: v for k, v in p.identity().items() if k not in ('bytes', 'source_commit', 'signer')})
 
 
@@ -68,12 +68,12 @@ class Guards(unittest.TestCase):
         self.assertIn(',false,', sql)
         for forbidden in ['update ', 'delete ', 'on conflict', 'devices', 'device_safety', 'true', 'set_config']:
             self.assertNotIn(forbidden, sql)
-        self.assertEqual(f'releases/37-{p.SHA}.apk', p.OBJECT)
+        self.assertEqual(f'releases/76-{p.SHA}.apk', p.OBJECT)
 
     def test_reviewed_identity_pins_are_unchanged(self):
-        self.assertEqual((37, '0.9.4', 'd3853b790e442f62d50b6a76e07bb860e55e0bb4',
-                          '9e4ac2da321d5bae3fc7bdb7bdbc58302122c83169754b0e0aafbd762135339b',
-                          3_164_829,
+        self.assertEqual((76, '0.9.44-preload-chat', '03c10f8fa71d9ed0508a12bb6800e41bdd9b038f',
+                          '3996886dab97153ae9564fb66ddcd582fd43e6c2fb048a324fa4ddbac587a17f',
+                          5_287_761,
                           '9f83efe0a3d3399f899619ef35eb43df4f51f8c61e237bf1b547dce3482eaa79'),
                          (p.CODE, p.VERSION, p.SOURCE, p.SHA, p.SIZE, p.SIGNER))
 
@@ -89,7 +89,7 @@ class Guards(unittest.TestCase):
                 if 'rev-parse' in argv: text = p.SOURCE
                 elif 'show' in argv: return SimpleNamespace(returncode=0, stdout=b'# reviewed helper\n')
                 elif 'verify' in argv: text = 'Signer #1 certificate SHA-256 digest: ' + p.SIGNER
-                elif 'badging' in argv: text = f"package: name='{p.PACKAGE}' versionCode='37' versionName='0.9.4'"
+                elif 'badging' in argv: text = f"package: name='{p.PACKAGE}' versionCode='{p.CODE}' versionName='{p.VERSION}'"
                 else: text = 'A: android:testOnly=(type 0x12)0x0'
                 return SimpleNamespace(returncode=0, stdout=text)
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inspect or publish ONLY reviewed 0.9.41-robokorda-licence/74, PAUSED.
+"""Inspect or publish ONLY reviewed 0.9.44-preload-chat/76, PAUSED.
 
 No activation or device-command API exists in this tool. Publication makes the
 verified APK available to the catalogue without rolling it out to any device.
@@ -33,10 +33,10 @@ import types
 import uuid
 import zipfile
 
-CODE, VERSION = 74, '0.9.41-robokorda-licence'
-SOURCE = '4a1977257f485c8edb60e9210b119a6cc838874a'
-SHA = 'a4f4b19f87f3f9c9f664804a72a17e4a2b41a0a393cff310542a82103843a919'
-SIZE = 5_050_529
+CODE, VERSION = 76, '0.9.44-preload-chat'
+SOURCE = '03c10f8fa71d9ed0508a12bb6800e41bdd9b038f'
+SHA = '3996886dab97153ae9564fb66ddcd582fd43e6c2fb048a324fa4ddbac587a17f'
+SIZE = 5_287_761
 SIGNER = '9f83efe0a3d3399f899619ef35eb43df4f51f8c61e237bf1b547dce3482eaa79'
 PACKAGE = 'com.robokorda.primesecure'
 STAGE = Path('/root/primesecure-release-stage')
